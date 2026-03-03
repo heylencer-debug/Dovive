@@ -19,15 +19,18 @@ const fetch = require('node-fetch');
 // ============================================================
 // PRODUCT TYPE CONFIGURATION
 // ============================================================
+// PHASE 1 FOCUS: Gummies and Powder only
+// Expand this list when ready to cover other formats
 const PRODUCT_TYPES = [
-  'capsule',
-  'capsules',
-  'tablet',
-  'tablets',
-  'softgel',
-  'softgels',
   'gummies',
   'gummy',
+  'powder',
+  // -- Add more formats here when ready --
+  // 'capsule', 'capsules', 'tablet', 'tablets',
+  // 'softgel', 'softgels', 'liquid', 'drops',
+  // 'spray', 'patch', 'tea', 'drink mix',
+  // 'stick pack', 'lozenge', 'chewable', 'liposomal'
+];
   'powder',
   'liquid',
   'drops',
