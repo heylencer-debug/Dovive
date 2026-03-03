@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dovive | Scout V2 Dashboard</title>
+  <title>Dovive | Scout V2.4 Dashboard</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -21,7 +21,7 @@
         </a>
       </nav>
       <div class="sidebar-footer">
-        <div class="powered-by">Powered by Scout V2</div>
+        <div class="powered-by">Powered by Scout V2.4</div>
       </div>
     </aside>
 
@@ -29,7 +29,7 @@
     <main class="main">
       <header class="main-header">
         <h1>Market Research</h1>
-        <p class="subtitle">Amazon US supplement market intelligence — 20 product types per keyword</p>
+        <p class="subtitle">Amazon US supplement market intelligence — Best Sellers + 20 product types</p>
       </header>
 
       <div class="content-grid">
@@ -51,7 +51,7 @@
         <!-- Scout Control Card -->
         <section class="card scout-control">
           <div class="card-header">
-            <span class="label">SCOUT V2 AGENT</span>
+            <span class="label">SCOUT V2.4 AGENT</span>
             <span class="badge" id="scout-status">IDLE</span>
           </div>
           <div class="scout-info">
@@ -65,10 +65,31 @@
             </div>
           </div>
           <button id="run-scout-btn" class="btn btn-primary">
-            <span class="btn-icon">⚡</span> RUN SCOUT V2
+            <span class="btn-icon">⚡</span> RUN SCOUT V2.4
           </button>
           <!-- Progress Section -->
           <div id="progress-section"></div>
+        </section>
+
+        <!-- Scout Settings Card (Collapsible) -->
+        <section class="card scout-settings">
+          <div class="card-header collapsible" id="scout-settings-toggle">
+            <span class="label">SCOUT SETTINGS</span>
+            <span class="collapse-icon">▼</span>
+          </div>
+          <div class="scout-settings-content" id="scout-settings-content">
+            <div id="scout-settings-container">
+              <div class="empty-state small">
+                <div class="empty-text">Loading settings...</div>
+              </div>
+            </div>
+            <div class="changelog-section">
+              <div class="changelog-title">Recent Changes</div>
+              <div id="scout-changelog-list">
+                <div class="empty-text">Loading changelog...</div>
+              </div>
+            </div>
+          </div>
         </section>
 
         <!-- Format Focus Section - Gummies & Powder -->

@@ -1,5 +1,5 @@
 /**
- * Dovive Scout Agent V2.4
+ * Dovive Scout Agent V2.5
  * Amazon Market Research Scraper + AI Analysis + Telegram Reports
  *
  * Features:
@@ -12,6 +12,7 @@
  * - Gummies & Powder specialized extraction (sweetener, base, flavors)
  * - Price per serving calculation
  * - Review sentiment auto-tagging
+ * - Full image scraping: main, gallery, A+ content (for OCR pipeline)
  *
  * Run with: node start.js (keeps running and polling)
  * Or once: node scout-agent.js --once
@@ -400,6 +401,24 @@ async function sbUpdate(table, filter, data) {
   return res.json();
 }
 
+async function sbDelete(table, filter) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
+    method: 'DELETE',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Supabase delete error: ${res.status} - ${text}`);
+  }
+
+  return true;
+}
+
 // ============================================================
 // EXTERNAL API HELPERS
 // ============================================================
@@ -592,6 +611,219 @@ async function scrapeSearchResults(page, searchQuery, keyword, productType, maxR
 
   log(`  Total products collected: ${products.length}`);
   return products;
+}
+
+/**
+ * Scrape Amazon Best Sellers page for a category
+ * Returns top 100 products ranked by real sales velocity (updated hourly)
+ * This gives TRUE market leaders, not Amazon's promoted/algorithmic results
+ */
+async function scrapeBestSellers(browser, category, keyword) {
+  // category = { name, node_id, format, url }
+  const page = await browser.newPage();
+
+  try {
+    // Set US locale and Amazon cookies to avoid geo-redirect
+    await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
+
+    const products = [];
+    let pageNum = 1;
+    const maxPages = 2; // Top 100 = 2 pages of 50 each
+    const maxProducts = parseInt(scoutConfig.max_products_per_type || 50);
+
+    log(`Scraping Best Sellers: ${category.name} (url: ${category.url})`);
+
+    while (pageNum <= maxPages && products.length < maxProducts) {
+      const url = category.url + (pageNum > 1 ? '?pg=' + pageNum : '');
+      log(`  Loading page ${pageNum}: ${url}`);
+
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await sleep(2000 + Math.random() * 1000);
+
+      // Scrape product cards from Best Sellers page
+      // Best Sellers layout: .zg-grid-general-faceout or .p13n-gridRow or #gridItemRoot
+      const currentPage = pageNum; // Capture for closure
+      const items = await page.evaluate((pageNumber) => {
+        const results = [];
+
+        // Try multiple selectors for different BS page layouts
+        const cards = document.querySelectorAll(
+          '.zg-grid-general-faceout, .p13n-gridRow ._cDEzb_grid-cell_1uMOS, [id^="gridItemRoot"]'
+        );
+
+        cards.forEach((card, index) => {
+          try {
+            const rankEl = card.querySelector('.zg-bdg-text, ._cDEzb_p13n-sc-css-line-clamp-1_1Fn1y, .zg-item .a-size-small');
+            const titleEl = card.querySelector('._cDEzb_p13n-sc-css-line-clamp-3_g3dy1 a, .p13n-sc-truncated, a.a-link-normal span');
+            const priceEl = card.querySelector('._cDEzb_p13n-sc-price_3mJ9Z, .a-color-price, span.p13n-sc-price');
+            const ratingEl = card.querySelector('i.a-icon-star-small span.a-icon-alt, .a-icon-alt');
+            const reviewEl = card.querySelector('a[href*="customerReviews"] span, span.a-size-small.a-color-secondary');
+            const linkEl = card.querySelector('a.a-link-normal[href*="/dp/"]');
+            const imgEl = card.querySelector('img.a-dynamic-image, img.p13n-product-image');
+
+            const href = linkEl ? linkEl.getAttribute('href') : '';
+            const asinMatch = href.match(/\/dp\/([A-Z0-9]{10})/);
+
+            if (asinMatch) {
+              results.push({
+                asin: asinMatch[1],
+                title: titleEl ? titleEl.textContent.trim() : '',
+                price_text: priceEl ? priceEl.textContent.trim().replace(/[^0-9.]/g, '') : null,
+                rating_text: ratingEl ? ratingEl.textContent.trim() : null,
+                review_text: reviewEl ? reviewEl.textContent.trim().replace(/[^0-9,]/g, '') : null,
+                image_url: imgEl ? imgEl.src : null,
+                rank_position: index + 1 + (pageNumber - 1) * 50,
+                url: 'https://www.amazon.com' + href.split('?')[0]
+              });
+            }
+          } catch(e) {}
+        });
+
+        return results;
+      }, currentPage);
+
+      log(`  Page ${pageNum}: Found ${items.length} products`);
+      products.push(...items);
+      pageNum++;
+
+      // Check if next page exists
+      const hasNext = await page.$('.a-pagination .a-last:not(.a-disabled)');
+      if (!hasNext) {
+        log(`  No more pages after page ${pageNum - 1}`);
+        break;
+      }
+
+      await sleep(2000 + Math.random() * 1500);
+    }
+
+    await page.close();
+
+    // Parse numeric values and add metadata
+    const parsedProducts = products.map(p => ({
+      asin: p.asin,
+      title: p.title,
+      url: p.url,
+      price: p.price_text ? parseFloat(p.price_text) : null,
+      price_text: p.price_text ? '$' + p.price_text : null,
+      rating: p.rating_text ? parseFloat(p.rating_text.split(' ')[0]) : null,
+      review_count: p.review_text ? parseInt(p.review_text.replace(',', '')) : null,
+      rank_position: p.rank_position,
+      keyword: keyword,
+      product_type: detectProductType(p.title),
+      source: 'best_sellers',
+      bsr_category: category.name,
+      bsr: p.rank_position,
+      images: p.image_url ? [p.image_url] : [],
+      is_sponsored: false,
+      is_prime: false
+    }));
+
+    log(`  Total Best Sellers collected: ${parsedProducts.length}`);
+    return parsedProducts;
+
+  } catch (e) {
+    await page.close();
+    throw new Error('Best Sellers scrape failed for ' + category.name + ': ' + e.message);
+  }
+}
+
+// ============================================================
+// IMAGE SCRAPING FOR OCR PIPELINE
+// ============================================================
+
+/**
+ * Convert Amazon thumbnail URLs to full-size versions
+ * Removes size constraints like ._AC_SX300_. or ._SS40_.
+ */
+function upgradeImageUrl(url) {
+  if (!url) return url;
+  return url
+    .replace(/\._[A-Z]{2}[0-9]+_\./g, '.')       // e.g. ._SX300_. or ._AC_SL300_.
+    .replace(/\._[A-Z]+_[A-Z]+[0-9]+_\./g, '.')  // e.g. ._AC_UL320_.
+    .replace(/\._AC_S[SXL][0-9]+_\./g, '.')      // e.g. ._AC_SX300_.
+    .replace(/\._[A-Z0-9,_]+_\./g, '.');         // catch-all for other size codes
+}
+
+/**
+ * Scrape ALL images from Amazon product listing
+ * Returns array of { type: 'main'|'gallery'|'aplus', url: string, index: number }
+ */
+async function scrapeAllImages(page) {
+  return await page.evaluate(() => {
+    const images = [];
+
+    // 1. MAIN IMAGE (high res)
+    const mainImg = document.querySelector('#landingImage, #imgBlkFront, #main-image');
+    if (mainImg) {
+      // Get highest resolution version
+      const dataDynamic = mainImg.getAttribute('data-old-hires') ||
+                          mainImg.getAttribute('data-a-hires') ||
+                          mainImg.src;
+      // Convert thumbnail URL to full size
+      const fullRes = dataDynamic.replace(/\._[A-Z_0-9,]+_\./, '.');
+      if (fullRes && fullRes.startsWith('http')) {
+        images.push({ type: 'main', url: fullRes, index: 0 });
+      }
+    }
+
+    // 2. GALLERY THUMBNAILS → full size
+    const thumbs = document.querySelectorAll(
+      '#altImages li.item img, #altImages .imageThumbnail img, .a-button-thumbnail img'
+    );
+    thumbs.forEach((img, i) => {
+      let src = img.getAttribute('data-old-hires') || img.src || '';
+      // Convert thumbnail to full size: remove size suffix like ._AC_US40_ or ._SS40_
+      src = src.replace(/\._[A-Z_0-9,]+_\./, '.').replace(/\._[A-Z]+[0-9]+_\./, '.');
+      if (src && !src.includes('transparent-pixel') && src.includes('amazon') && src.startsWith('http')) {
+        // Check if not already added (avoid duplicates with main)
+        const exists = images.some(existing => existing.url === src);
+        if (!exists) {
+          images.push({ type: 'gallery', url: src, index: i + 1 });
+        }
+      }
+    });
+
+    // 3. A+ CONTENT IMAGES (brand enhanced content - often has formula/claims)
+    const aplusImgs = document.querySelectorAll(
+      '#aplus img, #aplus3p_feature_div img, .aplus-module img, #dpx-aplus-product-description_feature_div img'
+    );
+    aplusImgs.forEach((img, i) => {
+      const src = img.src || img.getAttribute('data-src') || '';
+      if (src && src.includes('amazon') && !src.includes('transparent') && src.startsWith('http')) {
+        const exists = images.some(existing => existing.url === src);
+        if (!exists) {
+          images.push({ type: 'aplus', url: src, index: i });
+        }
+      }
+    });
+
+    return images;
+  });
+}
+
+/**
+ * Save product images to dovive_product_images for OCR pipeline
+ */
+async function saveProductImages(asin, keyword, images) {
+  if (!images || images.length === 0) return;
+
+  try {
+    const rows = images.map(img => ({
+      asin,
+      keyword,
+      image_type: img.type,
+      image_index: img.index,
+      url: upgradeImageUrl(img.url),
+      ocr_status: 'pending'
+    }));
+
+    // Delete existing images for this ASIN first (re-scrape = fresh data)
+    await sbDelete('dovive_product_images', 'asin=eq.' + asin);
+    await sbInsert('dovive_product_images', rows);
+    log(`  Saved ${rows.length} images for ${asin}`);
+  } catch (err) {
+    log(`  Failed to save images for ${asin}: ${err.message}`, 'warn');
+  }
 }
 
 /**
@@ -873,7 +1105,7 @@ async function scrapeReviews(page, asin, keyword, maxReviews = 200) {
 
 /**
  * Save products to dovive_products (upsert)
- * Now includes price_per_serving, serving_count, and format_data
+ * Now includes price_per_serving, serving_count, format_data, and source
  */
 async function saveProducts(products, detailsMap = {}) {
   if (!products || products.length === 0) return;
@@ -904,6 +1136,7 @@ async function saveProducts(products, detailsMap = {}) {
         price_per_serving: details.price_per_serving || null,
         serving_count: details.serving_count || null,
         format_data: details.format_data || {},
+        source: p.source || 'keyword_search',  // Track data origin: 'keyword_search' | 'best_sellers' | 'manual'
         scraped_at: new Date().toISOString()
       });
     } catch (err) {
@@ -1111,7 +1344,7 @@ function extractKeyGap(summary) {
 // TELEGRAM REPORTING
 // ============================================================
 function buildTelegramReport(date, keywordResults) {
-  let msg = `⚗️ SCOUT V2.1 REPORT — ${date}\n\n`;
+  let msg = `⚗️ SCOUT V2.4 REPORT — ${date}\n\n`;
 
   for (const [keyword, data] of Object.entries(keywordResults)) {
     const { products, recommendation, keyGap, typeBreakdown } = data;
@@ -1176,10 +1409,17 @@ async function runScout(job) {
       return;
     }
 
+    // Log configuration
+    const scrapeMode = scoutConfig.scrape_mode || 'best_sellers_first';
+    const activeProductTypes = scoutConfig.product_types_active || PRIORITY_TYPES;
+    const bestSellersCategories = scoutConfig.best_sellers_categories || [];
+
     log(`Keywords to scrape: ${keywords.length}`);
+    log(`Scrape mode: ${scrapeMode}`);
+    log(`Active product types: ${activeProductTypes.join(', ')}`);
+    log(`Best Sellers categories: ${bestSellersCategories.length}`);
     log(`Product types per keyword: ${PRODUCT_TYPES.length}`);
     log(`Priority types: ${PRIORITY_TYPES.join(', ')}`);
-    log(`Total search combinations: ${keywords.length * PRODUCT_TYPES.length}`);
 
     // Launch browser
     browser = await chromium.launch({
@@ -1200,36 +1440,117 @@ async function runScout(job) {
     const page = await context.newPage();
     const openRouterKey = await getOpenRouterKey();
 
-    // Process each keyword
-    for (const kw of keywords) {
-      const keyword = kw.keyword;
-      log(`\n========== KEYWORD: ${keyword} ==========`);
+    // ============================================================
+    // PHASE 1: BEST SELLERS SCRAPING (if enabled)
+    // ============================================================
+    if ((scrapeMode === 'best_sellers_first' || scrapeMode === 'best_sellers_only') && bestSellersCategories.length > 0) {
+      log(`\n========== BEST SELLERS PHASE ==========`);
+      log(`Scraping ${bestSellersCategories.length} Best Sellers categories`);
 
-      const allProducts = [];
-      const typeBreakdown = {};
-      const detailsMap = {};
+      for (const category of bestSellersCategories) {
+        // Check if category is relevant to active product types
+        const isRelevant = activeProductTypes.some(t =>
+          category.format === 'all' ||
+          category.format === t ||
+          category.name.toLowerCase().includes(t.toLowerCase())
+        );
 
-      // Process each product type (priority types first)
-      for (let i = 0; i < PRODUCT_TYPES.length; i++) {
-        const productType = PRODUCT_TYPES[i];
-        const searchQuery = `${keyword} ${productType}`;
-        const limits = getLimitsForType(productType);
-        const isPriority = isPriorityType(productType);
-
-        log(`\n--- ${isPriority ? '⭐ PRIORITY' : 'STANDARD'}: ${productType} ---`);
-        log(`  Limits: ${limits.maxProductsPerSearch} products, ${limits.maxDeepScrapePerType} deep, ${limits.maxReviewsPerProduct} reviews`);
+        if (!isRelevant) {
+          log(`Skipping ${category.name} (not relevant to active types)`);
+          continue;
+        }
 
         // Update job progress
         await updateJobProgress(job.id, {
-          current_keyword: keyword,
-          current_product_type: productType,
+          current_keyword: 'Best Sellers',
+          current_product_type: category.name,
           products_scraped: totalProductsScraped,
           reviews_scraped: totalReviewsScraped
         });
 
         try {
-          // Scrape search results with type-specific limits
-          const products = await scrapeSearchResults(page, searchQuery, keyword, productType, limits.maxProductsPerSearch);
+          // Use first keyword for BS products (for association)
+          const bsKeyword = keywords[0]?.keyword || 'supplements';
+          const bsProducts = await scrapeBestSellers(browser, category, bsKeyword);
+
+          if (bsProducts.length > 0) {
+            await saveProducts(bsProducts);
+            totalProductsScraped += bsProducts.length;
+            log(`Saved ${bsProducts.length} products from Best Sellers: ${category.name}`, 'success');
+
+            // Deep scrape top N Best Sellers products
+            const deepScrapeN = parseInt(scoutConfig.deep_scrape_top_n || 10);
+            const topBsProducts = bsProducts.slice(0, deepScrapeN);
+
+            for (const product of topBsProducts) {
+              log(`  Deep scraping BS product: ${product.asin}`);
+              const details = await scrapeProductPage(page, product.asin, bsKeyword, product.product_type);
+              if (details) {
+                await updateProductWithDetails(product.asin, bsKeyword, details, product.price);
+                await saveProductDetails(product.asin, bsKeyword, details, product.product_type);
+              }
+
+              // Scrape reviews for top Best Sellers
+              const maxReviews = parseInt(scoutConfig.max_reviews_per_product || 100);
+              const reviews = await scrapeReviews(page, product.asin, bsKeyword, maxReviews);
+              if (reviews.length > 0) {
+                await saveReviews(product.asin, bsKeyword, reviews);
+                totalReviewsScraped += reviews.length;
+              }
+
+              await sleep(randomDelay(2000, 3000));
+            }
+          }
+        } catch (err) {
+          log(`Best Sellers scrape error for ${category.name}: ${err.message}`, 'error');
+        }
+
+        // Delay between categories
+        await sleep(randomDelay(3000, 5000));
+      }
+
+      log(`\n========== BEST SELLERS PHASE COMPLETE ==========`);
+      log(`Total products from Best Sellers: ${totalProductsScraped}`);
+    }
+
+    // ============================================================
+    // PHASE 2: KEYWORD SEARCH SCRAPING (if enabled)
+    // ============================================================
+    if (scrapeMode === 'best_sellers_first' || scrapeMode === 'keyword_only') {
+      log(`\n========== KEYWORD SEARCH PHASE ==========`);
+
+      // Process each keyword
+      for (const kw of keywords) {
+        const keyword = kw.keyword;
+        log(`\n========== KEYWORD: ${keyword} ==========`);
+
+        const allProducts = [];
+        const typeBreakdown = {};
+        const detailsMap = {};
+
+        // Process each product type (priority types first)
+        for (let i = 0; i < PRODUCT_TYPES.length; i++) {
+          const productType = PRODUCT_TYPES[i];
+          const searchQuery = `${keyword} ${productType}`;
+          const limits = getLimitsForType(productType);
+          const isPriority = isPriorityType(productType);
+
+          log(`\n--- ${isPriority ? '⭐ PRIORITY' : 'STANDARD'}: ${productType} ---`);
+          log(`  Limits: ${limits.maxProductsPerSearch} products, ${limits.maxDeepScrapePerType} deep, ${limits.maxReviewsPerProduct} reviews`);
+
+          // Update job progress
+          await updateJobProgress(job.id, {
+            current_keyword: keyword,
+            current_product_type: productType,
+            products_scraped: totalProductsScraped,
+            reviews_scraped: totalReviewsScraped
+          });
+
+          try {
+            // Scrape search results with type-specific limits
+            // Mark source as 'keyword_search'
+            const products = await scrapeSearchResults(page, searchQuery, keyword, productType, limits.maxProductsPerSearch);
+            products.forEach(p => { p.source = 'keyword_search'; });
 
           if (products.length > 0) {
             // Track for AI summary
@@ -1330,9 +1651,10 @@ async function runScout(job) {
         log(`Saved report for "${keyword}"`, 'success');
       }
 
-      // Delay before next keyword
-      await sleep(randomDelay(3000, 5000));
-    }
+        // Delay before next keyword
+        await sleep(randomDelay(3000, 5000));
+      }
+    } // End of KEYWORD SEARCH PHASE
 
     // Mark job complete
     const completedAt = new Date().toISOString();
@@ -1365,7 +1687,7 @@ async function runScout(job) {
       updated_at: new Date().toISOString()
     });
 
-    await sendTelegram(`❌ Scout V2.1 Job Failed: ${err.message}`);
+    await sendTelegram(`❌ Scout V2.4 Job Failed: ${err.message}`);
   } finally {
     if (browser) {
       await browser.close();
@@ -1420,16 +1742,22 @@ function validateConfig() {
 
 async function main() {
   console.log('');
-  console.log('🔭 DOVIVE SCOUT AGENT V2.1');
+  console.log('🔭 DOVIVE SCOUT AGENT V2.4');
   console.log('═══════════════════════════════════════');
-  console.log('   Gummies + Powder Intelligence');
+  console.log('   Best Sellers + Keyword Intelligence');
   console.log('═══════════════════════════════════════');
   console.log('');
 
   validateConfig();
 
+  // Fetch Scout config from Supabase
+  await fetchScoutConfig();
+
   log(`Supabase: ${SUPABASE_URL}`);
   log(`Poll interval: ${POLL_INTERVAL / 1000}s`);
+  log(`Scrape mode: ${scoutConfig.scrape_mode}`);
+  log(`Active types: ${(scoutConfig.product_types_active || PRIORITY_TYPES).join(', ')}`);
+  log(`Best Sellers categories: ${(scoutConfig.best_sellers_categories || []).length}`);
   log(`Product types: ${PRODUCT_TYPES.length} (${PRIORITY_TYPES.length} priority)`);
   log(`Priority limits: ${PRIORITY_LIMITS.maxProductsPerSearch} products, ${PRIORITY_LIMITS.maxDeepScrapePerType} deep, ${PRIORITY_LIMITS.maxReviewsPerProduct} reviews`);
   log(`Standard limits: ${STANDARD_LIMITS.maxProductsPerSearch} products, ${STANDARD_LIMITS.maxDeepScrapePerType} deep, ${STANDARD_LIMITS.maxReviewsPerProduct} reviews`);

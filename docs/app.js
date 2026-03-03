@@ -1,5 +1,5 @@
-// Dovive Scout Dashboard V2.1 - Main Application
-// Features: Product type filters, reviews panel, specs panel, live progress tracking
+// Dovive Scout Dashboard V2.4 - Main Application
+// Features: Product type filters, reviews panel, specs panel, live progress tracking, Scout Settings panel
 
 (function() {
   'use strict';
@@ -60,8 +60,10 @@
     await loadReports();
     await loadProducts();
     await loadFormatFocusData();
+    await loadScoutSettings();
     await checkScoutStatus();
     setupEventListeners();
+    setupScoutSettingsToggle();
     startStatusPolling();
   }
 
@@ -285,6 +287,151 @@
         </div>
       </div>
     `;
+  }
+
+  // ============================================================
+  // SCOUT SETTINGS - Config & Changelog Panel
+  // ============================================================
+
+  let scoutSettings = {
+    scrape_mode: 'best_sellers_first',
+    product_types_active: [],
+    best_sellers_categories: [],
+    max_products_per_type: 50,
+    max_reviews_per_product: 200,
+    deep_scrape_top_n: 30
+  };
+
+  let scoutChangelog = [];
+
+  // Load Scout settings from dovive_scout_config
+  async function loadScoutSettings() {
+    try {
+      // Load config
+      const configRows = await sbFetch('dovive_scout_config', {
+        select: 'config_key,config_value'
+      });
+
+      if (configRows && configRows.length > 0) {
+        configRows.forEach(r => {
+          try {
+            if (r.config_value && (r.config_value.startsWith('[') || r.config_value.startsWith('{'))) {
+              scoutSettings[r.config_key] = JSON.parse(r.config_value);
+            } else if (r.config_value && !isNaN(r.config_value)) {
+              scoutSettings[r.config_key] = parseInt(r.config_value);
+            } else {
+              scoutSettings[r.config_key] = r.config_value;
+            }
+          } catch (e) {
+            scoutSettings[r.config_key] = r.config_value;
+          }
+        });
+      }
+
+      // Load changelog
+      const changelogRows = await sbFetch('dovive_scout_changelog', {
+        order: 'created_at.desc',
+        limit: 5
+      });
+      scoutChangelog = changelogRows || [];
+
+      renderScoutSettings();
+    } catch (err) {
+      console.error('Failed to load scout settings:', err);
+      // Show error state
+      const container = document.getElementById('scout-settings-container');
+      if (container) {
+        container.innerHTML = '<div class="empty-text">Could not load settings</div>';
+      }
+    }
+  }
+
+  // Render Scout Settings panel
+  function renderScoutSettings() {
+    const container = document.getElementById('scout-settings-container');
+    const changelogList = document.getElementById('scout-changelog-list');
+
+    if (!container) return;
+
+    // Mode badge
+    const modeLabel = {
+      'best_sellers_first': 'Best Sellers First',
+      'best_sellers_only': 'Best Sellers Only',
+      'keyword_only': 'Keyword Search Only'
+    }[scoutSettings.scrape_mode] || scoutSettings.scrape_mode;
+
+    // Active types chips
+    const activeTypes = scoutSettings.product_types_active || [];
+    const typesHtml = activeTypes.length > 0
+      ? activeTypes.map(t => `<span class="chip">${t}</span>`).join('')
+      : '<span class="muted">All types</span>';
+
+    // Best Sellers categories
+    const bsCategories = scoutSettings.best_sellers_categories || [];
+    const categoriesHtml = bsCategories.length > 0
+      ? bsCategories.map(c => `<div class="category-item">• ${c.name || c}</div>`).join('')
+      : '<span class="muted">None configured</span>';
+
+    container.innerHTML = `
+      <div class="settings-row">
+        <span class="settings-label">Scrape Mode</span>
+        <span class="settings-value badge">${modeLabel}</span>
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">Active Types</span>
+        <div class="settings-chips">${typesHtml}</div>
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">Best Sellers Categories</span>
+        <div class="categories-list">${categoriesHtml}</div>
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">Products/Type</span>
+        <span class="settings-value">${scoutSettings.max_products_per_type || 50}</span>
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">Deep Scrape Top N</span>
+        <span class="settings-value">${scoutSettings.deep_scrape_top_n || 30}</span>
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">Max Reviews/Product</span>
+        <span class="settings-value">${scoutSettings.max_reviews_per_product || 200}</span>
+      </div>
+    `;
+
+    // Render changelog
+    if (changelogList) {
+      if (scoutChangelog.length > 0) {
+        changelogList.innerHTML = scoutChangelog.map(c => `
+          <div class="changelog-entry">
+            <div class="changelog-version">${c.version || 'v?'}</div>
+            <div class="changelog-desc">${c.description || ''}</div>
+            <div class="changelog-date">${c.created_at ? new Date(c.created_at).toLocaleDateString() : ''}</div>
+          </div>
+        `).join('');
+      } else {
+        changelogList.innerHTML = '<div class="muted">No changelog entries</div>';
+      }
+    }
+  }
+
+  // Setup collapsible toggle for Scout Settings
+  function setupScoutSettingsToggle() {
+    const toggle = document.getElementById('scout-settings-toggle');
+    const content = document.getElementById('scout-settings-content');
+    const icon = toggle?.querySelector('.collapse-icon');
+
+    if (!toggle || !content) return;
+
+    // Start collapsed
+    content.style.display = 'none';
+    if (icon) icon.textContent = '▶';
+
+    toggle.addEventListener('click', () => {
+      const isCollapsed = content.style.display === 'none';
+      content.style.display = isCollapsed ? 'block' : 'none';
+      if (icon) icon.textContent = isCollapsed ? '▼' : '▶';
+    });
   }
 
   // Load keywords from Supabase
