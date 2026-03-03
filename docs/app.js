@@ -517,6 +517,20 @@
     }
   }
 
+  // Load images for a specific ASIN (for OCR pipeline)
+  async function loadImagesForProduct(asin) {
+    try {
+      const images = await sbFetch('dovive_product_images', {
+        filter: `asin=eq.${asin}`,
+        order: 'image_index.asc'
+      });
+      return images || [];
+    } catch (err) {
+      console.error('Failed to load images:', err);
+      return [];
+    }
+  }
+
   // Check Scout agent status with progress
   async function checkScoutStatus() {
     try {
@@ -733,6 +747,7 @@
           <button class="expand-btn" data-asin="${r.asin}" title="${isExpanded ? 'Collapse' : 'Expand details'}">
             ${isExpanded ? '▲' : '▼'}
           </button>
+          ${r.images && r.images.length > 0 ? `<span class="image-count-badge" title="${r.images.length} images">📸${r.images.length}</span>` : ''}
           ${r.is_sponsored ? '<span class="flag-badge sponsored">AD</span>' : ''}
           ${r.bsr && r.bsr < 10000 ? '<span class="flag-badge top-seller">TOP</span>' : ''}
         </td>
@@ -764,26 +779,86 @@
     const product = products.find(p => p.asin === asin);
     if (!product) return;
 
-    // Load reviews and specs in parallel
-    const [productReviews, productSpecs] = await Promise.all([
+    // Load reviews, specs, and images in parallel
+    const [productReviews, productSpecs, productImages] = await Promise.all([
       loadReviewsForProduct(asin),
-      loadSpecsForProduct(asin)
+      loadSpecsForProduct(asin),
+      loadImagesForProduct(asin)
     ]);
+
+    // Group images by type
+    const mainImages = productImages.filter(i => i.image_type === 'main');
+    const galleryImages = productImages.filter(i => i.image_type === 'gallery');
+    const aplusImages = productImages.filter(i => i.image_type === 'aplus');
+    const ocrDone = productImages.filter(i => i.ocr_status === 'done').length;
+    const hasOcr = ocrDone > 0;
+
+    // Build enhanced images section
+    const renderImageGallery = () => {
+      if (productImages.length === 0 && (!product.images || product.images.length === 0)) {
+        return '';
+      }
+
+      // Use new image data if available, fallback to product.images
+      const useNewImages = productImages.length > 0;
+
+      let html = `<div class="details-section images-section">
+        <h4>Images <span class="image-count-badge">(${useNewImages ? productImages.length : product.images.length})</span>
+          ${hasOcr ? '<span class="ocr-badge ready">OCR ready</span>' : '<span class="ocr-badge pending">OCR pending</span>'}
+        </h4>`;
+
+      if (useNewImages) {
+        // Main image (large)
+        if (mainImages.length > 0) {
+          html += `<div class="image-type-label">Main Image</div>
+            <a href="${escapeHtml(mainImages[0].url)}" target="_blank" rel="noopener">
+              <img src="${escapeHtml(mainImages[0].url)}" alt="Main product image" class="product-img-main" loading="lazy">
+            </a>`;
+        }
+
+        // Gallery thumbnails
+        if (galleryImages.length > 0) {
+          html += `<div class="image-type-label">Gallery (${galleryImages.length})</div>
+            <div class="product-gallery">
+              ${galleryImages.map(img => `
+                <a href="${escapeHtml(img.url)}" target="_blank" rel="noopener">
+                  <img src="${escapeHtml(img.url)}" alt="Gallery image" class="product-img-thumb" loading="lazy">
+                </a>
+              `).join('')}
+            </div>`;
+        }
+
+        // A+ Content images
+        if (aplusImages.length > 0) {
+          html += `<div class="image-type-label">A+ Content (${aplusImages.length})</div>
+            <div class="product-gallery">
+              ${aplusImages.map(img => `
+                <a href="${escapeHtml(img.url)}" target="_blank" rel="noopener">
+                  <img src="${escapeHtml(img.url)}" alt="A+ content image" class="product-img-thumb" loading="lazy">
+                </a>
+              `).join('')}
+            </div>`;
+        }
+      } else {
+        // Fallback to legacy images array
+        html += `<div class="product-gallery">
+          ${product.images.slice(0, 6).map(img => `
+            <a href="${escapeHtml(img)}" target="_blank" rel="noopener">
+              <img src="${escapeHtml(img)}" alt="Product image" class="product-img-thumb" loading="lazy">
+            </a>
+          `).join('')}
+        </div>`;
+      }
+
+      html += '</div>';
+      return html;
+    };
 
     // Render the details panel
     panel.innerHTML = `
       <div class="details-grid">
         <!-- Images Section -->
-        ${product.images && product.images.length > 0 ? `
-          <div class="details-section images-section">
-            <h4>Images</h4>
-            <div class="product-images">
-              ${product.images.slice(0, 4).map(img => `
-                <img src="${escapeHtml(img)}" alt="Product image" class="product-thumb" loading="lazy">
-              `).join('')}
-            </div>
-          </div>
-        ` : ''}
+        ${renderImageGallery()}
 
         <!-- Features Section -->
         ${product.features && product.features.length > 0 ? `

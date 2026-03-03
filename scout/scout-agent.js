@@ -838,6 +838,10 @@ async function scrapeProductPage(page, asin, keyword, productType) {
     await page.goto(productUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await sleep(randomDelay(PRODUCT_PAGE_DELAY_MIN, PRODUCT_PAGE_DELAY_MAX));
 
+    // Scrape ALL images (main, gallery, A+ content) for OCR pipeline
+    const allImages = await scrapeAllImages(page);
+    log(`    Found ${allImages.length} images (main: ${allImages.filter(i => i.type === 'main').length}, gallery: ${allImages.filter(i => i.type === 'gallery').length}, aplus: ${allImages.filter(i => i.type === 'aplus').length})`);
+
     const details = await page.evaluate(() => {
       const result = {
         bsr: null,
@@ -875,25 +879,6 @@ async function scrapeProductPage(page, asin, keyword, productType) {
       if (brandEl) {
         result.brand = brandEl.textContent.replace(/^(Brand|Visit the|Store)[:.\s]*/i, '').trim();
       }
-
-      // Main image
-      const mainImg = document.querySelector('#landingImage');
-      if (mainImg && mainImg.src) {
-        // Convert to high-res version
-        let highRes = mainImg.src.replace(/\._AC_S[A-Z]*\d+_/, '._AC_SL1500_');
-        result.images.push(highRes);
-      }
-
-      // Gallery images
-      const altImages = document.querySelectorAll('#altImages img');
-      altImages.forEach(img => {
-        if (img.src && !img.src.includes('play-button')) {
-          let highRes = img.src.replace(/\._AC_S[A-Z]*\d+_/, '._AC_SL1500_');
-          if (!result.images.includes(highRes)) {
-            result.images.push(highRes);
-          }
-        }
-      });
 
       // Feature bullets
       const bulletItems = document.querySelectorAll('#feature-bullets ul li span.a-list-item');
@@ -969,6 +954,13 @@ async function scrapeProductPage(page, asin, keyword, productType) {
       details.powder_data = extractPowderData(title, bulletPoints, specsText, ingredientsText);
       details.format_data = details.powder_data;
     }
+
+    // Add comprehensive image data for OCR pipeline
+    details.allImages = allImages;
+    details.images = allImages.map(img => upgradeImageUrl(img.url));
+
+    // Save images to dovive_product_images for OCR processing
+    await saveProductImages(asin, keyword, allImages);
 
     return details;
 

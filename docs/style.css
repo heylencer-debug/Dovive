@@ -871,6 +871,83 @@ body {
 
 .product-thumb:hover {
   transform: scale(1.05);
+  border-color: var(--text-primary);
+}
+
+/* Enhanced Image Gallery for OCR */
+.product-gallery {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+
+.product-img-thumb {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  border: 1.5px solid var(--border-light);
+  border-radius: 4px;
+  cursor: pointer;
+  background: #fff;
+}
+
+.product-img-thumb:hover {
+  border-color: var(--text-primary);
+}
+
+.product-img-main {
+  width: 100%;
+  max-width: 300px;
+  object-fit: contain;
+  border: 1.5px solid var(--border-light);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.product-img-main:hover {
+  border-color: var(--text-primary);
+}
+
+.image-type-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin: 12px 0 6px;
+}
+
+.image-type-label:first-child {
+  margin-top: 0;
+}
+
+.ocr-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border: 1.5px solid var(--text-primary);
+  border-radius: 4px;
+  margin-left: 4px;
+}
+
+.ocr-badge.pending {
+  color: var(--text-secondary);
+  border-color: var(--border-light);
+}
+
+.ocr-badge.ready {
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.image-count-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-left: 4px;
 }
 
 /* Features List */
