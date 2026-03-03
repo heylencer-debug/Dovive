@@ -122,22 +122,73 @@ async function setScoutTabId(tabId) {
 }
 
 async function openSearchTab(keyword) {
-  const searchUrl = `https://www.amazon.com/s?k=${encodeURIComponent(keyword)}`;
-
   let tabId = await getScoutTabId();
+
+  // Always start from Amazon homepage — real humans don't jump to search URLs
+  const homepageUrl = 'https://www.amazon.com';
 
   if (tabId) {
     try {
-      await chrome.tabs.update(tabId, { url: searchUrl, active: true });
-      return tabId;
+      await chrome.tabs.update(tabId, { url: homepageUrl, active: true });
     } catch (e) {
-      // Tab might have been closed
+      const tab = await chrome.tabs.create({ url: homepageUrl, active: true });
+      tabId = tab.id;
+      await setScoutTabId(tabId);
     }
+  } else {
+    const tab = await chrome.tabs.create({ url: homepageUrl, active: true });
+    tabId = tab.id;
+    await setScoutTabId(tabId);
   }
 
-  const tab = await chrome.tabs.create({ url: searchUrl, active: true });
-  await setScoutTabId(tab.id);
-  return tab.id;
+  // Wait for homepage to load
+  await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 2000));
+
+  // Type keyword into search box character by character
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: async (keyword) => {
+      // Find search box
+      const searchBox = document.querySelector('#twotabsearchtextbox, input[name="field-keywords"], #nav-search-bar-form input[type="text"]');
+      if (!searchBox) return false;
+
+      // Click on search box
+      searchBox.focus();
+      searchBox.click();
+      await new Promise(r => setTimeout(r, 500 + Math.random() * 500));
+
+      // Clear existing value
+      searchBox.value = '';
+
+      // Type each character with human-like delays
+      for (const char of keyword) {
+        searchBox.value += char;
+        searchBox.dispatchEvent(new Event('input', { bubbles: true }));
+        searchBox.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
+        searchBox.dispatchEvent(new KeyboardEvent('keypress', { bubbles: true }));
+        searchBox.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 80 + Math.random() * 120));
+      }
+
+      // Pause like thinking before submitting
+      await new Promise(r => setTimeout(r, 800 + Math.random() * 700));
+
+      // Submit the search form
+      const form = document.querySelector('#nav-search-bar-form, form[role="search"]');
+      if (form) {
+        form.submit();
+      } else {
+        searchBox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+      }
+      return true;
+    },
+    args: [keyword]
+  });
+
+  // Wait for search results to load
+  await new Promise(resolve => setTimeout(resolve, 4000 + Math.random() * 2000));
+
+  return tabId;
 }
 
 async function closeScoutTab() {
@@ -156,30 +207,32 @@ async function navigateToProduct(asin) {
   const tabId = await getScoutTabId();
   if (!tabId) return;
 
-  // Random delay before clicking (human behavior)
-  const delay = 500 + Math.random() * 500;
-  await new Promise(resolve => setTimeout(resolve, delay));
+  // Human pause before clicking — like deciding to click
+  await new Promise(resolve => setTimeout(resolve, 1500 + Math.random() * 1500));
 
-  // Inject script to click the product link naturally
+  // Click the product title link naturally
   try {
     await chrome.scripting.executeScript({
       target: { tabId },
       func: (asin) => {
         const link = document.querySelector(`[data-asin="${asin}"] h2 a`);
         if (link) {
-          link.click();
+          // Scroll into view first
+          link.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          setTimeout(() => link.click(), 600 + Math.random() * 400);
         } else {
-          // Fallback: try any link in the product card
           const card = document.querySelector(`[data-asin="${asin}"]`);
           const anyLink = card?.querySelector('a[href*="/dp/"]');
-          if (anyLink) anyLink.click();
+          if (anyLink) {
+            anyLink.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            setTimeout(() => anyLink.click(), 600 + Math.random() * 400);
+          }
         }
       },
       args: [asin]
     });
   } catch (e) {
     console.error('Failed to click product link:', e);
-    // Fallback to direct navigation
     await chrome.tabs.update(tabId, { url: `https://www.amazon.com/dp/${asin}` });
   }
 }
@@ -346,8 +399,8 @@ async function moveToNextKeyword() {
   const nextIndex = state.currentKeywordIndex + 1;
   await setState({ currentKeywordIndex: nextIndex });
 
-  // Small delay between keywords
-  await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
+  // Human pause between keywords — like taking a break before next search
+  await new Promise(resolve => setTimeout(resolve, 5000 + Math.random() * 5000));
 
   await processNextKeyword();
 }
