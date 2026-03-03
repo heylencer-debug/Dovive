@@ -146,6 +146,9 @@ async function openSearchTab(keyword) {
   // Wait for search results to load
   await new Promise(resolve => setTimeout(resolve, 6000 + Math.random() * 3000));
 
+  // Start timeout for content script response
+  setScrapeTimeout();
+
   return tabId;
 }
 
@@ -193,6 +196,9 @@ async function navigateToProduct(asin) {
     console.error('Failed to click product link:', e);
     await chrome.tabs.update(tabId, { url: `https://www.amazon.com/dp/${asin}` });
   }
+
+  // Start timeout for content script response
+  setScrapeTimeout();
 }
 
 // ============ SCOUT FLOW ============
@@ -323,6 +329,9 @@ async function navigateToReviews(asin, page = 1) {
   await randomDelay(2000, 4000);
   const url = `https://www.amazon.com/product-reviews/${asin}?pageNumber=${page}&sortBy=recent&reviewerType=all_reviews`;
   await chrome.tabs.update(tabId, { url });
+
+  // Start timeout for content script response
+  setScrapeTimeout();
 }
 
 async function handleReviewsData(asin, reviews, page, hasNextPage) {
@@ -393,6 +402,31 @@ async function stopScout() {
   await setState({ running: false, currentKeyword: '' });
   await addLog('Scout stopped by user', 'info');
   await closeScoutTab();
+  clearScrapeTimeout();
+}
+
+// ============ TIMEOUT HANDLING ============
+
+let scrapeTimeoutId = null;
+const SCRAPE_TIMEOUT_MS = 60000; // 60 seconds
+
+function setScrapeTimeout() {
+  clearScrapeTimeout();
+  scrapeTimeoutId = setTimeout(async () => {
+    const state = await getState();
+    if (state.running) {
+      await addLog('Page scrape timeout - moving to next keyword', 'error');
+      await setState({ errors: state.errors + 1 });
+      await moveToNextKeyword();
+    }
+  }, SCRAPE_TIMEOUT_MS);
+}
+
+function clearScrapeTimeout() {
+  if (scrapeTimeoutId) {
+    clearTimeout(scrapeTimeoutId);
+    scrapeTimeoutId = null;
+  }
 }
 
 // ============ MESSAGE HANDLING ============
@@ -417,21 +451,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
 
         case 'SEARCH_RESULTS':
+          clearScrapeTimeout();
           await handleSearchResults(message.keyword, message.products);
           sendResponse({ success: true });
           break;
 
         case 'PRODUCT_DATA':
+          clearScrapeTimeout();
           await handleProductData(message.data);
           sendResponse({ success: true });
           break;
 
         case 'REVIEWS_DATA':
+          clearScrapeTimeout();
           await handleReviewsData(message.asin, message.reviews, message.page, message.hasNextPage);
           sendResponse({ success: true });
           break;
 
         case 'SCRAPE_ERROR':
+          clearScrapeTimeout();
           await addLog(`Scrape error: ${message.error}`, 'error');
           const currentState = await getState();
           await setState({ errors: currentState.errors + 1 });
