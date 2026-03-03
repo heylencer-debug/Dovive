@@ -1504,7 +1504,7 @@ async function runScout(job) {
   try {
     // Get active keywords
     const keywords = await sbFetch('dovive_keywords', {
-      filter: 'is_active=eq.true',
+      filter: 'active=eq.true',
       order: 'created_at.asc'
     });
 
