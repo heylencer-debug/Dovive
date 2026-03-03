@@ -1277,13 +1277,20 @@ async function scrapeReviewsPage(page, asin, maxReviews = Infinity) {
 
       if (pageReviews.length === 0) break;
       reviews.push(...pageReviews);
+      log(`    Reviews page ${pageNum}: ${pageReviews.length} found (total: ${reviews.length})`);
       pageNum++;
+      if (reviews.length >= 500) {
+        log(`    Soft cap 500 reached — stopping review scrape`);
+        break;
+      }
     } catch (err) {
+      log(`    Reviews page ${pageNum} error: ${err.message}`);
       break;
     }
   }
 
-  return reviews.slice(0, maxReviews);
+  log(`    Total reviews collected: ${reviews.length}`);
+  return reviews;
 }
 
 // ============================================================
