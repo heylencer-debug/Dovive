@@ -236,9 +236,14 @@ async function processNextKeyword() {
 
   if (state.currentKeywordIndex >= keywords.length) {
     // Done!
-    await addLog('Scout complete!', 'success');
+    await addLog(`Scout complete! ${state.productsScraped} products saved.`, 'success');
     await setState({ running: false, currentKeyword: '' });
     await closeScoutTab();
+    // Mark job done in Supabase so dashboard shows updated status
+    const result = await chrome.storage.local.get('activeJobId');
+    if (result.activeJobId) {
+      await markJobDone(result.activeJobId, state.productsScraped, state.errors);
+    }
     return;
   }
 
@@ -381,5 +386,67 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true; // Keep channel open for async response
 });
 
+// ============ JOB QUEUE POLLING ============
+// Polls dovive_jobs every 60s for queued jobs triggered from the dashboard
+
+async function pollJobQueue() {
+  try {
+    const state = await getState();
+    if (state.running) return; // already scraping, skip
+
+    const jobs = await sbFetch('dovive_jobs', {
+      'status': 'eq.queued',
+      'order': 'created_at.asc',
+      'limit': '1'
+    });
+
+    if (jobs && jobs.length > 0) {
+      const job = jobs[0];
+      console.log('[Dovive Scout] Found queued job:', job.id);
+
+      // Mark job as running
+      await fetch(`${SB_URL}/rest/v1/dovive_jobs?id=eq.${job.id}`, {
+        method: 'PATCH',
+        headers: {
+          'apikey': SB_KEY,
+          'Authorization': `Bearer ${SB_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ status: 'running', started_at: new Date().toISOString() })
+      });
+
+      // Store job id so we can mark it done later
+      await chrome.storage.local.set({ activeJobId: job.id });
+      await addLog(`Picked up job #${job.id} from dashboard`, 'info');
+      await startScout();
+    }
+  } catch (e) {
+    console.error('[Dovive Scout] Poll error:', e.message);
+  }
+}
+
+async function markJobDone(jobId, productsScraped, errors) {
+  if (!jobId) return;
+  await fetch(`${SB_URL}/rest/v1/dovive_jobs?id=eq.${jobId}`, {
+    method: 'PATCH',
+    headers: {
+      'apikey': SB_KEY,
+      'Authorization': `Bearer ${SB_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      status: 'done',
+      finished_at: new Date().toISOString(),
+      products_scraped: productsScraped,
+      error_count: errors
+    })
+  });
+  await chrome.storage.local.remove('activeJobId');
+}
+
+// Start polling on service worker boot
+setInterval(pollJobQueue, 60000);
+pollJobQueue(); // check immediately on startup
+
 // Log when service worker starts
-console.log('[Dovive Scout] Service worker started');
+console.log('[Dovive Scout] Service worker started — polling for dashboard jobs every 60s');

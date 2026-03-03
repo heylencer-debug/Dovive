@@ -3472,3 +3472,57 @@ body {
   height: 20px;
   background: rgba(255,255,255,0.2);
 }
+
+/* ---- Scout Control Bar ---- */
+.scout-control-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0 16px;
+  border-bottom: 1.5px solid #0A0A0A;
+  margin-bottom: 16px;
+}
+.scout-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.scout-status-pill {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  border: 1.5px solid #888;
+  border-radius: 20px;
+  padding: 2px 10px;
+  background: transparent;
+}
+.scout-status-detail {
+  font-size: 11px;
+  color: #666;
+}
+.start-scout-btn {
+  background: #0A0A0A;
+  color: #fff;
+  border: 1.5px solid #0A0A0A;
+  border-radius: 8px;
+  padding: 8px 20px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+  white-space: nowrap;
+}
+.start-scout-btn:hover:not(:disabled) {
+  transform: translate(-2px, -2px);
+  box-shadow: 4px 4px 0 #0A0A0A;
+  background: #fff;
+  color: #0A0A0A;
+}
+.start-scout-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

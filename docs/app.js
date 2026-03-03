@@ -82,6 +82,7 @@
     await loadFormatFocusData();
     await loadScoutSettings();
     await checkScoutStatus();
+    refreshScoutStatus(); // sync Start Scout button with latest job state
     setupEventListeners();
     setupScoutSettingsToggle();
     startStatusPolling();
@@ -320,6 +321,94 @@
   // SCOUT SETTINGS - Config & Changelog Panel
   // ============================================================
 
+  // ---- SCOUT CONTROL (Start button + live job status) ----
+
+  let scoutJobPollInterval = null;
+
+  async function queueScoutJob() {
+    const btn = document.getElementById('start-scout-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Queuing…'; }
+
+    try {
+      await sbInsert('dovive_jobs', {
+        status: 'queued',
+        triggered_by: 'dashboard',
+        created_at: new Date().toISOString()
+      });
+      updateScoutStatus('queued');
+      startScoutStatusPoll();
+    } catch (err) {
+      console.error('Failed to queue scout job:', err);
+      if (btn) { btn.disabled = false; btn.textContent = 'Start Scout'; }
+      alert('Failed to queue job: ' + err.message);
+    }
+  }
+
+  function startScoutStatusPoll() {
+    if (scoutJobPollInterval) clearInterval(scoutJobPollInterval);
+    scoutJobPollInterval = setInterval(refreshScoutStatus, 8000);
+    refreshScoutStatus();
+  }
+
+  async function refreshScoutStatus() {
+    try {
+      const jobs = await sbFetch('dovive_jobs', {
+        order: 'created_at.desc',
+        limit: 1
+      });
+      if (!jobs || jobs.length === 0) return;
+      const job = jobs[0];
+      updateScoutStatus(job.status, job);
+
+      // Stop polling when done/error
+      if (job.status === 'done' || job.status === 'error' || job.status === 'failed') {
+        if (scoutJobPollInterval) { clearInterval(scoutJobPollInterval); scoutJobPollInterval = null; }
+      }
+    } catch (e) {
+      console.error('Scout status poll error:', e);
+    }
+  }
+
+  function updateScoutStatus(status, job = null) {
+    const pill = document.getElementById('scout-status-pill');
+    const detail = document.getElementById('scout-status-detail');
+    const btn = document.getElementById('start-scout-btn');
+
+    const statusMap = {
+      'queued':  { label: 'QUEUED',  color: '#0066FF' },
+      'running': { label: 'RUNNING', color: '#00AA44' },
+      'done':    { label: 'DONE',    color: '#0A0A0A' },
+      'error':   { label: 'ERROR',   color: '#CC0000' },
+      'failed':  { label: 'FAILED',  color: '#CC0000' },
+      'idle':    { label: 'IDLE',    color: '#888888' }
+    };
+
+    const s = statusMap[status] || statusMap['idle'];
+
+    if (pill) {
+      pill.textContent = s.label;
+      pill.style.color = s.color;
+      pill.style.borderColor = s.color;
+    }
+
+    if (detail && job) {
+      const parts = [];
+      if (job.current_keyword) parts.push(`Keyword: ${job.current_keyword}`);
+      if (job.products_scraped != null) parts.push(`${job.products_scraped} products`);
+      if (job.finished_at) parts.push(`Done ${new Date(job.finished_at).toLocaleTimeString()}`);
+      else if (job.started_at) parts.push(`Started ${new Date(job.started_at).toLocaleTimeString()}`);
+      detail.textContent = parts.join(' · ');
+    }
+
+    if (btn) {
+      const busy = status === 'queued' || status === 'running';
+      btn.disabled = busy;
+      btn.textContent = busy ? (status === 'queued' ? 'Queued…' : 'Running…') : 'Start Scout';
+    }
+  }
+
+  // ---- END SCOUT CONTROL ----
+
   let scoutSettings = {
     scrape_mode: 'best_sellers_first',
     product_types_active: [],
@@ -400,6 +489,14 @@
       : '<span class="muted">None configured</span>';
 
     container.innerHTML = `
+      <div class="scout-control-bar">
+        <div class="scout-status-row">
+          <span class="settings-label">Status</span>
+          <span id="scout-status-pill" class="scout-status-pill" style="color:#888;border-color:#888">IDLE</span>
+          <span id="scout-status-detail" class="scout-status-detail"></span>
+        </div>
+        <button id="start-scout-btn" class="start-scout-btn" onclick="window._queueScoutJob()">Start Scout</button>
+      </div>
       <div class="settings-row">
         <span class="settings-label">Scrape Mode</span>
         <span class="settings-value badge">${modeLabel}</span>
@@ -1649,6 +1746,9 @@
   }
 
   // Open product modal
+  // Expose Start Scout to dashboard button (calls job queue function)
+  window._queueScoutJob = queueScoutJob;
+
   window.openProductModal = async function(asin) {
     if (!asin) {
       showModal('<div class="modal-loading">Error: No product ASIN provided</div>');
