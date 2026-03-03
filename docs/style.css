@@ -222,6 +222,210 @@ body {
 .badge.error { color: var(--error); background: rgba(239, 68, 68, 0.1); }
 .badge.queued { color: var(--info); background: rgba(59, 130, 246, 0.1); }
 
+/* Pulsing dot for active states */
+.pulse-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.pulse-dot.queued {
+  background: var(--info);
+  box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+}
+
+.pulse-dot.running {
+  background: var(--warning);
+  box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Status message */
+.scout-status-message {
+  padding: 10px 14px;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 16px;
+  display: none;
+}
+
+.scout-status-message.info {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--info);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.scout-status-message.success {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--success);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.scout-status-message.error {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--error);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* Recommendation badges on keyword tabs */
+.rec-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 9px;
+  font-weight: 700;
+  margin-left: 6px;
+}
+
+.rec-badge.rec-enter {
+  background: var(--success);
+  color: white;
+}
+
+.rec-badge.rec-monitor {
+  background: var(--warning);
+  color: white;
+}
+
+.rec-badge.rec-avoid {
+  background: var(--error);
+  color: white;
+}
+
+/* Summary recommendation badge (large) */
+.summary-recommendation {
+  display: inline-block;
+  padding: 8px 20px;
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+}
+
+.summary-recommendation.rec-enter {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--success);
+  border: 2px solid var(--success);
+}
+
+.summary-recommendation.rec-monitor {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warning);
+  border: 2px solid var(--warning);
+}
+
+.summary-recommendation.rec-avoid {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--error);
+  border: 2px solid var(--error);
+}
+
+/* Summary stats row */
+.summary-stats {
+  display: flex;
+  gap: 24px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border-light);
+  margin-bottom: 16px;
+}
+
+.summary-stats .stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.summary-stats .stat-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-light);
+}
+
+.summary-stats .stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.summary-text {
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.summary-text h4 {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-primary);
+  margin: 16px 0 8px;
+}
+
+.summary-text h4:first-child {
+  margin-top: 0;
+}
+
+/* Flag badges in results table */
+.flag-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  border-radius: 3px;
+  margin-right: 4px;
+}
+
+.flag-badge.sponsored {
+  background: rgba(156, 163, 175, 0.2);
+  color: var(--text-secondary);
+}
+
+.flag-badge.top-seller {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--success);
+}
+
+/* Sponsored row styling */
+.sponsored-row {
+  opacity: 0.7;
+}
+
+.sponsored-row td {
+  background: rgba(156, 163, 175, 0.05);
+}
+
+/* Stars in rating column */
+.stars {
+  color: #F59E0B;
+  font-size: 12px;
+  margin-right: 4px;
+}
+
 /* Buttons */
 .btn {
   display: inline-flex;
