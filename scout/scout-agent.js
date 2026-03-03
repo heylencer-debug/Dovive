@@ -304,6 +304,58 @@ function log(msg, level = 'info') {
   console.log(`[${ts}] ${prefix} ${msg}`);
 }
 
+// ============================================================
+// AMAZON LOGIN (for authenticated scraping)
+// ============================================================
+async function loginToAmazon(page) {
+  const email = process.env.AMAZON_EMAIL;
+  const password = process.env.AMAZON_PASSWORD;
+  if (!email || !password) {
+    log('No Amazon credentials configured - scraping as guest', 'warn');
+    return false;
+  }
+
+  try {
+    log('Logging in to Amazon...');
+    await page.goto('https://www.amazon.com/ap/signin?openid.pape.max_auth_age=0&openid.return_to=https%3A%2F%2Fwww.amazon.com%2F&openid.identity=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&openid.assoc_handle=usflex&openid.mode=checkid_setup&openid.claimed_id=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&openid.ns=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0', { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+    // Enter email
+    await page.waitForSelector('#ap_email', { timeout: 10000 });
+    await page.fill('#ap_email', email);
+    await page.click('#continue');
+    await page.waitForTimeout(2000);
+
+    // Enter password
+    await page.waitForSelector('#ap_password', { timeout: 10000 });
+    await page.fill('#ap_password', password);
+    await page.click('#signInSubmit');
+    await page.waitForTimeout(3000);
+
+    // Check if login succeeded (look for account nav or name)
+    const loggedIn = await page.evaluate(() => {
+      const nav = document.querySelector('#nav-link-accountList-nav-line-1');
+      return nav && !nav.textContent.includes('Sign in');
+    });
+
+    if (loggedIn) {
+      log('Amazon login successful', 'success');
+      return true;
+    } else {
+      // Check for OTP/captcha
+      const needsOtp = await page.evaluate(() => !!document.querySelector('#auth-mfa-otpcode, #cvf-input-code'));
+      if (needsOtp) {
+        log('Amazon requires OTP verification - continuing as guest', 'warn');
+      } else {
+        log('Amazon login may have failed - continuing anyway', 'warn');
+      }
+      return false;
+    }
+  } catch (err) {
+    log('Amazon login error: ' + err.message + ' - continuing as guest', 'warn');
+    return false;
+  }
+}
+
 // Parse price from text like "$17.54" or "$19.98 ($0.33/Count)" - returns dollars not cents
 function parsePrice(text) {
   if (!text) return null;
@@ -1161,6 +1213,55 @@ async function scrapeReviews(page, asin, keyword, maxReviews = 200) {
   return reviews;
 }
 
+/**
+ * Enhanced reviews scraping for authenticated sessions
+ * Scrapes multiple pages of reviews when logged in
+ */
+async function scrapeReviewsPage(page, asin, maxReviews = 50) {
+  const reviews = [];
+  let pageNum = 1;
+
+  while (reviews.length < maxReviews && pageNum <= 5) {
+    try {
+      await page.goto(`https://www.amazon.com/product-reviews/${asin}?pageNumber=${pageNum}&sortBy=recent`, {
+        waitUntil: 'domcontentloaded', timeout: 30000
+      });
+      await page.waitForTimeout(randomDelay(1500, 3000));
+
+      const pageReviews = await page.evaluate(() => {
+        const revs = [];
+        document.querySelectorAll('[data-hook="review"]').forEach(el => {
+          const rating = el.querySelector('[data-hook="review-star-rating"] .a-icon-alt');
+          const title = el.querySelector('[data-hook="review-title"] span:not(.a-icon-alt)');
+          const body = el.querySelector('[data-hook="review-body"] span');
+          const date = el.querySelector('[data-hook="review-date"]');
+          const verified = el.querySelector('[data-hook="avp-badge"]');
+          const helpful = el.querySelector('[data-hook="helpful-vote-statement"]');
+          if (title && body) {
+            revs.push({
+              rating: rating ? parseFloat(rating.textContent) : null,
+              title: title.textContent.trim(),
+              body: body.textContent.trim().substring(0, 1000),
+              date: date ? date.textContent.trim() : null,
+              verified: !!verified,
+              helpful_votes: helpful ? helpful.textContent.trim() : null
+            });
+          }
+        });
+        return revs;
+      });
+
+      if (pageReviews.length === 0) break;
+      reviews.push(...pageReviews);
+      pageNum++;
+    } catch (err) {
+      break;
+    }
+  }
+
+  return reviews.slice(0, maxReviews);
+}
+
 // ============================================================
 // DATABASE SAVE FUNCTIONS
 // ============================================================
@@ -1551,6 +1652,10 @@ async function runScout(job) {
     const page = await context.newPage();
     const openRouterKey = await getOpenRouterKey();
 
+    // Amazon login for authenticated scraping
+    const isLoggedIn = await loginToAmazon(page);
+    log('Scraping as: ' + (isLoggedIn ? 'authenticated user' : 'guest'));
+
     // ============================================================
     // PHASE 1: BEST SELLERS SCRAPING (DISABLED for now - focus on keyword search only)
     // ============================================================
@@ -1688,11 +1793,22 @@ async function runScout(job) {
               product.brand = details.brand;
             }
 
-            // Scrape reviews (max 50 per product)
-            const reviews = await scrapeReviews(page, product.asin, keyword, 50);
+            // Scrape reviews - more when authenticated
+            const maxReviewsToScrape = isLoggedIn ? 100 : 50;
+            const reviews = isLoggedIn
+              ? await scrapeReviewsPage(page, product.asin, maxReviewsToScrape)
+              : await scrapeReviews(page, product.asin, keyword, maxReviewsToScrape);
+
             if (reviews.length > 0) {
-              await saveReviews(product.asin, keyword, reviews);
-              totalReviewsScraped += reviews.length;
+              // Add asin and keyword to reviews from scrapeReviewsPage (if not already present)
+              const enrichedReviews = reviews.map(r => ({
+                ...r,
+                asin: r.asin || product.asin,
+                keyword: r.keyword || keyword,
+                sentiment_tags: r.sentiment_tags || tagReviewSentiment(r.title || '', r.body || '')
+              }));
+              await saveReviews(product.asin, keyword, enrichedReviews);
+              totalReviewsScraped += enrichedReviews.length;
             }
 
             // Update progress
