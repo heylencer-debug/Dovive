@@ -1,6 +1,12 @@
 /**
- * Dovive Scout Agent
+ * Dovive Scout Agent V2
  * Amazon Market Research Scraper + AI Analysis + Telegram Reports
+ *
+ * Features:
+ * - Product type categorization (20 types)
+ * - Full review scraping (up to 200 per product)
+ * - Deep ASIN data (images, specs, features, ingredients, certifications)
+ * - Progress tracking
  *
  * Run with: node start.js (keeps running and polling)
  * Or once: node scout-agent.js --once
@@ -10,7 +16,53 @@ require('dotenv').config();
 const { chromium } = require('playwright');
 const fetch = require('node-fetch');
 
-// Config - loaded from environment (no hardcoding)
+// ============================================================
+// PRODUCT TYPE CONFIGURATION
+// ============================================================
+const PRODUCT_TYPES = [
+  'capsule',
+  'capsules',
+  'tablet',
+  'tablets',
+  'softgel',
+  'softgels',
+  'gummies',
+  'gummy',
+  'powder',
+  'liquid',
+  'drops',
+  'tincture',
+  'spray',
+  'patch',
+  'tea',
+  'drink mix',
+  'stick pack',
+  'lozenge',
+  'chewable',
+  'liposomal'
+];
+
+// Detect product type from title
+function detectProductType(title) {
+  const t = title.toLowerCase();
+  if (t.includes('gummies') || t.includes('gummy')) return 'Gummies';
+  if (t.includes('powder')) return 'Powder';
+  if (t.includes('liquid') || t.includes('drops') || t.includes('tincture')) return 'Liquid/Drops';
+  if (t.includes('softgel')) return 'Softgel';
+  if (t.includes('tablet') || t.includes('tablets')) return 'Tablet';
+  if (t.includes('spray')) return 'Spray';
+  if (t.includes('patch')) return 'Patch';
+  if (t.includes('tea')) return 'Tea';
+  if (t.includes('drink mix') || t.includes('stick pack')) return 'Drink Mix';
+  if (t.includes('lozenge') || t.includes('chewable')) return 'Lozenge';
+  if (t.includes('liposomal')) return 'Liposomal';
+  if (t.includes('capsule') || t.includes('caps')) return 'Capsule';
+  return 'Other';
+}
+
+// ============================================================
+// CONFIGURATION
+// ============================================================
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const OPENCLAW_GATEWAY = process.env.OPENCLAW_GATEWAY;
@@ -22,27 +74,31 @@ const SCRAPE_DELAY_MIN = 2000;
 const SCRAPE_DELAY_MAX = 3000;
 const PRODUCT_PAGE_DELAY_MIN = 2500;
 const PRODUCT_PAGE_DELAY_MAX = 3500;
-const MAX_PRODUCTS_TO_SCRAPE = 20;
-const TOP_N_FOR_BSR = 5;
+const MAX_PRODUCTS_PER_SEARCH = 50;
+const MAX_DEEP_SCRAPE_PER_TYPE = 20;
+const MAX_REVIEWS_PER_PRODUCT = 200;
+const TOP_N_FOR_AI_SUMMARY = 10;
 
-// Random delay helper
+// ============================================================
+// UTILITY HELPERS
+// ============================================================
 function randomDelay(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-// Sleep helper
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Log with timestamp
 function log(msg, level = 'info') {
   const ts = new Date().toISOString();
   const prefix = level === 'error' ? '❌' : level === 'warn' ? '⚠️' : level === 'success' ? '✅' : '📝';
   console.log(`[${ts}] ${prefix} ${msg}`);
 }
 
-// Supabase helpers
+// ============================================================
+// SUPABASE HELPERS
+// ============================================================
 async function sbFetch(table, options = {}) {
   const { select = '*', filter = '', order = '', limit = '' } = options;
 
@@ -87,15 +143,17 @@ async function sbInsert(table, data) {
   return res.json();
 }
 
-async function sbUpsert(table, data, onConflict) {
+async function sbUpsert(table, data, onConflict = '') {
+  const headers = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': `Bearer ${SUPABASE_KEY}`,
+    'Content-Type': 'application/json',
+    'Prefer': 'return=representation,resolution=merge-duplicates'
+  };
+
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
     method: 'POST',
-    headers: {
-      'apikey': SUPABASE_KEY,
-      'Authorization': `Bearer ${SUPABASE_KEY}`,
-      'Content-Type': 'application/json',
-      'Prefer': `return=representation,resolution=merge-duplicates`
-    },
+    headers,
     body: JSON.stringify(data)
   });
 
@@ -127,7 +185,9 @@ async function sbUpdate(table, filter, data) {
   return res.json();
 }
 
-// Get OpenRouter API key from app_settings
+// ============================================================
+// EXTERNAL API HELPERS
+// ============================================================
 async function getOpenRouterKey() {
   try {
     const settings = await sbFetch('app_settings', {
@@ -145,7 +205,6 @@ async function getOpenRouterKey() {
   }
 }
 
-// Send Telegram message via OpenClaw Gateway
 async function sendTelegram(message) {
   if (!OPENCLAW_GATEWAY || !OPENCLAW_TOKEN || !TELEGRAM_CHAT_ID) {
     log('Telegram not configured - skipping notification', 'warn');
@@ -177,8 +236,520 @@ async function sendTelegram(message) {
   }
 }
 
-// Generate AI market summary for a keyword
-async function generateAISummary(keyword, products, openRouterKey) {
+// ============================================================
+// PROGRESS TRACKING
+// ============================================================
+async function updateJobProgress(jobId, updates) {
+  try {
+    await sbUpdate('dovive_jobs', `id=eq.${jobId}`, {
+      ...updates,
+      updated_at: new Date().toISOString()
+    });
+  } catch (err) {
+    log(`Failed to update job progress: ${err.message}`, 'warn');
+  }
+}
+
+// ============================================================
+// SCRAPING FUNCTIONS
+// ============================================================
+
+/**
+ * Scrape search results for a keyword + product type combination
+ * Returns up to maxResults products with pagination
+ */
+async function scrapeSearchResults(page, searchQuery, keyword, productType, maxResults = 50) {
+  log(`Searching: "${searchQuery}" (type: ${productType})`);
+
+  const products = [];
+  let pageNum = 1;
+  const maxPages = 3; // Amazon typically shows 16-24 per page, so 3 pages = ~48-72 products
+
+  while (products.length < maxResults && pageNum <= maxPages) {
+    const searchUrl = `https://www.amazon.com/s?k=${encodeURIComponent(searchQuery)}&page=${pageNum}`;
+
+    try {
+      await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      await sleep(randomDelay(SCRAPE_DELAY_MIN, SCRAPE_DELAY_MAX));
+
+      // Wait for results
+      await page.waitForSelector('[data-asin]', { timeout: 15000 }).catch(() => {
+        log(`No results on page ${pageNum}`, 'warn');
+      });
+
+      // Extract products from current page
+      const pageProducts = await page.evaluate((startRank) => {
+        const items = [];
+        const resultDivs = document.querySelectorAll('[data-asin]:not([data-asin=""])');
+
+        let rank = startRank;
+        resultDivs.forEach((div) => {
+          const asin = div.getAttribute('data-asin');
+          if (!asin || asin.length !== 10) return;
+
+          // Sponsored check
+          const sponsoredEl = div.querySelector('[data-component-type="sp-sponsored-result"]') ||
+                            div.querySelector('.s-label-popover-default') ||
+                            div.textContent.includes('Sponsored');
+          const is_sponsored = !!sponsoredEl;
+
+          // Prime check
+          const primeEl = div.querySelector('.a-icon-prime') || div.querySelector('[aria-label*="Prime"]');
+          const is_prime = !!primeEl;
+
+          // Title
+          const titleEl = div.querySelector('h2 a span') || div.querySelector('h2 span');
+          const title = titleEl?.textContent?.trim() || '';
+          if (!title) return;
+
+          // URL
+          const linkEl = div.querySelector('h2 a');
+          const url = linkEl?.href || `https://www.amazon.com/dp/${asin}`;
+
+          // Price
+          const priceWhole = div.querySelector('.a-price-whole')?.textContent?.replace(/[,.\s]/g, '') || '';
+          const priceFraction = div.querySelector('.a-price-fraction')?.textContent || '00';
+          const price = priceWhole ? parseFloat(`${priceWhole}.${priceFraction}`) : null;
+          const priceText = div.querySelector('.a-price .a-offscreen')?.textContent?.trim() || '';
+
+          // Rating
+          const ratingEl = div.querySelector('i.a-icon-star-small span.a-icon-alt') ||
+                          div.querySelector('i.a-icon-star span.a-icon-alt') ||
+                          div.querySelector('.a-icon-alt');
+          const ratingText = ratingEl?.textContent || '';
+          const ratingMatch = ratingText.match(/(\d+\.?\d*)\s*out\s*of\s*5/i);
+          const rating = ratingMatch ? parseFloat(ratingMatch[1]) : null;
+
+          // Reviews count
+          const reviewEl = div.querySelector('span.a-size-base.s-underline-text') ||
+                          div.querySelector('[aria-label*="rating"]')?.parentElement?.querySelector('span:last-child');
+          let reviewText = reviewEl?.textContent?.replace(/[,\s]/g, '') || '0';
+          const review_count = parseInt(reviewText) || null;
+
+          rank++;
+          items.push({
+            asin,
+            title: title.slice(0, 500),
+            url,
+            price,
+            price_text: priceText,
+            rating,
+            review_count,
+            rank_position: rank,
+            is_sponsored,
+            is_prime
+          });
+        });
+
+        return items;
+      }, products.length);
+
+      // Add detected product type and metadata
+      for (const p of pageProducts) {
+        if (products.length >= maxResults) break;
+        p.keyword = keyword;
+        p.search_query = searchQuery;
+        p.product_type = detectProductType(p.title);
+        products.push(p);
+      }
+
+      log(`  Page ${pageNum}: Found ${pageProducts.length} products (total: ${products.length})`);
+
+      // Check for next page
+      const hasNextPage = await page.evaluate(() => {
+        const nextBtn = document.querySelector('.s-pagination-next:not(.s-pagination-disabled)');
+        return !!nextBtn;
+      });
+
+      if (!hasNextPage) {
+        log(`  No more pages after page ${pageNum}`);
+        break;
+      }
+
+      pageNum++;
+      await sleep(randomDelay(SCRAPE_DELAY_MIN, SCRAPE_DELAY_MAX));
+
+    } catch (err) {
+      log(`  Page ${pageNum} error: ${err.message}`, 'error');
+      break;
+    }
+  }
+
+  log(`  Total products collected: ${products.length}`);
+  return products;
+}
+
+/**
+ * Scrape product detail page for images, features, and basic specs
+ */
+async function scrapeProductPage(page, asin, keyword) {
+  log(`  Scraping product page: ${asin}`);
+
+  try {
+    const productUrl = `https://www.amazon.com/dp/${asin}`;
+    await page.goto(productUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await sleep(randomDelay(PRODUCT_PAGE_DELAY_MIN, PRODUCT_PAGE_DELAY_MAX));
+
+    const details = await page.evaluate(() => {
+      const result = {
+        bsr: null,
+        bsr_category: null,
+        brand: null,
+        images: [],
+        features: [],
+        specs: {},
+        ingredients: null,
+        certifications: []
+      };
+
+      // BSR
+      const detailsText = document.body.innerText;
+      const bsrMatch = detailsText.match(/Best\s*Sellers\s*Rank[:\s#]*(\d[\d,]*)/i);
+      if (bsrMatch) {
+        result.bsr = parseInt(bsrMatch[1].replace(/,/g, ''));
+      }
+
+      // BSR Category
+      const bsrCatMatch = detailsText.match(/Best\s*Sellers\s*Rank[:\s#]*[\d,]+\s*in\s*([^\n(]+)/i);
+      if (bsrCatMatch) {
+        result.bsr_category = bsrCatMatch[1].trim().replace(/\s*\(.*$/, '');
+      }
+
+      // Brand
+      const brandEl = document.querySelector('#bylineInfo') ||
+                     document.querySelector('.po-brand .a-span9') ||
+                     document.querySelector('a#bylineInfo');
+      if (brandEl) {
+        result.brand = brandEl.textContent.replace(/^(Brand|Visit the|Store)[:.\s]*/i, '').trim();
+      }
+
+      // Main image
+      const mainImg = document.querySelector('#landingImage');
+      if (mainImg && mainImg.src) {
+        // Convert to high-res version
+        let highRes = mainImg.src.replace(/\._AC_S[A-Z]*\d+_/, '._AC_SL1500_');
+        result.images.push(highRes);
+      }
+
+      // Gallery images
+      const altImages = document.querySelectorAll('#altImages img');
+      altImages.forEach(img => {
+        if (img.src && !img.src.includes('play-button')) {
+          let highRes = img.src.replace(/\._AC_S[A-Z]*\d+_/, '._AC_SL1500_');
+          if (!result.images.includes(highRes)) {
+            result.images.push(highRes);
+          }
+        }
+      });
+
+      // Feature bullets
+      const bulletItems = document.querySelectorAll('#feature-bullets ul li span.a-list-item');
+      bulletItems.forEach(item => {
+        const text = item.textContent?.trim();
+        if (text && text.length > 5 && !text.startsWith('Make sure')) {
+          result.features.push(text);
+        }
+      });
+
+      // Product specifications from various tables
+      const specTables = [
+        '#productDetails_techSpec_section_1 tr',
+        '#productDetails_detailBullets_sections1 tr',
+        '#detailBullets_feature_div li',
+        '.a-section.a-spacing-small.a-padding-small table tr'
+      ];
+
+      specTables.forEach(selector => {
+        document.querySelectorAll(selector).forEach(row => {
+          const key = row.querySelector('th, .a-text-bold')?.textContent?.trim()?.replace(/[:\s]+$/, '');
+          const val = row.querySelector('td, .a-list-item:not(.a-text-bold)')?.textContent?.trim();
+          if (key && val && val.length < 500) {
+            result.specs[key] = val;
+          }
+        });
+      });
+
+      // Try to get ingredients/supplement facts
+      const ingredientKeywords = ['Supplement Facts', 'Ingredients:', 'Other Ingredients:', 'Active Ingredients'];
+      const allText = document.body.innerText;
+      for (const kw of ingredientKeywords) {
+        const idx = allText.indexOf(kw);
+        if (idx !== -1) {
+          // Extract ~500 chars after keyword
+          result.ingredients = allText.slice(idx, idx + 500).replace(/\n+/g, ' ').trim();
+          break;
+        }
+      }
+
+      // Look for certifications/badges
+      const certKeywords = ['Certified', 'Non-GMO', 'Organic', 'GMP', 'Third Party Tested',
+                           'NSF', 'USP', 'Vegan', 'Gluten Free', 'Kosher', 'Halal',
+                           'USDA Organic', 'Made in USA'];
+      certKeywords.forEach(cert => {
+        if (allText.toLowerCase().includes(cert.toLowerCase())) {
+          result.certifications.push(cert);
+        }
+      });
+
+      return result;
+    });
+
+    return details;
+
+  } catch (err) {
+    log(`  Product page error for ${asin}: ${err.message}`, 'error');
+    return null;
+  }
+}
+
+/**
+ * Scrape all reviews for a product (up to maxReviews)
+ */
+async function scrapeReviews(page, asin, keyword, maxReviews = 200) {
+  log(`  Scraping reviews for: ${asin} (max: ${maxReviews})`);
+
+  const reviews = [];
+  let pageNum = 1;
+
+  while (reviews.length < maxReviews) {
+    const reviewUrl = `https://www.amazon.com/product-reviews/${asin}?sortBy=recent&reviewerType=all_reviews&pageNumber=${pageNum}`;
+
+    try {
+      await page.goto(reviewUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      await sleep(randomDelay(1000, 2000));
+
+      // Wait for reviews to load
+      await page.waitForSelector('[data-hook="review"]', { timeout: 10000 }).catch(() => null);
+
+      const pageReviews = await page.evaluate(() => {
+        const items = [];
+        const reviewDivs = document.querySelectorAll('[data-hook="review"]');
+
+        reviewDivs.forEach(div => {
+          // Reviewer name
+          const nameEl = div.querySelector('span.a-profile-name');
+          const reviewer_name = nameEl?.textContent?.trim() || 'Anonymous';
+
+          // Rating
+          const ratingEl = div.querySelector('i[data-hook="review-star-rating"] span.a-icon-alt, i[data-hook="cmps-review-star-rating"] span.a-icon-alt');
+          const ratingText = ratingEl?.textContent || '';
+          const ratingMatch = ratingText.match(/(\d+\.?\d*)/);
+          const rating = ratingMatch ? parseFloat(ratingMatch[1]) : null;
+
+          // Title
+          const titleEl = div.querySelector('a[data-hook="review-title"] span:last-child, [data-hook="review-title"] span');
+          const title = titleEl?.textContent?.trim() || '';
+
+          // Body
+          const bodyEl = div.querySelector('span[data-hook="review-body"] span');
+          const body = bodyEl?.textContent?.trim() || '';
+
+          // Date
+          const dateEl = div.querySelector('span[data-hook="review-date"]');
+          const dateText = dateEl?.textContent || '';
+          // Parse "Reviewed in the United States on January 1, 2024"
+          const dateMatch = dateText.match(/on\s+(.+)$/i);
+          let review_date = null;
+          if (dateMatch) {
+            try {
+              review_date = new Date(dateMatch[1]).toISOString().split('T')[0];
+            } catch (e) {}
+          }
+
+          // Verified purchase
+          const verifiedEl = div.querySelector('span[data-hook="avp-badge"]');
+          const verified_purchase = !!verifiedEl;
+
+          // Helpful votes
+          const helpfulEl = div.querySelector('span[data-hook="helpful-vote-statement"]');
+          const helpfulText = helpfulEl?.textContent || '';
+          const helpfulMatch = helpfulText.match(/(\d+)/);
+          const helpful_votes = helpfulMatch ? parseInt(helpfulMatch[1]) : 0;
+
+          if (body || title) {
+            items.push({
+              reviewer_name,
+              rating,
+              title,
+              body: body.slice(0, 5000), // Limit body length
+              review_date,
+              verified_purchase,
+              helpful_votes
+            });
+          }
+        });
+
+        return items;
+      });
+
+      if (pageReviews.length === 0) {
+        log(`    No reviews on page ${pageNum}, stopping`);
+        break;
+      }
+
+      // Add ASIN and keyword to each review
+      for (const r of pageReviews) {
+        if (reviews.length >= maxReviews) break;
+        r.asin = asin;
+        r.keyword = keyword;
+        reviews.push(r);
+      }
+
+      log(`    Page ${pageNum}: ${pageReviews.length} reviews (total: ${reviews.length})`);
+
+      // Check for next page
+      const hasNextPage = await page.evaluate(() => {
+        const nextBtn = document.querySelector('li.a-last:not(.a-disabled) a');
+        return !!nextBtn;
+      });
+
+      if (!hasNextPage || reviews.length >= maxReviews) {
+        break;
+      }
+
+      pageNum++;
+      await sleep(randomDelay(1500, 2500)); // Slightly longer delay for review pages
+
+    } catch (err) {
+      log(`    Reviews page ${pageNum} error: ${err.message}`, 'error');
+      break;
+    }
+  }
+
+  log(`    Total reviews collected: ${reviews.length}`);
+  return reviews;
+}
+
+// ============================================================
+// DATABASE SAVE FUNCTIONS
+// ============================================================
+
+/**
+ * Save products to dovive_products (upsert)
+ */
+async function saveProducts(products) {
+  if (!products || products.length === 0) return;
+
+  for (const p of products) {
+    try {
+      await sbUpsert('dovive_products', {
+        asin: p.asin,
+        keyword: p.keyword,
+        product_type: p.product_type,
+        title: p.title,
+        brand: p.brand || null,
+        price: p.price,
+        price_text: p.price_text,
+        bsr: p.bsr || null,
+        bsr_category: p.bsr_category || null,
+        rating: p.rating,
+        review_count: p.review_count,
+        images: p.images || [],
+        features: p.features || [],
+        is_sponsored: p.is_sponsored || false,
+        is_prime: p.is_prime || false,
+        url: p.url,
+        rank_position: p.rank_position,
+        search_query: p.search_query,
+        scraped_at: new Date().toISOString()
+      });
+    } catch (err) {
+      if (!err.message.includes('duplicate')) {
+        log(`Failed to save product ${p.asin}: ${err.message}`, 'warn');
+      }
+    }
+  }
+
+  log(`Saved ${products.length} products to dovive_products`, 'success');
+}
+
+/**
+ * Save/update product details to dovive_specs
+ */
+async function saveProductDetails(asin, keyword, details) {
+  if (!details) return;
+
+  try {
+    const specs = details.specs || {};
+
+    await sbUpsert('dovive_specs', {
+      asin,
+      keyword,
+      item_form: specs['Item Form'] || specs['Product Form'] || null,
+      unit_count: specs['Unit Count'] || specs['Number of Items'] || null,
+      flavor: specs['Flavor'] || null,
+      primary_ingredient: specs['Primary Supplement Ingredient'] || specs['Active Ingredient'] || null,
+      weight: specs['Item Weight'] || specs['Package Weight'] || null,
+      dimensions: specs['Package Dimensions'] || specs['Product Dimensions'] || null,
+      diet_type: specs['Diet Type'] || null,
+      allergen_info: specs['Allergen Information'] || null,
+      country_of_origin: specs['Country of Origin'] || null,
+      manufacturer: specs['Manufacturer'] || null,
+      ingredients: details.ingredients,
+      certifications: details.certifications || [],
+      all_specs: specs,
+      scraped_at: new Date().toISOString()
+    });
+  } catch (err) {
+    if (!err.message.includes('duplicate')) {
+      log(`Failed to save specs for ${asin}: ${err.message}`, 'warn');
+    }
+  }
+}
+
+/**
+ * Save reviews to dovive_reviews
+ */
+async function saveReviews(asin, keyword, reviews) {
+  if (!reviews || reviews.length === 0) return;
+
+  let saved = 0;
+  for (const r of reviews) {
+    try {
+      await sbInsert('dovive_reviews', {
+        asin,
+        keyword,
+        reviewer_name: r.reviewer_name,
+        rating: r.rating,
+        title: r.title,
+        body: r.body,
+        review_date: r.review_date,
+        verified_purchase: r.verified_purchase,
+        helpful_votes: r.helpful_votes,
+        scraped_at: new Date().toISOString()
+      });
+      saved++;
+    } catch (err) {
+      // Likely duplicates, continue
+    }
+  }
+
+  log(`  Saved ${saved}/${reviews.length} reviews for ${asin}`, 'success');
+}
+
+/**
+ * Update product with details from product page scrape
+ */
+async function updateProductWithDetails(asin, keyword, details) {
+  if (!details) return;
+
+  try {
+    await sbUpdate('dovive_products', `asin=eq.${asin}&keyword=eq.${encodeURIComponent(keyword)}`, {
+      bsr: details.bsr,
+      bsr_category: details.bsr_category,
+      brand: details.brand,
+      images: details.images || [],
+      features: details.features || []
+    });
+  } catch (err) {
+    log(`Failed to update product ${asin}: ${err.message}`, 'warn');
+  }
+}
+
+// ============================================================
+// AI SUMMARY GENERATION
+// ============================================================
+async function generateAISummary(keyword, allProducts, openRouterKey) {
   if (!openRouterKey) {
     return {
       summary: 'AI summary unavailable - OpenRouter key not configured',
@@ -186,22 +757,40 @@ async function generateAISummary(keyword, products, openRouterKey) {
     };
   }
 
-  const top10 = products.slice(0, 10);
+  // Get top products across all types
+  const top10 = allProducts.slice(0, TOP_N_FOR_AI_SUMMARY);
   const productList = top10.map((p, i) =>
-    `${i + 1}. "${p.title}" - $${p.price || 'N/A'} - ${p.rating || 'N/A'}★ - ${(p.review_count || 0).toLocaleString()} reviews - BSR: ${p.bsr ? p.bsr.toLocaleString() : 'N/A'}${p.is_sponsored ? ' [SPONSORED]' : ''}`
+    `${i + 1}. [${p.product_type}] "${p.title.slice(0, 60)}..." - $${p.price || 'N/A'} - ${p.rating || 'N/A'}★ - ${(p.review_count || 0).toLocaleString()} reviews - BSR: ${p.bsr ? p.bsr.toLocaleString() : 'N/A'}${p.is_sponsored ? ' [AD]' : ''}`
   ).join('\n');
+
+  // Type distribution
+  const typeCount = {};
+  allProducts.forEach(p => {
+    typeCount[p.product_type] = (typeCount[p.product_type] || 0) + 1;
+  });
+  const typeDistribution = Object.entries(typeCount)
+    .sort((a, b) => b[1] - a[1])
+    .map(([type, count]) => `${type}: ${count}`)
+    .join(', ');
 
   const prompt = `You are Scout, a market research analyst for Dovive, a supplement brand launching on Amazon US.
 
-You just scraped Amazon for '${keyword}'. Here is the data:
+You just scraped Amazon for '${keyword}' across 20 product types. Here is the data:
+
+TOP 10 PRODUCTS:
 ${productList}
 
+PRODUCT TYPE DISTRIBUTION (total ${allProducts.length} products):
+${typeDistribution}
+
 Write a market research summary covering:
-1. MARKET SIZE SIGNAL: How competitive is this market? (review counts, number of high-BSR products)
-2. PRICE OPPORTUNITY: What price range dominates? Is there a gap at premium or budget tier?
-3. MARKET GAP: What do top products seem to be missing? (based on titles and positioning)
-4. ENTRY RECOMMENDATION: Should Dovive enter this market? ENTER / MONITOR / AVOID — with 1-sentence reason
-5. TOP COMPETITOR: Which single product would be Dovive's main competition and why?
+1. MARKET SIZE SIGNAL: How competitive is this market? (review counts, BSR ranges)
+2. DOMINANT PRODUCT TYPES: Which forms (capsule, gummies, powder, etc.) dominate? Is there a type gap?
+3. PRICE OPPORTUNITY: What price range dominates? Gap at premium or budget tier?
+4. MARKET GAP: What do top products seem to be missing?
+5. ENTRY RECOMMENDATION: Should Dovive enter this market? ENTER / MONITOR / AVOID — with 1-sentence reason
+6. RECOMMENDED FORMAT: Which product type should Dovive launch with and why?
+7. TOP COMPETITOR: Which single product would be Dovive's main competition?
 
 Be specific. Use the actual data. Plain English — no jargon.`;
 
@@ -216,7 +805,7 @@ Be specific. Use the actual data. Plain English — no jargon.`;
       body: JSON.stringify({
         model: 'anthropic/claude-3.5-sonnet',
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 1200
+        max_tokens: 1500
       })
     });
 
@@ -240,180 +829,6 @@ Be specific. Use the actual data. Plain English — no jargon.`;
   }
 }
 
-// Scrape Amazon search results for a keyword
-async function scrapeKeyword(page, keyword) {
-  log(`Scraping: "${keyword}"`);
-
-  const searchUrl = `https://www.amazon.com/s?k=${encodeURIComponent(keyword)}&ref=nb_sb_noss`;
-
-  try {
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
-    await sleep(randomDelay(SCRAPE_DELAY_MIN, SCRAPE_DELAY_MAX));
-
-    // Wait for results to load
-    await page.waitForSelector('[data-asin]', { timeout: 15000 }).catch(() => {
-      log('No data-asin elements found, may be captcha or empty results', 'warn');
-    });
-
-    // Screenshot for debugging (optional)
-    // await page.screenshot({ path: `debug-${keyword.replace(/\s+/g, '-')}.png` });
-
-    // Get search results
-    const results = await page.evaluate((maxProducts) => {
-      const items = [];
-      const resultDivs = document.querySelectorAll('[data-asin]:not([data-asin=""])');
-
-      let rank = 0;
-      resultDivs.forEach((div) => {
-        if (rank >= maxProducts) return;
-
-        const asin = div.getAttribute('data-asin');
-        if (!asin || asin.length !== 10) return;
-
-        // Check if sponsored
-        const sponsoredEl = div.querySelector('[data-component-type="sp-sponsored-result"]') ||
-                          div.querySelector('.s-label-popover-default') ||
-                          div.textContent.includes('Sponsored');
-        const is_sponsored = !!sponsoredEl;
-
-        // Title
-        const titleEl = div.querySelector('h2 a span') || div.querySelector('h2 span');
-        const title = titleEl?.textContent?.trim() || '';
-        if (!title) return;
-
-        // Price - handle various price formats
-        const priceWhole = div.querySelector('.a-price-whole')?.textContent?.replace(/[,.\s]/g, '') || '';
-        const priceFraction = div.querySelector('.a-price-fraction')?.textContent || '00';
-        const price = priceWhole ? parseFloat(`${priceWhole}.${priceFraction}`) : null;
-
-        // Rating
-        const ratingEl = div.querySelector('i.a-icon-star-small span.a-icon-alt') ||
-                        div.querySelector('i.a-icon-star span.a-icon-alt') ||
-                        div.querySelector('.a-icon-alt');
-        const ratingText = ratingEl?.textContent || '';
-        const ratingMatch = ratingText.match(/(\d+\.?\d*)\s*out\s*of\s*5/i);
-        const rating = ratingMatch ? parseFloat(ratingMatch[1]) : null;
-
-        // Reviews count
-        const reviewEl = div.querySelector('span.a-size-base.s-underline-text') ||
-                        div.querySelector('[aria-label*="rating"]')?.parentElement?.querySelector('span:last-child') ||
-                        div.querySelector('.a-size-small .a-link-normal');
-        let reviewText = reviewEl?.textContent?.replace(/[,\s]/g, '') || '0';
-        const review_count = parseInt(reviewText) || null;
-
-        rank++;
-        items.push({
-          asin,
-          title: title.slice(0, 500),
-          price,
-          rating,
-          review_count,
-          rank_position: rank,
-          is_sponsored
-        });
-      });
-
-      return items;
-    }, MAX_PRODUCTS_TO_SCRAPE);
-
-    log(`  Found ${results.length} products (${results.filter(r => r.is_sponsored).length} sponsored)`);
-
-    // Get BSR and brand for top N non-sponsored products
-    const nonSponsored = results.filter(r => !r.is_sponsored);
-    const topProducts = nonSponsored.slice(0, TOP_N_FOR_BSR);
-
-    for (let i = 0; i < topProducts.length; i++) {
-      const product = topProducts[i];
-      log(`  Fetching details for #${i + 1}: ${product.asin}`);
-
-      try {
-        const productUrl = `https://www.amazon.com/dp/${product.asin}`;
-        await page.goto(productUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
-        await sleep(randomDelay(PRODUCT_PAGE_DELAY_MIN, PRODUCT_PAGE_DELAY_MAX));
-
-        const details = await page.evaluate(() => {
-          let bsr = null;
-          let brand = null;
-          let category = null;
-
-          // BSR - multiple locations
-          const detailsText = document.body.innerText;
-          const bsrMatch = detailsText.match(/Best\s*Sellers\s*Rank[:\s#]*(\d[\d,]*)/i);
-          if (bsrMatch) {
-            bsr = parseInt(bsrMatch[1].replace(/,/g, ''));
-          }
-
-          if (!bsr) {
-            const bsrEl = document.querySelector('#SalesRank') ||
-                         document.querySelector('[data-feature-name="salesRank"]') ||
-                         document.querySelector('#detailBulletsWrapper_feature_div');
-            if (bsrEl) {
-              const match = bsrEl.textContent.match(/#?([\d,]+)/);
-              if (match) bsr = parseInt(match[1].replace(/,/g, ''));
-            }
-          }
-
-          // Brand
-          const brandEl = document.querySelector('#bylineInfo') ||
-                         document.querySelector('.po-brand .a-span9') ||
-                         document.querySelector('a#bylineInfo');
-          if (brandEl) {
-            brand = brandEl.textContent.replace(/^(Brand|Visit the|Store)[:.\s]*/i, '').trim();
-          }
-
-          // Category from breadcrumb
-          const categoryEl = document.querySelector('#wayfinding-breadcrumbs_feature_div ul li:last-child a') ||
-                            document.querySelector('.a-breadcrumb li:last-child a');
-          if (categoryEl) {
-            category = categoryEl.textContent.trim();
-          }
-
-          return { bsr, brand, category };
-        });
-
-        // Update product with details
-        const idx = results.findIndex(r => r.asin === product.asin);
-        if (idx >= 0) {
-          if (details.bsr) results[idx].bsr = details.bsr;
-          if (details.brand) results[idx].brand = details.brand;
-          if (details.category) results[idx].category = details.category;
-          if (details.bsr) log(`    BSR: ${details.bsr.toLocaleString()}`);
-        }
-      } catch (err) {
-        log(`    Failed to get details: ${err.message}`, 'warn');
-      }
-    }
-
-    return results;
-  } catch (err) {
-    log(`  Scrape failed: ${err.message}`, 'error');
-    return [];
-  }
-}
-
-// Build Telegram report message
-function buildTelegramReport(date, keywordResults) {
-  let msg = `⚗️ SCOUT REPORT — ${date}\n\n`;
-
-  for (const [keyword, data] of Object.entries(keywordResults)) {
-    const { products, recommendation, keyGap } = data;
-    const topProduct = products.find(p => !p.is_sponsored) || products[0];
-
-    msg += `📦 ${keyword.toUpperCase()}\n`;
-    if (topProduct) {
-      msg += `• Top: ${topProduct.title.slice(0, 50)}... ($${topProduct.price || 'N/A'}, ${topProduct.rating || 'N/A'}★, ${(topProduct.review_count || 0).toLocaleString()} reviews)\n`;
-    }
-    msg += `• Entry: ${recommendation}\n`;
-    if (keyGap) {
-      msg += `• Gap: ${keyGap.slice(0, 80)}\n`;
-    }
-    msg += '\n';
-  }
-
-  msg += `Full report: https://heylencer-debug.github.io/Dovive`;
-  return msg;
-}
-
 // Extract key gap from AI summary
 function extractKeyGap(summary) {
   const gapMatch = summary.match(/MARKET GAP[:\s]*([^\n]+)/i);
@@ -425,13 +840,47 @@ function extractKeyGap(summary) {
   return null;
 }
 
-// Process a queued job
-async function processJob(job) {
+// ============================================================
+// TELEGRAM REPORTING
+// ============================================================
+function buildTelegramReport(date, keywordResults) {
+  let msg = `⚗️ SCOUT V2 REPORT — ${date}\n\n`;
+
+  for (const [keyword, data] of Object.entries(keywordResults)) {
+    const { products, recommendation, keyGap, typeBreakdown } = data;
+    const topProduct = products.find(p => !p.is_sponsored) || products[0];
+
+    msg += `📦 ${keyword.toUpperCase()}\n`;
+    msg += `• Products scraped: ${products.length}\n`;
+    if (typeBreakdown) {
+      const topTypes = Object.entries(typeBreakdown)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([t, c]) => `${t}(${c})`)
+        .join(', ');
+      msg += `• Top types: ${topTypes}\n`;
+    }
+    if (topProduct) {
+      msg += `• #1: ${topProduct.title.slice(0, 40)}... ($${topProduct.price || 'N/A'})\n`;
+    }
+    msg += `• Entry: ${recommendation}\n`;
+    if (keyGap) {
+      msg += `• Gap: ${keyGap.slice(0, 70)}\n`;
+    }
+    msg += '\n';
+  }
+
+  msg += `Full report: https://heylencer-debug.github.io/Dovive`;
+  return msg;
+}
+
+// ============================================================
+// MAIN SCOUT PROCESS
+// ============================================================
+async function runScout(job) {
   log(`Processing job ${job.id} (triggered by: ${job.triggered_by || 'unknown'})`);
 
   const startedAt = new Date().toISOString();
-
-  // Update job to running
   await sbUpdate('dovive_jobs', `id=eq.${job.id}`, {
     status: 'running',
     started_at: startedAt,
@@ -440,6 +889,8 @@ async function processJob(job) {
 
   let browser;
   const keywordResults = {};
+  let totalProductsScraped = 0;
+  let totalReviewsScraped = 0;
 
   try {
     // Get active keywords
@@ -459,8 +910,10 @@ async function processJob(job) {
     }
 
     log(`Keywords to scrape: ${keywords.length}`);
+    log(`Product types per keyword: ${PRODUCT_TYPES.length}`);
+    log(`Total search combinations: ${keywords.length * PRODUCT_TYPES.length}`);
 
-    // Launch browser (visible so Carlo can watch)
+    // Launch browser
     browser = await chromium.launch({
       headless: false,
       args: [
@@ -477,83 +930,131 @@ async function processJob(job) {
     });
 
     const page = await context.newPage();
-
-    // Get OpenRouter key for AI summaries
     const openRouterKey = await getOpenRouterKey();
 
-    // Scrape each keyword
+    // Process each keyword
     for (const kw of keywords) {
-      try {
-        const products = await scrapeKeyword(page, kw.keyword);
+      const keyword = kw.keyword;
+      log(`\n========== KEYWORD: ${keyword} ==========`);
 
-        if (products.length > 0) {
-          // Save research data (upsert on asin+keyword)
-          for (const product of products) {
-            try {
-              await sbInsert('dovive_research', {
-                keyword: kw.keyword,
-                asin: product.asin,
-                title: product.title,
-                price: product.price,
-                rating: product.rating,
-                review_count: product.review_count,
-                rank_position: product.rank_position,
-                bsr: product.bsr || null,
-                brand: product.brand || null,
-                category: product.category || null,
-                is_sponsored: product.is_sponsored || false,
-                scraped_at: new Date().toISOString()
-              });
-            } catch (err) {
-              // Likely duplicate, log and continue
-              if (!err.message.includes('duplicate')) {
-                log(`Failed to save product ${product.asin}: ${err.message}`, 'warn');
+      const allProducts = [];
+      const typeBreakdown = {};
+
+      // Process each product type
+      for (let i = 0; i < PRODUCT_TYPES.length; i++) {
+        const productType = PRODUCT_TYPES[i];
+        const searchQuery = `${keyword} ${productType}`;
+
+        // Update job progress
+        await updateJobProgress(job.id, {
+          current_keyword: keyword,
+          current_product_type: productType,
+          products_scraped: totalProductsScraped,
+          reviews_scraped: totalReviewsScraped
+        });
+
+        try {
+          // Scrape search results
+          const products = await scrapeSearchResults(page, searchQuery, keyword, productType, MAX_PRODUCTS_PER_SEARCH);
+
+          if (products.length > 0) {
+            // Save products to database
+            await saveProducts(products);
+            totalProductsScraped += products.length;
+
+            // Track for AI summary
+            allProducts.push(...products);
+            products.forEach(p => {
+              typeBreakdown[p.product_type] = (typeBreakdown[p.product_type] || 0) + 1;
+            });
+
+            // Deep scrape top N products per type
+            const topProducts = products.filter(p => !p.is_sponsored).slice(0, MAX_DEEP_SCRAPE_PER_TYPE);
+
+            for (const product of topProducts) {
+              log(`  Deep scraping: ${product.asin}`);
+
+              // Scrape product page
+              const details = await scrapeProductPage(page, product.asin, keyword);
+              if (details) {
+                await updateProductWithDetails(product.asin, keyword, details);
+                await saveProductDetails(product.asin, keyword, details);
+
+                // Merge details into product for AI summary
+                product.bsr = details.bsr;
+                product.brand = details.brand;
               }
+
+              // Scrape reviews
+              const reviews = await scrapeReviews(page, product.asin, keyword, MAX_REVIEWS_PER_PRODUCT);
+              if (reviews.length > 0) {
+                await saveReviews(product.asin, keyword, reviews);
+                totalReviewsScraped += reviews.length;
+              }
+
+              // Update progress
+              await updateJobProgress(job.id, {
+                products_scraped: totalProductsScraped,
+                reviews_scraped: totalReviewsScraped
+              });
+
+              // Delay between products
+              await sleep(randomDelay(2000, 3000));
             }
           }
 
-          // Generate AI summary
-          log(`  Generating AI summary...`);
-          const { summary: aiSummary, recommendation } = await generateAISummary(kw.keyword, products, openRouterKey);
-          const keyGap = extractKeyGap(aiSummary);
+          // Delay between product types
+          await sleep(randomDelay(SCRAPE_DELAY_MIN, SCRAPE_DELAY_MAX));
 
-          // Store for Telegram report
-          keywordResults[kw.keyword] = { products, recommendation, keyGap };
-
-          // Calculate stats
-          const prices = products.filter(p => p.price).map(p => p.price);
-          const ratings = products.filter(p => p.rating).map(p => p.rating);
-          const reviews = products.filter(p => p.review_count).map(p => p.review_count);
-
-          const avgPrice = prices.length > 0 ? prices.reduce((a, b) => a + b, 0) / prices.length : null;
-          const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null;
-          const avgReviews = reviews.length > 0 ? Math.round(reviews.reduce((a, b) => a + b, 0) / reviews.length) : null;
-
-          // Save report
-          await sbInsert('dovive_reports', {
-            keyword: kw.keyword,
-            ai_summary: aiSummary,
-            recommendation,
-            total_products: products.length,
-            avg_price: avgPrice ? parseFloat(avgPrice.toFixed(2)) : null,
-            avg_rating: avgRating ? parseFloat(avgRating.toFixed(2)) : null,
-            avg_reviews: avgReviews,
-            analyzed_at: new Date().toISOString()
-          });
-
-          log(`  Saved ${products.length} products and report`, 'success');
+        } catch (err) {
+          log(`Error for "${searchQuery}": ${err.message}`, 'error');
+          continue;
         }
-
-        // Delay before next keyword
-        await sleep(randomDelay(SCRAPE_DELAY_MIN, SCRAPE_DELAY_MAX));
-      } catch (err) {
-        log(`Failed for "${kw.keyword}": ${err.message}`, 'error');
-
-        // Send error alert to Telegram
-        await sendTelegram(`⚠️ Scout Error on "${kw.keyword}": ${err.message}`);
-
-        // Continue to next keyword
       }
+
+      // Generate AI summary for this keyword (using all products)
+      if (allProducts.length > 0) {
+        log(`Generating AI summary for "${keyword}" (${allProducts.length} products)...`);
+
+        // Sort by rank for AI summary
+        allProducts.sort((a, b) => (a.rank_position || 999) - (b.rank_position || 999));
+
+        const { summary: aiSummary, recommendation } = await generateAISummary(keyword, allProducts, openRouterKey);
+        const keyGap = extractKeyGap(aiSummary);
+
+        keywordResults[keyword] = {
+          products: allProducts,
+          recommendation,
+          keyGap,
+          typeBreakdown
+        };
+
+        // Calculate stats
+        const prices = allProducts.filter(p => p.price).map(p => p.price);
+        const ratings = allProducts.filter(p => p.rating).map(p => p.rating);
+        const reviews = allProducts.filter(p => p.review_count).map(p => p.review_count);
+
+        const avgPrice = prices.length > 0 ? prices.reduce((a, b) => a + b, 0) / prices.length : null;
+        const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null;
+        const avgReviews = reviews.length > 0 ? Math.round(reviews.reduce((a, b) => a + b, 0) / reviews.length) : null;
+
+        // Save report
+        await sbInsert('dovive_reports', {
+          keyword,
+          ai_summary: aiSummary,
+          recommendation,
+          total_products: allProducts.length,
+          avg_price: avgPrice ? parseFloat(avgPrice.toFixed(2)) : null,
+          avg_rating: avgRating ? parseFloat(avgRating.toFixed(2)) : null,
+          avg_reviews: avgReviews,
+          analyzed_at: new Date().toISOString()
+        });
+
+        log(`Saved report for "${keyword}"`, 'success');
+      }
+
+      // Delay before next keyword
+      await sleep(randomDelay(3000, 5000));
     }
 
     // Mark job complete
@@ -561,12 +1062,16 @@ async function processJob(job) {
     await sbUpdate('dovive_jobs', `id=eq.${job.id}`, {
       status: 'complete',
       completed_at: completedAt,
+      products_scraped: totalProductsScraped,
+      reviews_scraped: totalReviewsScraped,
       updated_at: completedAt
     });
 
-    log('Job completed successfully', 'success');
+    log(`\n========== JOB COMPLETE ==========`);
+    log(`Total products scraped: ${totalProductsScraped}`);
+    log(`Total reviews scraped: ${totalReviewsScraped}`, 'success');
 
-    // Send Telegram summary report
+    // Send Telegram summary
     if (Object.keys(keywordResults).length > 0) {
       const today = new Date().toISOString().split('T')[0];
       const reportMsg = buildTelegramReport(today, keywordResults);
@@ -583,8 +1088,7 @@ async function processJob(job) {
       updated_at: new Date().toISOString()
     });
 
-    // Send error alert to Telegram
-    await sendTelegram(`❌ Scout Job Failed: ${err.message}`);
+    await sendTelegram(`❌ Scout V2 Job Failed: ${err.message}`);
   } finally {
     if (browser) {
       await browser.close();
@@ -592,7 +1096,9 @@ async function processJob(job) {
   }
 }
 
-// Poll for queued jobs
+// ============================================================
+// POLLING & MAIN
+// ============================================================
 async function pollForJobs() {
   try {
     const jobs = await sbFetch('dovive_jobs', {
@@ -602,14 +1108,13 @@ async function pollForJobs() {
     });
 
     if (jobs && jobs.length > 0) {
-      await processJob(jobs[0]);
+      await runScout(jobs[0]);
     }
   } catch (err) {
     log(`Poll error: ${err.message}`, 'error');
   }
 }
 
-// Validate config
 function validateConfig() {
   const required = [
     ['SUPABASE_URL', SUPABASE_URL],
@@ -636,10 +1141,9 @@ function validateConfig() {
   }
 }
 
-// Main
 async function main() {
   console.log('');
-  console.log('🔭 DOVIVE SCOUT AGENT');
+  console.log('🔭 DOVIVE SCOUT AGENT V2');
   console.log('═══════════════════════════════════════');
   console.log('');
 
@@ -647,6 +1151,9 @@ async function main() {
 
   log(`Supabase: ${SUPABASE_URL}`);
   log(`Poll interval: ${POLL_INTERVAL / 1000}s`);
+  log(`Product types: ${PRODUCT_TYPES.length}`);
+  log(`Max products per search: ${MAX_PRODUCTS_PER_SEARCH}`);
+  log(`Max reviews per product: ${MAX_REVIEWS_PER_PRODUCT}`);
   log(`Telegram: ${TELEGRAM_CHAT_ID ? 'Enabled' : 'Disabled'}`);
 
   const runOnce = process.argv.includes('--once');
@@ -654,14 +1161,13 @@ async function main() {
   if (runOnce) {
     log('Running in single-shot mode');
 
-    // Create a job and process it
     const [job] = await sbInsert('dovive_jobs', {
       status: 'queued',
       triggered_by: 'cli'
     });
 
     if (job) {
-      await processJob(job);
+      await runScout(job);
     }
 
     log('Done.');

@@ -1,18 +1,41 @@
-// Dovive Scout Dashboard - Main Application
-// Powered by Scout Agent
+// Dovive Scout Dashboard V2 - Main Application
+// Features: Product type filters, reviews panel, specs panel, progress tracking
 
 (function() {
   'use strict';
 
+  // Product type filter options
+  const PRODUCT_TYPE_FILTERS = [
+    'All',
+    'Capsule',
+    'Gummies',
+    'Powder',
+    'Liquid/Drops',
+    'Softgel',
+    'Tablet',
+    'Spray',
+    'Patch',
+    'Tea',
+    'Drink Mix',
+    'Lozenge',
+    'Liposomal',
+    'Other'
+  ];
+
   // State
   let keywords = [];
-  let research = [];
+  let products = [];
+  let reviews = [];
+  let specs = {};
   let reports = [];
   let currentKeyword = null;
+  let currentProductType = 'All';
   let currentSort = { column: 'rank_position', desc: false };
   let currentJobStatus = 'idle';
+  let currentJobProgress = { keyword: '', type: '', products: 0, reviews: 0 };
   let pollIntervalId = null;
   let isPollingJob = false;
+  let expandedProducts = new Set();
 
   // DOM Elements
   const keywordList = document.getElementById('keyword-list');
@@ -27,12 +50,14 @@
   const resultsContainer = document.getElementById('results-container');
   const summaryContent = document.getElementById('summary-content');
   const summaryTime = document.getElementById('summary-time');
+  const productTypeFilters = document.getElementById('product-type-filters');
+  const progressSection = document.getElementById('progress-section');
 
   // Initialize
   async function init() {
     await loadKeywords();
     await loadReports();
-    await loadResearch();
+    await loadProducts();
     await checkScoutStatus();
     setupEventListeners();
     startStatusPolling();
@@ -67,20 +92,60 @@
     }
   }
 
-  // Load research data from Supabase
-  async function loadResearch() {
+  // Load products from dovive_products
+  async function loadProducts() {
     try {
-      research = await sbFetch('dovive_research', {
+      products = await sbFetch('dovive_products', {
         order: 'scraped_at.desc',
-        limit: 500
+        limit: 1000
       });
       renderResults();
     } catch (err) {
-      console.error('Failed to load research:', err);
+      console.error('Failed to load products:', err);
+      // Fallback to legacy dovive_research table
+      try {
+        products = await sbFetch('dovive_research', {
+          order: 'scraped_at.desc',
+          limit: 500
+        });
+        renderResults();
+      } catch (e) {
+        console.error('Failed to load legacy research:', e);
+      }
     }
   }
 
-  // Check Scout agent status
+  // Load reviews for a specific ASIN
+  async function loadReviewsForProduct(asin) {
+    try {
+      const productReviews = await sbFetch('dovive_reviews', {
+        filter: `asin=eq.${asin}`,
+        order: 'scraped_at.desc',
+        limit: 10
+      });
+      return productReviews;
+    } catch (err) {
+      console.error('Failed to load reviews:', err);
+      return [];
+    }
+  }
+
+  // Load specs for a specific ASIN
+  async function loadSpecsForProduct(asin) {
+    try {
+      const productSpecs = await sbFetch('dovive_specs', {
+        filter: `asin=eq.${asin}`,
+        limit: 1,
+        single: true
+      });
+      return productSpecs;
+    } catch (err) {
+      console.error('Failed to load specs:', err);
+      return null;
+    }
+  }
+
+  // Check Scout agent status with progress
   async function checkScoutStatus() {
     try {
       const jobs = await sbFetch('dovive_jobs', {
@@ -93,16 +158,24 @@
         const prevStatus = currentJobStatus;
         currentJobStatus = latestJob.status;
 
+        // Update progress info
+        currentJobProgress = {
+          keyword: latestJob.current_keyword || '',
+          type: latestJob.current_product_type || '',
+          products: latestJob.products_scraped || 0,
+          reviews: latestJob.reviews_scraped || 0
+        };
+
         updateStatusBadge(latestJob.status);
+        renderProgress();
 
         if (latestJob.status === 'complete') {
           lastRunEl.textContent = formatTimeAgo(latestJob.completed_at || latestJob.updated_at);
 
-          // If just completed, refresh data
           if (prevStatus === 'running' || prevStatus === 'queued') {
-            await loadResearch();
+            await loadProducts();
             await loadReports();
-            showStatusMessage('Scout completed! Results updated.', 'success');
+            showStatusMessage('Scout V2 completed! Results updated.', 'success');
           }
         } else if (latestJob.status === 'error') {
           lastRunEl.textContent = 'Error';
@@ -136,7 +209,7 @@
     `).join('');
   }
 
-  // Render keyword tabs for results with recommendation badges
+  // Render keyword tabs with recommendation badges
   function renderKeywordTabs() {
     if (keywords.length === 0) {
       keywordTabs.innerHTML = '';
@@ -144,7 +217,6 @@
     }
 
     keywordTabs.innerHTML = keywords.map((kw, i) => {
-      // Find latest report for this keyword
       const report = reports.find(r => r.keyword === kw.keyword);
       const recommendation = report?.recommendation || null;
       const badgeClass = recommendation ? `rec-badge rec-${recommendation.toLowerCase()}` : '';
@@ -164,27 +236,49 @@
     }
   }
 
+  // Render product type filter tabs
+  function renderProductTypeFilters() {
+    if (!productTypeFilters) return;
+
+    productTypeFilters.innerHTML = PRODUCT_TYPE_FILTERS.map(type => `
+      <button class="type-filter-btn ${currentProductType === type ? 'active' : ''}"
+              data-type="${type}">
+        ${type}
+      </button>
+    `).join('');
+  }
+
   // Update keyword count
   function updateKeywordCount() {
     keywordCount.textContent = `${keywords.length} active`;
     keywordsTrackedEl.textContent = keywords.length;
   }
 
-  // Render research results
+  // Render research results with expandable rows
   function renderResults() {
-    const filteredResearch = currentKeyword
-      ? research.filter(r => r.keyword === currentKeyword)
-      : research;
+    // Render product type filters first
+    renderProductTypeFilters();
+
+    let filteredProducts = currentKeyword
+      ? products.filter(r => r.keyword === currentKeyword)
+      : products;
+
+    // Apply product type filter
+    if (currentProductType !== 'All') {
+      filteredProducts = filteredProducts.filter(r =>
+        (r.product_type || 'Other') === currentProductType
+      );
+    }
 
     // Deduplicate by ASIN (keep most recent)
     const seenAsins = new Set();
-    const uniqueResearch = filteredResearch.filter(r => {
+    const uniqueProducts = filteredProducts.filter(r => {
       if (seenAsins.has(r.asin)) return false;
       seenAsins.add(r.asin);
       return true;
     });
 
-    if (uniqueResearch.length === 0) {
+    if (uniqueProducts.length === 0) {
       resultsContainer.innerHTML = `
         <div class="empty-state">
           <div class="empty-icon">📊</div>
@@ -196,11 +290,10 @@
     }
 
     // Sort data
-    const sorted = [...uniqueResearch].sort((a, b) => {
+    const sorted = [...uniqueProducts].sort((a, b) => {
       let aVal = a[currentSort.column];
       let bVal = b[currentSort.column];
 
-      // Handle nulls
       if (aVal === null || aVal === undefined) aVal = currentSort.desc ? -Infinity : Infinity;
       if (bVal === null || bVal === undefined) bVal = currentSort.desc ? -Infinity : Infinity;
 
@@ -213,42 +306,169 @@
     });
 
     const tableHtml = `
+      <div class="results-count">${sorted.length} products found</div>
       <table class="results-table">
         <thead>
           <tr>
+            <th data-column="product_type" class="${getSortClass('product_type')}">Type</th>
             <th data-column="rank_position" class="${getSortClass('rank_position')}">Rank</th>
             <th data-column="asin" class="${getSortClass('asin')}">ASIN</th>
-            <th data-column="title" class="${getSortClass('title')}">Product Title</th>
+            <th data-column="title" class="${getSortClass('title')}">Title</th>
+            <th data-column="brand" class="${getSortClass('brand')}">Brand</th>
             <th data-column="price" class="${getSortClass('price')}">Price</th>
-            <th data-column="bsr" class="${getSortClass('bsr')}">BSR</th>
             <th data-column="rating" class="${getSortClass('rating')}">Rating</th>
             <th data-column="review_count" class="${getSortClass('review_count')}">Reviews</th>
-            <th>Flags</th>
+            <th data-column="bsr" class="${getSortClass('bsr')}">BSR</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
-          ${sorted.map(r => `
-            <tr class="${r.is_sponsored ? 'sponsored-row' : ''}">
-              <td>${r.rank_position || '-'}</td>
-              <td class="asin">
-                <a href="https://www.amazon.com/dp/${r.asin}" target="_blank" rel="noopener">${r.asin || '-'}</a>
-              </td>
-              <td class="title" title="${escapeHtml(r.title || '')}">${escapeHtml(truncate(r.title, 60) || '-')}</td>
-              <td class="price">${r.price ? '$' + r.price.toFixed(2) : '-'}</td>
-              <td>${r.bsr ? r.bsr.toLocaleString() : '-'}</td>
-              <td class="rating">${r.rating ? renderStars(r.rating) : '-'}</td>
-              <td>${r.review_count ? r.review_count.toLocaleString() : '-'}</td>
-              <td>
-                ${r.is_sponsored ? '<span class="flag-badge sponsored">AD</span>' : ''}
-                ${r.bsr && r.bsr < 10000 ? '<span class="flag-badge top-seller">TOP</span>' : ''}
-              </td>
-            </tr>
-          `).join('')}
+          ${sorted.map(r => renderProductRow(r)).join('')}
         </tbody>
       </table>
     `;
 
     resultsContainer.innerHTML = tableHtml;
+  }
+
+  // Render a single product row with expand capability
+  function renderProductRow(r) {
+    const isExpanded = expandedProducts.has(r.asin);
+    const productType = r.product_type || 'Other';
+    const typeClass = productType.toLowerCase().replace(/[^a-z]/g, '-');
+
+    let rowHtml = `
+      <tr class="${r.is_sponsored ? 'sponsored-row' : ''} ${isExpanded ? 'expanded' : ''}" data-asin="${r.asin}">
+        <td><span class="product-type-badge type-${typeClass}">${productType}</span></td>
+        <td>${r.rank_position || '-'}</td>
+        <td class="asin">
+          <a href="https://www.amazon.com/dp/${r.asin}" target="_blank" rel="noopener">${r.asin || '-'}</a>
+        </td>
+        <td class="title" title="${escapeHtml(r.title || '')}">${escapeHtml(truncate(r.title, 50) || '-')}</td>
+        <td>${escapeHtml(truncate(r.brand, 15) || '-')}</td>
+        <td class="price">${r.price ? '$' + r.price.toFixed(2) : '-'}</td>
+        <td class="rating">${r.rating ? renderStars(r.rating) : '-'}</td>
+        <td>${r.review_count ? r.review_count.toLocaleString() : '-'}</td>
+        <td>${r.bsr ? r.bsr.toLocaleString() : '-'}</td>
+        <td>
+          <button class="expand-btn" data-asin="${r.asin}" title="${isExpanded ? 'Collapse' : 'Expand details'}">
+            ${isExpanded ? '▲' : '▼'}
+          </button>
+          ${r.is_sponsored ? '<span class="flag-badge sponsored">AD</span>' : ''}
+          ${r.bsr && r.bsr < 10000 ? '<span class="flag-badge top-seller">TOP</span>' : ''}
+        </td>
+      </tr>
+    `;
+
+    // Add expanded details row if expanded
+    if (isExpanded) {
+      rowHtml += `
+        <tr class="details-row" data-asin="${r.asin}">
+          <td colspan="10">
+            <div class="product-details-panel" id="details-${r.asin}">
+              <div class="details-loading">Loading details...</div>
+            </div>
+          </td>
+        </tr>
+      `;
+    }
+
+    return rowHtml;
+  }
+
+  // Load and render expanded product details
+  async function loadProductDetails(asin) {
+    const panel = document.getElementById(`details-${asin}`);
+    if (!panel) return;
+
+    // Find the product
+    const product = products.find(p => p.asin === asin);
+    if (!product) return;
+
+    // Load reviews and specs in parallel
+    const [productReviews, productSpecs] = await Promise.all([
+      loadReviewsForProduct(asin),
+      loadSpecsForProduct(asin)
+    ]);
+
+    // Render the details panel
+    panel.innerHTML = `
+      <div class="details-grid">
+        <!-- Images Section -->
+        ${product.images && product.images.length > 0 ? `
+          <div class="details-section images-section">
+            <h4>Images</h4>
+            <div class="product-images">
+              ${product.images.slice(0, 4).map(img => `
+                <img src="${escapeHtml(img)}" alt="Product image" class="product-thumb" loading="lazy">
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- Features Section -->
+        ${product.features && product.features.length > 0 ? `
+          <div class="details-section features-section">
+            <h4>Key Features</h4>
+            <ul class="features-list">
+              ${product.features.slice(0, 5).map(f => `<li>${escapeHtml(f)}</li>`).join('')}
+            </ul>
+          </div>
+        ` : ''}
+
+        <!-- Specs Section -->
+        ${productSpecs ? `
+          <div class="details-section specs-section">
+            <h4>Specifications</h4>
+            <div class="specs-grid">
+              ${productSpecs.item_form ? `<div class="spec-item"><span class="spec-label">Form:</span> ${escapeHtml(productSpecs.item_form)}</div>` : ''}
+              ${productSpecs.unit_count ? `<div class="spec-item"><span class="spec-label">Count:</span> ${escapeHtml(productSpecs.unit_count)}</div>` : ''}
+              ${productSpecs.diet_type ? `<div class="spec-item"><span class="spec-label">Diet:</span> ${escapeHtml(productSpecs.diet_type)}</div>` : ''}
+              ${productSpecs.manufacturer ? `<div class="spec-item"><span class="spec-label">Manufacturer:</span> ${escapeHtml(productSpecs.manufacturer)}</div>` : ''}
+              ${productSpecs.country_of_origin ? `<div class="spec-item"><span class="spec-label">Origin:</span> ${escapeHtml(productSpecs.country_of_origin)}</div>` : ''}
+            </div>
+            ${productSpecs.certifications && productSpecs.certifications.length > 0 ? `
+              <div class="certifications">
+                <span class="spec-label">Certifications:</span>
+                ${productSpecs.certifications.map(c => `<span class="cert-badge">${escapeHtml(c)}</span>`).join('')}
+              </div>
+            ` : ''}
+            ${productSpecs.ingredients ? `
+              <div class="ingredients-preview">
+                <span class="spec-label">Ingredients:</span>
+                <p>${escapeHtml(truncate(productSpecs.ingredients, 200))}</p>
+              </div>
+            ` : ''}
+          </div>
+        ` : ''}
+
+        <!-- Reviews Section -->
+        <div class="details-section reviews-section">
+          <h4>Recent Reviews (${productReviews.length})</h4>
+          ${productReviews.length > 0 ? `
+            <div class="reviews-list">
+              ${productReviews.slice(0, 5).map(rev => `
+                <div class="review-item">
+                  <div class="review-header">
+                    <span class="reviewer-name">${escapeHtml(rev.reviewer_name || 'Anonymous')}</span>
+                    <span class="review-rating">${rev.rating ? '★'.repeat(Math.floor(rev.rating)) : ''}</span>
+                    ${rev.verified_purchase ? '<span class="verified-badge">Verified</span>' : ''}
+                  </div>
+                  <div class="review-title">${escapeHtml(rev.title || '')}</div>
+                  <div class="review-body">${escapeHtml(truncate(rev.body, 150) || '')}</div>
+                  ${rev.review_date ? `<div class="review-date">${rev.review_date}</div>` : ''}
+                </div>
+              `).join('')}
+            </div>
+            ${productReviews.length > 5 ? `
+              <a href="https://www.amazon.com/product-reviews/${asin}" target="_blank" class="view-all-link">
+                View all reviews on Amazon →
+              </a>
+            ` : ''}
+          ` : '<p class="no-data">No reviews available</p>'}
+        </div>
+      </div>
+    `;
   }
 
   // Render stars for rating
@@ -285,12 +505,10 @@
       return;
     }
 
-    // Show recommendation badge prominently
     const recBadge = report.recommendation
       ? `<div class="summary-recommendation rec-${report.recommendation.toLowerCase()}">${report.recommendation}</div>`
       : '';
 
-    // Stats row
     const statsHtml = `
       <div class="summary-stats">
         <div class="stat-item">
@@ -312,7 +530,6 @@
       </div>
     `;
 
-    // Convert markdown-ish text to HTML
     const formattedSummary = formatSummary(report.ai_summary);
     summaryContent.innerHTML = recBadge + statsHtml + '<div class="summary-text">' + formattedSummary + '</div>';
     summaryTime.textContent = `Analyzed ${formatTimeAgo(report.analyzed_at)}`;
@@ -329,11 +546,39 @@
       .replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>')
       .replace(/<\/ul>\s*<ul>/g, '')
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\n\n/g, '</p><p>')
-      .replace(/^(.+)$/gm, (match) => {
-        if (match.startsWith('<')) return match;
-        return match;
-      });
+      .replace(/\n\n/g, '</p><p>');
+  }
+
+  // Render progress section
+  function renderProgress() {
+    if (!progressSection) return;
+
+    if (currentJobStatus !== 'running') {
+      progressSection.style.display = 'none';
+      return;
+    }
+
+    progressSection.style.display = 'block';
+    progressSection.innerHTML = `
+      <div class="progress-info">
+        <div class="progress-item">
+          <span class="progress-label">Current Keyword:</span>
+          <span class="progress-value">${escapeHtml(currentJobProgress.keyword) || '-'}</span>
+        </div>
+        <div class="progress-item">
+          <span class="progress-label">Product Type:</span>
+          <span class="progress-value">${escapeHtml(currentJobProgress.type) || '-'}</span>
+        </div>
+        <div class="progress-item">
+          <span class="progress-label">Products Scraped:</span>
+          <span class="progress-value">${currentJobProgress.products.toLocaleString()}</span>
+        </div>
+        <div class="progress-item">
+          <span class="progress-label">Reviews Scraped:</span>
+          <span class="progress-value">${currentJobProgress.reviews.toLocaleString()}</span>
+        </div>
+      </div>
+    `;
   }
 
   // Update status badge with live indicator
@@ -348,8 +593,8 @@
 
     const statusMessages = {
       idle: '',
-      queued: 'Scout queued, waiting to start...',
-      running: 'Scout is scraping Amazon...',
+      queued: 'Scout V2 queued, waiting to start...',
+      running: 'Scout V2 is scraping Amazon (20 product types per keyword)...',
       complete: '',
       error: ''
     };
@@ -357,7 +602,6 @@
     scoutStatus.textContent = statusText[status] || status.toUpperCase();
     scoutStatus.className = 'badge ' + status.toLowerCase();
 
-    // Add pulsing dot for active states
     if (status === 'queued' || status === 'running') {
       scoutStatus.innerHTML = `<span class="pulse-dot ${status}"></span> ${statusText[status]}`;
       runScoutBtn.disabled = true;
@@ -365,7 +609,6 @@
       runScoutBtn.disabled = false;
     }
 
-    // Show status message
     if (statusMessages[status]) {
       showStatusMessage(statusMessages[status], 'info');
     }
@@ -373,7 +616,6 @@
 
   // Show status message
   function showStatusMessage(message, type = 'info') {
-    // Check if status message element exists, create if not
     let msgEl = document.querySelector('.scout-status-message');
     if (!msgEl) {
       msgEl = document.createElement('div');
@@ -388,11 +630,8 @@
     msgEl.className = `scout-status-message ${type}`;
     msgEl.style.display = message ? 'block' : 'none';
 
-    // Auto-hide success messages
     if (type === 'success') {
-      setTimeout(() => {
-        msgEl.style.display = 'none';
-      }, 5000);
+      setTimeout(() => { msgEl.style.display = 'none'; }, 5000);
     }
   }
 
@@ -401,7 +640,6 @@
     const keyword = keywordInput.value.trim().toLowerCase();
     if (!keyword) return;
 
-    // Check for duplicates
     if (keywords.some(k => k.keyword.toLowerCase() === keyword)) {
       alert('Keyword already exists');
       return;
@@ -448,10 +686,9 @@
         triggered_by: 'manual'
       });
 
-      showStatusMessage('Scout queued! Results will appear shortly.', 'info');
+      showStatusMessage('Scout V2 queued! This will scrape 20 product types per keyword.', 'info');
       lastRunEl.textContent = 'Starting...';
 
-      // Start faster polling
       startJobPolling();
     } catch (err) {
       console.error('Failed to trigger Scout:', err);
@@ -510,6 +747,22 @@
     keywordList.innerHTML = '<div class="empty-state">Failed to load keywords</div>';
   }
 
+  // Toggle product expansion
+  async function toggleProductExpansion(asin) {
+    if (expandedProducts.has(asin)) {
+      expandedProducts.delete(asin);
+    } else {
+      expandedProducts.add(asin);
+    }
+
+    renderResults();
+
+    // Load details if expanding
+    if (expandedProducts.has(asin)) {
+      await loadProductDetails(asin);
+    }
+  }
+
   // Setup event listeners
   function setupEventListeners() {
     // Add keyword
@@ -532,8 +785,8 @@
     keywordTabs.addEventListener('click', (e) => {
       if (e.target.classList.contains('keyword-tab')) {
         currentKeyword = e.target.dataset.keyword;
+        currentProductType = 'All'; // Reset type filter when switching keywords
 
-        // Update active state
         document.querySelectorAll('.keyword-tab').forEach(tab => tab.classList.remove('active'));
         e.target.classList.add('active');
 
@@ -542,10 +795,31 @@
       }
     });
 
-    // Table sort
+    // Product type filters
+    if (productTypeFilters) {
+      productTypeFilters.addEventListener('click', (e) => {
+        if (e.target.classList.contains('type-filter-btn')) {
+          currentProductType = e.target.dataset.type;
+
+          document.querySelectorAll('.type-filter-btn').forEach(btn => btn.classList.remove('active'));
+          e.target.classList.add('active');
+
+          renderResults();
+        }
+      });
+    }
+
+    // Table sort and expand
     resultsContainer.addEventListener('click', (e) => {
+      // Column sort
       if (e.target.tagName === 'TH' && e.target.dataset.column) {
         handleSort(e.target.dataset.column);
+      }
+
+      // Expand button
+      if (e.target.classList.contains('expand-btn')) {
+        const asin = e.target.dataset.asin;
+        toggleProductExpansion(asin);
       }
     });
   }
@@ -567,7 +841,6 @@
     pollIntervalId = setInterval(async () => {
       await checkScoutStatus();
 
-      // Stop fast polling when job is done
       if (currentJobStatus === 'complete' || currentJobStatus === 'error' || currentJobStatus === 'idle') {
         clearInterval(pollIntervalId);
         isPollingJob = false;

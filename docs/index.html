@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dovive | Scout Dashboard</title>
+  <title>Dovive | Scout V2 Dashboard</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -21,7 +21,7 @@
         </a>
       </nav>
       <div class="sidebar-footer">
-        <div class="powered-by">Powered by Scout</div>
+        <div class="powered-by">Powered by Scout V2</div>
       </div>
     </aside>
 
@@ -29,7 +29,7 @@
     <main class="main">
       <header class="main-header">
         <h1>Market Research</h1>
-        <p class="subtitle">Amazon US supplement market intelligence</p>
+        <p class="subtitle">Amazon US supplement market intelligence — 20 product types per keyword</p>
       </header>
 
       <div class="content-grid">
@@ -51,7 +51,7 @@
         <!-- Scout Control Card -->
         <section class="card scout-control">
           <div class="card-header">
-            <span class="label">SCOUT AGENT</span>
+            <span class="label">SCOUT V2 AGENT</span>
             <span class="badge" id="scout-status">IDLE</span>
           </div>
           <div class="scout-info">
@@ -65,8 +65,10 @@
             </div>
           </div>
           <button id="run-scout-btn" class="btn btn-primary">
-            <span class="btn-icon">⚡</span> RUN SCOUT NOW
+            <span class="btn-icon">⚡</span> RUN SCOUT V2
           </button>
+          <!-- Progress Section -->
+          <div id="progress-section"></div>
         </section>
 
         <!-- Research Results Card -->
@@ -75,11 +77,13 @@
             <span class="label">RESEARCH RESULTS</span>
             <div class="keyword-tabs" id="keyword-tabs"></div>
           </div>
+          <!-- Product Type Filters -->
+          <div id="product-type-filters"></div>
           <div class="results-container" id="results-container">
             <div class="empty-state">
               <div class="empty-icon">📊</div>
               <div class="empty-title">No data yet</div>
-              <div class="empty-text">Run Scout to start collecting market research data.</div>
+              <div class="empty-text">Run Scout V2 to start collecting market research data across 20 product types.</div>
             </div>
           </div>
         </section>
@@ -94,7 +98,7 @@
             <div class="empty-state">
               <div class="empty-icon">🤖</div>
               <div class="empty-title">No analysis available</div>
-              <div class="empty-text">AI summary will appear after Scout completes a research run.</div>
+              <div class="empty-text">AI summary will appear after Scout V2 completes a research run.</div>
             </div>
           </div>
         </section>
