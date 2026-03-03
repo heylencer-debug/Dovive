@@ -1096,13 +1096,13 @@ async function scrapeProductPage(page, asin, keyword, productType) {
  * Scrape all reviews for a product (up to maxReviews)
  * Now includes sentiment tagging
  */
-async function scrapeReviews(page, asin, keyword, maxReviews = 200) {
-  log(`  Scraping reviews for: ${asin} (max: ${maxReviews})`);
+async function scrapeReviews(page, asin, keyword, maxReviews = Infinity) {
+  log(`  Scraping reviews for: ${asin} (all available)`);
 
   const reviews = [];
   let pageNum = 1;
 
-  while (reviews.length < maxReviews) {
+  while (true) { // paginate until no more reviews
     const reviewUrl = `https://www.amazon.com/product-reviews/${asin}?sortBy=recent&reviewerType=all_reviews&pageNumber=${pageNum}`;
 
     try {
@@ -1180,7 +1180,7 @@ async function scrapeReviews(page, asin, keyword, maxReviews = 200) {
 
       // Add ASIN, keyword, and sentiment tags to each review
       for (const r of pageReviews) {
-        if (reviews.length >= maxReviews) break;
+        // no limit - collect all
         r.asin = asin;
         r.keyword = keyword;
         // Add sentiment tags
@@ -1196,7 +1196,7 @@ async function scrapeReviews(page, asin, keyword, maxReviews = 200) {
         return !!nextBtn;
       });
 
-      if (!hasNextPage || reviews.length >= maxReviews) {
+      if (!hasNextPage) {
         break;
       }
 
@@ -1217,11 +1217,11 @@ async function scrapeReviews(page, asin, keyword, maxReviews = 200) {
  * Enhanced reviews scraping for authenticated sessions
  * Scrapes multiple pages of reviews when logged in
  */
-async function scrapeReviewsPage(page, asin, maxReviews = 50) {
+async function scrapeReviewsPage(page, asin, maxReviews = Infinity) {
   const reviews = [];
   let pageNum = 1;
 
-  while (reviews.length < maxReviews && pageNum <= 5) {
+  while (pageNum <= 500) { // hard ceiling: 500 pages = ~5000 reviews max
     try {
       await page.goto(`https://www.amazon.com/product-reviews/${asin}?pageNumber=${pageNum}&sortBy=recent`, {
         waitUntil: 'domcontentloaded', timeout: 30000
@@ -1793,11 +1793,10 @@ async function runScout(job) {
               product.brand = details.brand;
             }
 
-            // Scrape reviews - more when authenticated
-            const maxReviewsToScrape = isLoggedIn ? 100 : 50;
+            // Scrape ALL available reviews (no limit)
             const reviews = isLoggedIn
-              ? await scrapeReviewsPage(page, product.asin, maxReviewsToScrape)
-              : await scrapeReviews(page, product.asin, keyword, maxReviewsToScrape);
+              ? await scrapeReviewsPage(page, product.asin)
+              : await scrapeReviews(page, product.asin, keyword);
 
             if (reviews.length > 0) {
               // Add asin and keyword to reviews from scrapeReviewsPage (if not already present)
