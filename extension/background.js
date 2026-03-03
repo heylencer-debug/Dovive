@@ -1,0 +1,385 @@
+// Dovive Scout - Background Service Worker
+// Handles Supabase communication, tab management, and scout orchestration
+
+const SB_URL = 'https://fhfqjcvwcxizbioftvdw.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZoZnFqY3Z3Y3hpemJpb2Z0dmR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNTcxMzgsImV4cCI6MjA4NzkzMzEzOH0.g8K40DjhvxE7u4JdHICqKc1dMxS4eZdMhfA11M8ZMBc';
+
+// Default state
+const DEFAULT_STATE = {
+  running: false,
+  currentKeyword: '',
+  currentKeywordIndex: 0,
+  totalKeywords: 0,
+  productsScraped: 0,
+  errors: 0,
+  log: []
+};
+
+// ============ SUPABASE FUNCTIONS ============
+
+async function sbUpsert(table, data, onConflict) {
+  const url = `${SB_URL}/rest/v1/${table}`;
+  const headers = {
+    'apikey': SB_KEY,
+    'Authorization': `Bearer ${SB_KEY}`,
+    'Content-Type': 'application/json',
+    'Prefer': 'resolution=merge-duplicates'
+  };
+
+  if (onConflict) {
+    headers['Prefer'] += `,on_conflict=${onConflict}`;
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(data)
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Supabase upsert failed: ${error}`);
+  }
+
+  return response;
+}
+
+async function sbFetch(table, params = {}) {
+  const url = new URL(`${SB_URL}/rest/v1/${table}`);
+  Object.entries(params).forEach(([key, value]) => {
+    url.searchParams.append(key, value);
+  });
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      'apikey': SB_KEY,
+      'Authorization': `Bearer ${SB_KEY}`,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Supabase fetch failed: ${error}`);
+  }
+
+  return response.json();
+}
+
+async function getActiveKeywords() {
+  const data = await sbFetch('dovive_keywords', {
+    'active': 'eq.true',
+    'select': 'keyword'
+  });
+  return data.map(row => row.keyword);
+}
+
+async function saveProduct(productData) {
+  await sbUpsert('dovive_research', productData, 'asin,keyword');
+}
+
+async function saveReviews(asin, keyword, reviews) {
+  if (!reviews || reviews.length === 0) return;
+
+  const reviewsWithKeys = reviews.map(r => ({
+    ...r,
+    asin,
+    keyword
+  }));
+
+  await sbUpsert('dovive_reviews', reviewsWithKeys, 'asin,review_id');
+}
+
+// ============ STATE MANAGEMENT ============
+
+async function getState() {
+  const result = await chrome.storage.local.get('scoutState');
+  return result.scoutState || { ...DEFAULT_STATE };
+}
+
+async function setState(updates) {
+  const current = await getState();
+  const newState = { ...current, ...updates };
+  await chrome.storage.local.set({ scoutState: newState });
+  return newState;
+}
+
+async function addLog(message, type = 'info') {
+  const state = await getState();
+  const timestamp = new Date().toLocaleTimeString();
+  const logEntry = { timestamp, message, type };
+  const log = [logEntry, ...state.log].slice(0, 50); // Keep last 50
+  await setState({ log });
+  console.log(`[Dovive Scout] ${type}: ${message}`);
+}
+
+// ============ TAB MANAGEMENT ============
+
+async function getScoutTabId() {
+  const result = await chrome.storage.local.get('scoutTabId');
+  return result.scoutTabId;
+}
+
+async function setScoutTabId(tabId) {
+  await chrome.storage.local.set({ scoutTabId: tabId });
+}
+
+async function openSearchTab(keyword) {
+  const searchUrl = `https://www.amazon.com/s?k=${encodeURIComponent(keyword)}`;
+
+  let tabId = await getScoutTabId();
+
+  if (tabId) {
+    try {
+      await chrome.tabs.update(tabId, { url: searchUrl, active: true });
+      return tabId;
+    } catch (e) {
+      // Tab might have been closed
+    }
+  }
+
+  const tab = await chrome.tabs.create({ url: searchUrl, active: true });
+  await setScoutTabId(tab.id);
+  return tab.id;
+}
+
+async function closeScoutTab() {
+  const tabId = await getScoutTabId();
+  if (tabId) {
+    try {
+      await chrome.tabs.remove(tabId);
+    } catch (e) {
+      // Tab might already be closed
+    }
+    await chrome.storage.local.remove('scoutTabId');
+  }
+}
+
+async function navigateToProduct(asin) {
+  const tabId = await getScoutTabId();
+  if (!tabId) return;
+
+  // Random delay before clicking (human behavior)
+  const delay = 500 + Math.random() * 500;
+  await new Promise(resolve => setTimeout(resolve, delay));
+
+  // Inject script to click the product link naturally
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (asin) => {
+        const link = document.querySelector(`[data-asin="${asin}"] h2 a`);
+        if (link) {
+          link.click();
+        } else {
+          // Fallback: try any link in the product card
+          const card = document.querySelector(`[data-asin="${asin}"]`);
+          const anyLink = card?.querySelector('a[href*="/dp/"]');
+          if (anyLink) anyLink.click();
+        }
+      },
+      args: [asin]
+    });
+  } catch (e) {
+    console.error('Failed to click product link:', e);
+    // Fallback to direct navigation
+    await chrome.tabs.update(tabId, { url: `https://www.amazon.com/dp/${asin}` });
+  }
+}
+
+// ============ SCOUT FLOW ============
+
+let keywords = [];
+let currentProducts = [];
+
+async function startScout() {
+  try {
+    await addLog('Starting scout...', 'info');
+
+    // Fetch active keywords
+    keywords = await getActiveKeywords();
+
+    if (keywords.length === 0) {
+      await addLog('No active keywords found!', 'error');
+      await setState({ running: false });
+      return;
+    }
+
+    await setState({
+      running: true,
+      currentKeywordIndex: 0,
+      totalKeywords: keywords.length,
+      productsScraped: 0,
+      errors: 0,
+      currentKeyword: keywords[0]
+    });
+
+    await addLog(`Found ${keywords.length} keywords`, 'success');
+
+    // Start with first keyword
+    await processNextKeyword();
+
+  } catch (e) {
+    await addLog(`Start failed: ${e.message}`, 'error');
+    await setState({ running: false });
+  }
+}
+
+async function processNextKeyword() {
+  const state = await getState();
+
+  if (!state.running) {
+    await addLog('Scout stopped', 'info');
+    return;
+  }
+
+  if (state.currentKeywordIndex >= keywords.length) {
+    // Done!
+    await addLog('Scout complete!', 'success');
+    await setState({ running: false, currentKeyword: '' });
+    await closeScoutTab();
+    return;
+  }
+
+  const keyword = keywords[state.currentKeywordIndex];
+  await setState({ currentKeyword: keyword });
+  await addLog(`Searching: ${keyword}`, 'info');
+
+  await openSearchTab(keyword);
+}
+
+async function handleSearchResults(keyword, products) {
+  const state = await getState();
+  if (!state.running) return;
+
+  if (!products || products.length === 0) {
+    await addLog(`No products found for: ${keyword}`, 'error');
+    await setState({ errors: state.errors + 1 });
+    await moveToNextKeyword();
+    return;
+  }
+
+  currentProducts = products;
+  const topProduct = products[0];
+
+  await addLog(`Found ${products.length} products, scraping: ${topProduct.asin}`, 'info');
+
+  // Save search results for top product
+  try {
+    await saveProduct({
+      asin: topProduct.asin,
+      keyword: keyword,
+      title: topProduct.title,
+      price: topProduct.price,
+      rating: topProduct.rating,
+      review_count: topProduct.review_count,
+      rank_position: topProduct.rank_position,
+      is_sponsored: topProduct.is_sponsored,
+      scraped_at: new Date().toISOString()
+    });
+  } catch (e) {
+    await addLog(`Failed to save search data: ${e.message}`, 'error');
+  }
+
+  // Navigate to product page for deep scrape
+  await navigateToProduct(topProduct.asin);
+}
+
+async function handleProductData(data) {
+  const state = await getState();
+  if (!state.running) return;
+
+  try {
+    // Merge with keyword
+    const productData = {
+      ...data,
+      keyword: state.currentKeyword,
+      specs: data.specs ? JSON.stringify(data.specs) : null,
+      images: data.images ? JSON.stringify(data.images) : null,
+      bullet_points: data.bullet_points ? JSON.stringify(data.bullet_points) : null,
+      certifications: data.certifications ? JSON.stringify(data.certifications) : null
+    };
+
+    await saveProduct(productData);
+    await addLog(`Saved: ${data.asin} (${state.currentKeyword})`, 'success');
+    await setState({ productsScraped: state.productsScraped + 1 });
+
+  } catch (e) {
+    await addLog(`Save failed: ${e.message}`, 'error');
+    await setState({ errors: state.errors + 1 });
+  }
+
+  await moveToNextKeyword();
+}
+
+async function moveToNextKeyword() {
+  const state = await getState();
+  const nextIndex = state.currentKeywordIndex + 1;
+  await setState({ currentKeywordIndex: nextIndex });
+
+  // Small delay between keywords
+  await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
+
+  await processNextKeyword();
+}
+
+async function stopScout() {
+  await setState({ running: false, currentKeyword: '' });
+  await addLog('Scout stopped by user', 'info');
+  await closeScoutTab();
+}
+
+// ============ MESSAGE HANDLING ============
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  (async () => {
+    try {
+      switch (message.type) {
+        case 'START_SCOUT':
+          await startScout();
+          sendResponse({ success: true });
+          break;
+
+        case 'STOP_SCOUT':
+          await stopScout();
+          sendResponse({ success: true });
+          break;
+
+        case 'GET_STATE':
+          const state = await getState();
+          sendResponse({ state });
+          break;
+
+        case 'SEARCH_RESULTS':
+          await handleSearchResults(message.keyword, message.products);
+          sendResponse({ success: true });
+          break;
+
+        case 'PRODUCT_DATA':
+          await handleProductData(message.data);
+          sendResponse({ success: true });
+          break;
+
+        case 'SCRAPE_ERROR':
+          await addLog(`Scrape error: ${message.error}`, 'error');
+          const currentState = await getState();
+          await setState({ errors: currentState.errors + 1 });
+          await moveToNextKeyword();
+          sendResponse({ success: true });
+          break;
+
+        default:
+          sendResponse({ error: 'Unknown message type' });
+      }
+    } catch (e) {
+      console.error('Message handler error:', e);
+      sendResponse({ error: e.message });
+    }
+  })();
+
+  return true; // Keep channel open for async response
+});
+
+// Log when service worker starts
+console.log('[Dovive Scout] Service worker started');

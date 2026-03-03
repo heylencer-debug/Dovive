@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=400">
+  <title>Dovive Scout</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <span class="logo-text">DOVIVE SCOUT</span>
+        <span class="version">v1.0</span>
+      </div>
+    </header>
+
+    <!-- Status Section -->
+    <section class="status-section">
+      <div id="status-pill" class="status-pill status-idle">
+        <span id="status-text">IDLE</span>
+      </div>
+      <p id="current-action" class="current-action">Ready to start</p>
+    </section>
+
+    <!-- Stats Row -->
+    <section class="stats-row">
+      <div class="stat">
+        <span class="stat-value" id="stat-keywords">0</span>
+        <span class="stat-label">Keywords</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value" id="stat-products">0</span>
+        <span class="stat-label">Products</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value" id="stat-errors">0</span>
+        <span class="stat-label">Errors</span>
+      </div>
+    </section>
+
+    <!-- Progress Bar -->
+    <section class="progress-section">
+      <div class="progress-bar">
+        <div id="progress-fill" class="progress-fill"></div>
+      </div>
+      <span id="progress-text" class="progress-text">0%</span>
+    </section>
+
+    <!-- Action Buttons -->
+    <section class="actions">
+      <button id="btn-start" class="btn btn-primary">START SCOUT</button>
+      <button id="btn-stop" class="btn btn-stop hidden">STOP</button>
+    </section>
+
+    <!-- Log Section -->
+    <section class="log-section">
+      <div class="log-header">Activity Log</div>
+      <div id="log-container" class="log-container">
+        <div class="log-entry log-info">
+          <span class="log-time">--:--:--</span>
+          <span class="log-message">Waiting to start...</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      Data saves to Supabase dovive_research
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

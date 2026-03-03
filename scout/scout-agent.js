@@ -1692,23 +1692,23 @@ async function runScout(job) {
     log(`Product types per keyword: ${PRODUCT_TYPES.length}`);
     log(`Priority types: ${PRIORITY_TYPES.join(', ')}`);
 
-    // Launch browser with stealth mode + persistent session
+    // Use real Chrome install with its own user profile — bypasses Amazon bot detection
+    const chromeExe = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
     const userDataDir = path.join(__dirname, '.browser-profile');
     const context = await chromium.launchPersistentContext(userDataDir, {
       headless: false,
+      executablePath: chromeExe,
       args: [
-        '--disable-blink-features=AutomationControlled',
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-infobars',
-        '--window-size=1366,768'
+        '--window-size=1366,768',
+        '--disable-extensions-except',
+        '--start-maximized'
       ],
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
       viewport: { width: 1366, height: 768 },
       locale: 'en-US',
-      timezoneId: 'America/New_York',
-      geolocation: { longitude: -73.935242, latitude: 40.730610 }, // New York
-      permissions: ['geolocation']
+      timezoneId: 'America/New_York'
     });
     browser = context;
 
