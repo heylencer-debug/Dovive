@@ -515,7 +515,7 @@ async function sbDelete(table, filter) {
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Supabase delete error: ${res.status} - ${text}`);
+    log(`Delete warning on ${table}: ${res.status} - ${text}`, 'warn');
   }
 
   return true;
@@ -1381,35 +1381,46 @@ async function saveProductDetails(asin, keyword, details, productType) {
 }
 
 /**
- * Save reviews to dovive_reviews
- * Now includes sentiment_tags
+ * Save reviews to dovive_reviews table (individual rows, not JSON blob)
+ * Deletes old reviews first for fresh data, then batch inserts
  */
 async function saveReviews(asin, keyword, reviews) {
-  if (!reviews || reviews.length === 0) return;
+  if (!reviews || reviews.length === 0) return 0;
 
+  // Delete old reviews for this asin+keyword first (fresh data on each scrape)
+  await sbDelete('dovive_reviews', `asin=eq.${asin}&keyword=eq.${encodeURIComponent(keyword)}`);
+
+  // Prepare rows with all fields
+  const rows = reviews.map(r => ({
+    asin,
+    keyword,
+    reviewer_name: r.reviewer_name || r.author || null,
+    rating: r.rating || null,
+    title: r.title || null,
+    body: r.body || r.text || null,
+    review_date: r.date || r.review_date || null,
+    verified_purchase: r.verified || r.verified_purchase || false,
+    helpful_votes: parseInt(r.helpful_votes) || 0,
+    sentiment_tags: r.sentiment_tags || [],
+    scraped_at: new Date().toISOString()
+  }));
+
+  // Insert in batches of 50 to avoid payload limits
+  const batchSize = 50;
   let saved = 0;
-  for (const r of reviews) {
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const batch = rows.slice(i, i + batchSize);
     try {
-      await sbInsert('dovive_reviews', {
-        asin,
-        keyword,
-        reviewer_name: r.reviewer_name,
-        rating: r.rating,
-        title: r.title,
-        body: r.body,
-        review_date: r.review_date,
-        verified_purchase: r.verified_purchase,
-        helpful_votes: r.helpful_votes,
-        sentiment_tags: r.sentiment_tags || [],
-        scraped_at: new Date().toISOString()
-      });
-      saved++;
+      await sbInsert('dovive_reviews', batch);
+      saved += batch.length;
+      log(`    Saved reviews batch ${Math.floor(i/batchSize)+1}: ${saved}/${rows.length}`);
     } catch (err) {
-      // Likely duplicates, continue
+      log(`    Failed to save reviews batch: ${err.message}`, 'warn');
     }
   }
 
   log(`  Saved ${saved}/${reviews.length} reviews for ${asin}`, 'success');
+  return saved;
 }
 
 /**

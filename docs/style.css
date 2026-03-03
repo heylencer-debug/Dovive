@@ -3174,3 +3174,301 @@ body {
 .product-type-badge.type-tablet { background: #FBBF24; color: #1F2937; }
 .product-type-badge.type-liquid-drops { background: #2DD4BF; }
 .product-type-badge.type-other { background: #9CA3AF; }
+
+/* ============================================================
+   V2.9: Reviews Tab - Improved Sentiment Breakdown & Display
+   ============================================================ */
+
+/* Reviews Empty State */
+.reviews-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+}
+.reviews-empty-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+.reviews-empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+.reviews-empty-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* Reviews Summary Header */
+.reviews-summary-header {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-light);
+}
+.reviews-overall-stats {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.reviews-total-badge,
+.reviews-avg-badge {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 12px;
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--border-color);
+  border-radius: 6px;
+}
+.reviews-avg-badge .stars {
+  color: #F59E0B;
+  margin-right: 4px;
+}
+
+/* Sentiment Breakdown Section */
+.sentiment-breakdown-section {
+  margin-bottom: 24px;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+}
+.sentiment-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+.sentiment-bars-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sentiment-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.sentiment-tag-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  min-width: 130px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sentiment-bar-wrap {
+  flex: 1;
+  height: 6px;
+  background: #E5E5E5;
+  border-radius: 3px;
+  max-width: 120px;
+  overflow: hidden;
+}
+.sentiment-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--border-color);
+  transition: width 0.3s ease;
+}
+.sentiment-bar-fill.positive {
+  background: var(--success);
+}
+.sentiment-bar-fill.negative {
+  background: var(--error);
+}
+.sentiment-bar-fill.neutral {
+  background: var(--text-secondary);
+}
+.sentiment-count-num {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 30px;
+  text-align: right;
+}
+
+/* Reviews List Section */
+.reviews-list-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.review-card {
+  padding: 16px;
+  background: #fff;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+}
+.review-header-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.review-rating-stars {
+  color: #F59E0B;
+  font-size: 14px;
+}
+.verified-badge-review {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--success);
+  background: rgba(34, 197, 94, 0.1);
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+.review-title-text {
+  font-size: 14px;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+.review-body-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.review-body-text.truncated {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.review-body-text.expanded {
+  -webkit-line-clamp: unset;
+}
+.review-show-more {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--info);
+  cursor: pointer;
+}
+.review-show-more:hover {
+  text-decoration: underline;
+}
+.review-meta-line {
+  font-size: 11px;
+  color: var(--text-light);
+  margin-top: 10px;
+}
+.review-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.review-sentiment-chip {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  background: transparent;
+}
+.review-sentiment-chip.pos {
+  border-color: var(--success);
+  color: var(--success);
+}
+.review-sentiment-chip.neg {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+/* Load More Button */
+.load-more-reviews-btn {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  padding: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.load-more-reviews-btn:hover {
+  background: var(--border-color);
+  color: white;
+}
+
+/* ============================================================
+   V2.9: Scout Data Stats Section
+   ============================================================ */
+
+.data-stats-section {
+  margin-bottom: 24px;
+  padding: 20px;
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--border-color);
+  border-radius: 8px;
+}
+.data-stats-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+.data-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.data-stat-item {
+  text-align: center;
+}
+.data-stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+.data-stat-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+/* ============================================================
+   V2.9: Overview Summary Stats Bar
+   ============================================================ */
+
+.scout-summary-bar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 16px 20px;
+  background: var(--border-color);
+  color: white;
+  border-radius: 8px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.scout-summary-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.scout-summary-item strong {
+  font-weight: 700;
+}
+.scout-summary-divider {
+  width: 1px;
+  height: 20px;
+  background: rgba(255,255,255,0.2);
+}

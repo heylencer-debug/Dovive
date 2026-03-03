@@ -1713,7 +1713,19 @@
 
   // Setup modal interactions (expand reviews, raw specs toggle)
   function setupModalInteractions() {
-    // Review expand
+    // Review expand (new style)
+    document.querySelectorAll('.review-show-more').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const body = e.target.previousElementSibling;
+        if (body) {
+          body.classList.toggle('truncated');
+          body.classList.toggle('expanded');
+          e.target.textContent = body.classList.contains('expanded') ? 'Show less' : 'Show more';
+        }
+      });
+    });
+
+    // Legacy review expand
     document.querySelectorAll('.review-expand').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const body = e.target.previousElementSibling;
@@ -1736,10 +1748,20 @@
       });
     }
 
-    // Load more reviews
-    const loadMoreBtn = document.querySelector('.load-more-btn');
+    // Load more reviews (new style)
+    const loadMoreBtn = document.querySelector('.load-more-reviews-btn');
     if (loadMoreBtn) {
       loadMoreBtn.addEventListener('click', async () => {
+        modalReviewsLoaded += 20;
+        document.querySelector('.modal-body').innerHTML = renderModalTabContent();
+        setupModalInteractions();
+      });
+    }
+
+    // Legacy load more
+    const legacyLoadMoreBtn = document.querySelector('.load-more-btn');
+    if (legacyLoadMoreBtn) {
+      legacyLoadMoreBtn.addEventListener('click', async () => {
         modalReviewsLoaded += 20;
         document.querySelector('.modal-body').innerHTML = renderModalTabContent();
         setupModalInteractions();
@@ -1930,23 +1952,31 @@
     `;
   }
 
-  // TAB 3: Reviews
+  // TAB 3: Reviews - Now shows data from dovive_reviews table (individual rows)
   function renderReviewsTab(p, revs) {
-    // V2.8: Merge reviews from dovive_research (p.reviews) with dovive_reviews (revs)
-    const researchReviews = p.reviews || [];
-    const allReviews = researchReviews.length > 0 ? researchReviews : revs;
+    // V2.9: Use reviews from dovive_reviews table (revs) as primary source
+    // Fall back to p.reviews only if revs is empty
+    const allReviews = revs.length > 0 ? revs : (p.reviews || []);
     const totalReviews = allReviews.length;
-    const avgRating = p.rating || (totalReviews > 0 ? (allReviews.reduce((sum, r) => sum + (r.rating || 0), 0) / totalReviews) : 0);
+    const avgRating = totalReviews > 0
+      ? (allReviews.reduce((sum, r) => sum + (r.rating || 0), 0) / totalReviews)
+      : (p.rating || 0);
     const ratingStars = '★'.repeat(Math.floor(avgRating)) + (avgRating % 1 >= 0.5 ? '½' : '');
 
-    // V2.8: Note about data source
-    const dataSourceNote = researchReviews.length > 0
-      ? '<div class="reviews-note">Showing top 10 reviews from product page</div>'
-      : '<div class="reviews-note">Showing reviews from full scrape</div>';
+    // Empty state
+    if (totalReviews === 0) {
+      return `
+        <div class="reviews-empty-state">
+          <div class="reviews-empty-icon">💬</div>
+          <div class="reviews-empty-title">No reviews scraped yet for this product</div>
+          <div class="reviews-empty-text">Run Scout to collect reviews.</div>
+        </div>
+      `;
+    }
 
-    // Sentiment breakdown (only for full reviews from dovive_reviews)
+    // SENTIMENT BREAKDOWN - count by tag and show horizontal bars
     const sentimentCounts = {};
-    revs.forEach(r => {
+    allReviews.forEach(r => {
       if (r.sentiment_tags && Array.isArray(r.sentiment_tags)) {
         r.sentiment_tags.forEach(tag => {
           sentimentCounts[tag] = (sentimentCounts[tag] || 0) + 1;
@@ -1954,68 +1984,83 @@
       }
     });
 
+    const maxCount = Math.max(...Object.values(sentimentCounts), 1);
     const sentimentItems = Object.entries(sentimentCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6)
       .map(([tag, count]) => {
         const isPositive = tag.includes('positive');
         const isNegative = tag.includes('negative') || tag.includes('side-effects');
-        const pct = Math.min(100, Math.round((count / Math.max(revs.length, 1)) * 100));
+        const barWidth = Math.round((count / maxCount) * 100);
+        const colorClass = isPositive ? 'positive' : isNegative ? 'negative' : 'neutral';
         return `
-          <div class="sentiment-item">
-            <span class="sentiment-label">${escapeHtml(tag)}</span>
-            <div class="sentiment-bar"><div class="sentiment-fill ${isPositive ? 'positive' : isNegative ? 'negative' : ''}" style="width:${pct}%"></div></div>
-            <span class="sentiment-count">${count}</span>
+          <div class="sentiment-row">
+            <span class="sentiment-tag-name">${escapeHtml(tag)}</span>
+            <div class="sentiment-bar-wrap">
+              <div class="sentiment-bar-fill ${colorClass}" style="width:${barWidth}%"></div>
+            </div>
+            <span class="sentiment-count-num">${count}</span>
           </div>
         `;
       })
       .join('');
 
-    // Reviews list (paginated)
+    // Reviews list (paginated, 20 per page)
     const displayReviews = allReviews.slice(0, 20 + modalReviewsLoaded);
     const hasMore = allReviews.length > displayReviews.length;
 
     const reviewsListHtml = displayReviews.map(r => {
-      const stars = r.rating ? '★'.repeat(Math.floor(r.rating)) : '';
-      const verified = (r.verified_purchase || r.verified) ? '<span class="verified-check">✓ Verified</span>' : '';
+      const stars = r.rating ? '★'.repeat(Math.floor(r.rating)) + (r.rating % 1 >= 0.5 ? '½' : '') : '';
+      const verified = (r.verified_purchase || r.verified) ? '<span class="verified-badge-review">VERIFIED ✓</span>' : '';
       const tags = (r.sentiment_tags || []).map(t => {
         const isPos = t.includes('positive');
         const isNeg = t.includes('negative') || t.includes('side-effects');
-        return `<span class="sentiment-tag ${isPos ? 'positive' : isNeg ? 'negative' : ''}">${escapeHtml(t)}</span>`;
+        return `<span class="review-sentiment-chip ${isPos ? 'pos' : isNeg ? 'neg' : ''}">${escapeHtml(t)}</span>`;
       }).join('');
 
+      // Body with 3 lines limit and expand toggle
+      const bodyText = r.body || '';
+      const isLong = bodyText.length > 200;
+
       return `
-        <div class="review-item">
-          <div class="review-top">
-            <span class="review-stars">${stars}</span>
+        <div class="review-card">
+          <div class="review-header-row">
+            <span class="review-rating-stars">${stars}</span>
             ${verified}
           </div>
-          <div class="review-title">${escapeHtml(r.title || '')}</div>
-          <div class="review-body">${escapeHtml(r.body || '')}</div>
-          ${r.body && r.body.length > 200 ? '<span class="review-expand">Show more</span>' : ''}
-          <div class="review-meta">
+          <div class="review-title-text"><strong>${escapeHtml(r.title || '')}</strong></div>
+          <div class="review-body-text ${isLong ? 'truncated' : ''}">${escapeHtml(bodyText)}</div>
+          ${isLong ? '<span class="review-show-more">Show more</span>' : ''}
+          <div class="review-meta-line">
             ${escapeHtml(r.reviewer_name || 'Anonymous')} · ${r.review_date || r.date || ''} ${r.helpful_votes ? '· Helpful: ' + r.helpful_votes : ''}
           </div>
-          ${tags ? `<div class="review-tags">${tags}</div>` : ''}
+          ${tags ? `<div class="review-chips">${tags}</div>` : ''}
         </div>
       `;
     }).join('');
 
     return `
-      <div class="review-summary-bar">
-        <span class="review-overall"><span class="stars">${ratingStars}</span> ${avgRating.toFixed(1)} overall</span>
-        <span class="review-scraped-count">${totalReviews} reviews</span>
+      <div class="reviews-summary-header">
+        <div class="reviews-overall-stats">
+          <span class="reviews-total-badge">Total reviews: ${totalReviews}</span>
+          <span class="reviews-avg-badge">Avg rating: <span class="stars">${ratingStars}</span> ${avgRating.toFixed(1)}</span>
+        </div>
       </div>
 
-      ${dataSourceNote}
+      ${sentimentItems ? `
+        <div class="sentiment-breakdown-section">
+          <div class="sentiment-section-title">SENTIMENT BREAKDOWN</div>
+          <div class="sentiment-bars-container">
+            ${sentimentItems}
+          </div>
+        </div>
+      ` : ''}
 
-      ${sentimentItems ? `<div class="sentiment-breakdown">${sentimentItems}</div>` : ''}
-
-      <div class="reviews-list-modal">
-        ${reviewsListHtml || '<p class="no-data">No reviews available</p>'}
+      <div class="reviews-list-section">
+        ${reviewsListHtml}
       </div>
 
-      ${hasMore ? '<button class="load-more-btn">Load more reviews</button>' : ''}
+      ${hasMore ? '<button class="load-more-reviews-btn">Load more</button>' : ''}
     `;
   }
 
@@ -2201,10 +2246,68 @@
       case 'overview':
         pageTitle.textContent = 'Overview';
         pageSubtitle.textContent = 'Dashboard overview with Scout controls';
+        renderOverviewSummary();
         break;
     }
 
     currentView = view;
+  }
+
+  // ============================================================
+  // V2.9: OVERVIEW SUMMARY BAR
+  // ============================================================
+
+  // Render Overview page summary stats bar
+  async function renderOverviewSummary() {
+    const container = document.getElementById('overview-summary-bar');
+    if (!container) return;
+
+    // Show loading state
+    container.innerHTML = '<div class="scout-summary-bar"><span>Loading stats...</span></div>';
+
+    // Fetch stats
+    let productCount = 0, reviewCount = 0, lastScraped = null;
+    try {
+      const [productsRes, reviewsRes, lastScrapedRes] = await Promise.all([
+        sbFetchSimple('dovive_research?select=count'),
+        sbFetchSimple('dovive_reviews?select=count'),
+        sbFetchSimple('dovive_research?select=scraped_at&order=scraped_at.desc&limit=1')
+      ]);
+      productCount = productsRes.length > 0 ? (productsRes[0].count || productsRes.length) : products.length;
+      reviewCount = reviewsRes.length > 0 ? (reviewsRes[0].count || reviewsRes.length) : 0;
+      if (lastScrapedRes.length > 0 && lastScrapedRes[0].scraped_at) {
+        lastScraped = new Date(lastScrapedRes[0].scraped_at);
+      }
+    } catch (err) {
+      console.error('Failed to fetch overview stats:', err);
+      productCount = products.length;
+    }
+
+    const lastRunText = lastScraped ? formatTimeAgo(lastScraped) : 'Never';
+
+    container.innerHTML = `
+      <div class="scout-summary-bar">
+        <div class="scout-summary-item">
+          <span>Products tracked:</span>
+          <strong>${productCount.toLocaleString()}</strong>
+        </div>
+        <div class="scout-summary-divider"></div>
+        <div class="scout-summary-item">
+          <span>Reviews collected:</span>
+          <strong>${reviewCount.toLocaleString()}</strong>
+        </div>
+        <div class="scout-summary-divider"></div>
+        <div class="scout-summary-item">
+          <span>Last run:</span>
+          <strong>${lastRunText}</strong>
+        </div>
+        <div class="scout-summary-divider"></div>
+        <div class="scout-summary-item">
+          <span>Next run:</span>
+          <strong>Daily 6AM</strong>
+        </div>
+      </div>
+    `;
   }
 
   // ============================================================
@@ -2519,9 +2622,39 @@
   // V2.7: SETTINGS PAGE
   // ============================================================
 
-  function renderSettingsPage() {
+  async function renderSettingsPage() {
     const container = document.getElementById('settings-page-container');
     if (!container) return;
+
+    // Show loading first
+    container.innerHTML = '<div class="modal-loading">Loading settings...</div>';
+
+    // Fetch data stats in parallel
+    let productCount = 0, reviewCount = 0, keywordCount = 0, reportCount = 0, lastScraped = null;
+    try {
+      const [productsRes, reviewsRes, keywordsRes, reportsRes, lastScrapedRes] = await Promise.all([
+        sbFetchSimple('dovive_research?select=count'),
+        sbFetchSimple('dovive_reviews?select=count'),
+        sbFetchSimple('dovive_keywords?active=eq.true&select=count'),
+        sbFetchSimple('dovive_reports?select=count'),
+        sbFetchSimple('dovive_research?select=scraped_at&order=scraped_at.desc&limit=1')
+      ]);
+      productCount = productsRes.length > 0 ? (productsRes[0].count || productsRes.length) : products.length;
+      reviewCount = reviewsRes.length > 0 ? (reviewsRes[0].count || reviewsRes.length) : 0;
+      keywordCount = keywordsRes.length > 0 ? (keywordsRes[0].count || keywordsRes.length) : keywords.length;
+      reportCount = reportsRes.length > 0 ? (reportsRes[0].count || reportsRes.length) : reports.length;
+      if (lastScrapedRes.length > 0 && lastScrapedRes[0].scraped_at) {
+        lastScraped = new Date(lastScrapedRes[0].scraped_at);
+      }
+    } catch (err) {
+      console.error('Failed to fetch data stats:', err);
+      // Use local data as fallback
+      productCount = products.length;
+      keywordCount = keywords.length;
+      reportCount = reports.length;
+    }
+
+    const lastScrapedText = lastScraped ? formatTimeAgo(lastScraped) : 'Never';
 
     // Mode badge
     const modeLabel = {
@@ -2554,6 +2687,37 @@
       : '<div class="muted">No changelog entries</div>';
 
     container.innerHTML = `
+      <!-- DATA STATS Section -->
+      <div class="data-stats-section">
+        <div class="data-stats-title">DATA STATS</div>
+        <div class="data-stats-grid">
+          <div class="data-stat-item">
+            <div class="data-stat-value">${productCount.toLocaleString()}</div>
+            <div class="data-stat-label">Products tracked</div>
+          </div>
+          <div class="data-stat-item">
+            <div class="data-stat-value">${reviewCount.toLocaleString()}</div>
+            <div class="data-stat-label">Reviews collected</div>
+          </div>
+          <div class="data-stat-item">
+            <div class="data-stat-value">${keywordCount}</div>
+            <div class="data-stat-label">Keywords active</div>
+          </div>
+          <div class="data-stat-item">
+            <div class="data-stat-value">${lastScrapedText}</div>
+            <div class="data-stat-label">Last scrape</div>
+          </div>
+          <div class="data-stat-item">
+            <div class="data-stat-value">${reportCount}</div>
+            <div class="data-stat-label">AI reports</div>
+          </div>
+          <div class="data-stat-item">
+            <div class="data-stat-value">Daily 6AM</div>
+            <div class="data-stat-label">Next run</div>
+          </div>
+        </div>
+      </div>
+
       <div class="card" style="max-width: 600px;">
         <div class="card-header">
           <span class="label">SCOUT CONFIGURATION</span>
