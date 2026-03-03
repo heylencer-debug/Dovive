@@ -302,6 +302,25 @@ function log(msg, level = 'info') {
   console.log(`[${ts}] ${prefix} ${msg}`);
 }
 
+// Parse price from text like "$17.54" or "17.54" - returns dollars not cents
+function parsePrice(text) {
+  if (!text) return null;
+  // Remove $ and commas, parse as float
+  const clean = text.replace(/[^0-9.]/g, '');
+  const val = parseFloat(clean);
+  // Sanity check: supplement prices should be between $1 and $500
+  if (isNaN(val) || val <= 0 || val > 500) return null;
+  return Math.round(val * 100) / 100; // round to 2 decimal places
+}
+
+// Parse BSR from text - returns integer rank
+function parseBSR(text) {
+  if (!text) return null;
+  const clean = text.replace(/[^0-9]/g, '');
+  const val = parseInt(clean);
+  return isNaN(val) ? null : val;
+}
+
 // Check if product type is priority
 function isPriorityType(productType) {
   return PRIORITY_TYPES.includes(productType.toLowerCase());
@@ -446,16 +465,17 @@ async function sendTelegram(message) {
   }
 
   try {
-    const res = await fetch(`${OPENCLAW_GATEWAY}/message/send`, {
+    // Use OpenClaw system event to deliver Telegram message
+    const res = await fetch(`${OPENCLAW_GATEWAY}/api/events`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${OPENCLAW_TOKEN}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        channel: 'telegram',
-        to: TELEGRAM_CHAT_ID,
-        message
+        kind: 'system',
+        text: message,
+        deliver: true
       })
     });
 
@@ -540,10 +560,7 @@ async function scrapeSearchResults(page, searchQuery, keyword, productType, maxR
           const linkEl = div.querySelector('h2 a');
           const url = linkEl?.href || `https://www.amazon.com/dp/${asin}`;
 
-          // Price
-          const priceWhole = div.querySelector('.a-price-whole')?.textContent?.replace(/[,.\s]/g, '') || '';
-          const priceFraction = div.querySelector('.a-price-fraction')?.textContent || '00';
-          const price = priceWhole ? parseFloat(`${priceWhole}.${priceFraction}`) : null;
+          // Price - extract raw text, will parse properly outside evaluate
           const priceText = div.querySelector('.a-price .a-offscreen')?.textContent?.trim() || '';
 
           // Rating
@@ -565,7 +582,6 @@ async function scrapeSearchResults(page, searchQuery, keyword, productType, maxR
             asin,
             title: title.slice(0, 500),
             url,
-            price,
             price_text: priceText,
             rating,
             review_count,
@@ -578,12 +594,13 @@ async function scrapeSearchResults(page, searchQuery, keyword, productType, maxR
         return items;
       }, products.length);
 
-      // Add detected product type and metadata
+      // Add detected product type and metadata, parse price properly
       for (const p of pageProducts) {
         if (products.length >= maxResults) break;
         p.keyword = keyword;
         p.search_query = searchQuery;
         p.product_type = detectProductType(p.title);
+        p.price = parsePrice(p.price_text);  // Parse price from text using helper
         products.push(p);
       }
 
@@ -703,7 +720,7 @@ async function scrapeBestSellers(browser, category, keyword) {
       asin: p.asin,
       title: p.title,
       url: p.url,
-      price: p.price_text ? parseFloat(p.price_text) : null,
+      price: parsePrice(p.price_text),  // Use parsePrice helper for proper dollar parsing
       price_text: p.price_text ? '$' + p.price_text : null,
       rating: p.rating_text ? parseFloat(p.rating_text.split(' ')[0]) : null,
       review_count: p.review_text ? parseInt(p.review_text.replace(',', '')) : null,
@@ -859,11 +876,11 @@ async function scrapeProductPage(page, asin, keyword, productType) {
       const titleEl = document.querySelector('#productTitle');
       result.title = titleEl?.textContent?.trim() || '';
 
-      // BSR
+      // BSR - extract raw text, will parse properly outside evaluate
       const detailsText = document.body.innerText;
       const bsrMatch = detailsText.match(/Best\s*Sellers\s*Rank[:\s#]*(\d[\d,]*)/i);
       if (bsrMatch) {
-        result.bsr = parseInt(bsrMatch[1].replace(/,/g, ''));
+        result.bsr_text = bsrMatch[1];  // Return raw text for proper parsing
       }
 
       // BSR Category
@@ -954,6 +971,10 @@ async function scrapeProductPage(page, asin, keyword, productType) {
       details.powder_data = extractPowderData(title, bulletPoints, specsText, ingredientsText);
       details.format_data = details.powder_data;
     }
+
+    // Parse BSR from raw text using helper function
+    details.bsr = parseBSR(details.bsr_text);
+    delete details.bsr_text;  // Clean up temp field
 
     // Add comprehensive image data for OCR pipeline
     details.allImages = allImages;
@@ -1628,19 +1649,37 @@ async function runScout(job) {
         const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null;
         const avgReviews = reviews.length > 0 ? Math.round(reviews.reduce((a, b) => a + b, 0) / reviews.length) : null;
 
-        // Save report
-        await sbInsert('dovive_reports', {
-          keyword,
-          ai_summary: aiSummary,
-          recommendation,
-          total_products: allProducts.length,
-          avg_price: avgPrice ? parseFloat(avgPrice.toFixed(2)) : null,
-          avg_rating: avgRating ? parseFloat(avgRating.toFixed(2)) : null,
-          avg_reviews: avgReviews,
-          analyzed_at: new Date().toISOString()
-        });
-
-        log(`Saved report for "${keyword}"`, 'success');
+        // Save report - try with recommendation column first, fallback without if column doesn't exist
+        try {
+          await sbUpsert('dovive_reports', {
+            keyword,
+            ai_summary: aiSummary,
+            recommendation,
+            total_products: allProducts.length,
+            avg_price: avgPrice ? parseFloat(avgPrice.toFixed(2)) : null,
+            avg_rating: avgRating ? parseFloat(avgRating.toFixed(2)) : null,
+            avg_reviews: avgReviews,
+            analyzed_at: new Date().toISOString()
+          });
+          log(`Saved report for "${keyword}"`, 'success');
+        } catch (reportErr) {
+          // If recommendation column doesn't exist, retry without it
+          if (reportErr.message.includes('recommendation')) {
+            log(`Retrying report save without recommendation column`, 'warn');
+            await sbUpsert('dovive_reports', {
+              keyword,
+              ai_summary: aiSummary,
+              total_products: allProducts.length,
+              avg_price: avgPrice ? parseFloat(avgPrice.toFixed(2)) : null,
+              avg_rating: avgRating ? parseFloat(avgRating.toFixed(2)) : null,
+              avg_reviews: avgReviews,
+              analyzed_at: new Date().toISOString()
+            });
+            log(`Saved report for "${keyword}" (without recommendation)`, 'success');
+          } else {
+            throw reportErr;
+          }
+        }
       }
 
         // Delay before next keyword

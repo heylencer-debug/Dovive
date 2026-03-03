@@ -23,7 +23,25 @@ const migrations = [
   `ALTER TABLE dovive_research ADD COLUMN IF NOT EXISTS is_sponsored boolean DEFAULT false;`,
 
   // dovive_reports table additions (for recommendation field)
-  `ALTER TABLE dovive_reports ADD COLUMN IF NOT EXISTS recommendation text;`
+  `ALTER TABLE dovive_reports ADD COLUMN IF NOT EXISTS recommendation text;`,
+
+  // DEDUP FIX: Add unique constraint on (asin, keyword) to prevent duplicates
+  // First clean up existing duplicates (keep oldest row per asin+keyword)
+  `DELETE FROM dovive_products WHERE id NOT IN (SELECT MIN(id) FROM dovive_products GROUP BY asin, keyword);`,
+
+  // Then add unique constraint for upsert to work properly
+  `ALTER TABLE dovive_products DROP CONSTRAINT IF EXISTS dovive_products_asin_keyword_key;`,
+  `ALTER TABLE dovive_products ADD CONSTRAINT dovive_products_asin_keyword_key UNIQUE (asin, keyword);`,
+
+  // Same for dovive_research table
+  `DELETE FROM dovive_research WHERE id NOT IN (SELECT MIN(id) FROM dovive_research GROUP BY asin, keyword);`,
+  `ALTER TABLE dovive_research DROP CONSTRAINT IF EXISTS dovive_research_asin_keyword_key;`,
+  `ALTER TABLE dovive_research ADD CONSTRAINT dovive_research_asin_keyword_key UNIQUE (asin, keyword);`,
+
+  // dovive_reports - add unique constraint on keyword for upsert
+  `DELETE FROM dovive_reports WHERE id NOT IN (SELECT MIN(id) FROM dovive_reports GROUP BY keyword);`,
+  `ALTER TABLE dovive_reports DROP CONSTRAINT IF EXISTS dovive_reports_keyword_key;`,
+  `ALTER TABLE dovive_reports ADD CONSTRAINT dovive_reports_keyword_key UNIQUE (keyword);`
 ];
 
 async function runMigration(sql) {
