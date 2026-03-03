@@ -1,5 +1,5 @@
-// Dovive Scout Dashboard V2 - Main Application
-// Features: Product type filters, reviews panel, specs panel, progress tracking
+// Dovive Scout Dashboard V2.1 - Main Application
+// Features: Product type filters, reviews panel, specs panel, live progress tracking
 
 (function() {
   'use strict';
@@ -33,6 +33,7 @@
   let currentSort = { column: 'rank_position', desc: false };
   let currentJobStatus = 'idle';
   let currentJobProgress = { keyword: '', type: '', products: 0, reviews: 0 };
+  let currentJob = null; // Full job object for ETA calculations
   let pollIntervalId = null;
   let isPollingJob = false;
   let expandedProducts = new Set();
@@ -157,6 +158,7 @@
         const latestJob = jobs[0];
         const prevStatus = currentJobStatus;
         currentJobStatus = latestJob.status;
+        currentJob = latestJob; // Store full job for ETA
 
         // Update progress info
         currentJobProgress = {
@@ -279,6 +281,12 @@
     });
 
     if (uniqueProducts.length === 0) {
+      // Show progress panel in results area when Scout is running/queued
+      if (currentJobStatus === 'running' || currentJobStatus === 'queued') {
+        resultsContainer.innerHTML = '';
+        return; // Progress panel shows in #progress-section
+      }
+
       resultsContainer.innerHTML = `
         <div class="empty-state">
           <div class="empty-icon">📊</div>
@@ -549,33 +557,156 @@
       .replace(/\n\n/g, '</p><p>');
   }
 
-  // Render progress section
+  // Render progress section with full progress panel
   function renderProgress() {
     if (!progressSection) return;
 
-    if (currentJobStatus !== 'running') {
+    // Show progress panel for running or queued status
+    if (currentJobStatus !== 'running' && currentJobStatus !== 'queued') {
       progressSection.style.display = 'none';
       return;
     }
 
     progressSection.style.display = 'block';
+
+    // For queued status, show simple waiting state
+    if (currentJobStatus === 'queued') {
+      progressSection.innerHTML = `
+        <div class="scout-progress-panel">
+          <div class="scout-radar">
+            <div class="radar-ring r1"></div>
+            <div class="radar-ring r2"></div>
+            <div class="radar-ring r3"></div>
+            <span class="radar-icon">🔭</span>
+          </div>
+          <div class="scout-running-title">SCOUT IS QUEUED</div>
+          <div class="scout-running-sub">Waiting to start Amazon scraping...</div>
+        </div>
+      `;
+      return;
+    }
+
+    // Calculate progress metrics
+    const totalKeywords = keywords.length || 1;
+    const currentKeywordIndex = keywords.findIndex(kw => kw.keyword === currentJobProgress.keyword);
+    const keywordIndex = currentKeywordIndex >= 0 ? currentKeywordIndex : 0;
+
+    // Progress calculation constants
+    const TOTAL_PRODUCT_TYPES = 20;
+    const PRODUCTS_PER_TYPE = 50;
+
+    // Overall progress = (completed keywords / total) + partial current keyword progress
+    const completedKeywordsPct = (keywordIndex / totalKeywords) * 100;
+    const currentKeywordPct = (currentJobProgress.products / (TOTAL_PRODUCT_TYPES * PRODUCTS_PER_TYPE)) * (100 / totalKeywords);
+    const overallPct = Math.min(99, Math.round(completedKeywordsPct + currentKeywordPct));
+
+    // ETA calculation
+    let etaStr = 'Calculating...';
+    if (currentJob && currentJob.created_at) {
+      const elapsedMs = Date.now() - new Date(currentJob.created_at).getTime();
+      const elapsedMin = Math.round(elapsedMs / 60000);
+      if (overallPct > 5) {
+        const estimatedTotalMin = Math.round(elapsedMin / (overallPct / 100));
+        const remainingMin = Math.max(1, estimatedTotalMin - elapsedMin);
+        etaStr = remainingMin > 60
+          ? `~${Math.floor(remainingMin / 60)}h ${remainingMin % 60}m`
+          : `~${remainingMin}m`;
+      } else {
+        etaStr = '~4h (estimating)';
+      }
+    }
+
+    // Format start time
+    const startTime = currentJob && currentJob.created_at
+      ? new Date(currentJob.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+      : '-';
+
+    // Build keyword breakdown rows
+    const keywordBreakdownHtml = keywords.map((kw, i) => {
+      let status = 'queued';
+      let statusText = 'queued';
+      let pct = 0;
+
+      if (i < keywordIndex) {
+        status = 'done';
+        statusText = '✓ complete';
+        pct = 100;
+      } else if (i === keywordIndex) {
+        status = 'active';
+        statusText = 'in progress...';
+        pct = Math.min(99, Math.round((currentJobProgress.products / (TOTAL_PRODUCT_TYPES * PRODUCTS_PER_TYPE)) * 100));
+      }
+
+      return `
+        <div class="keyword-row">
+          <span class="keyword-name">${escapeHtml(kw.keyword)}</span>
+          <div class="keyword-bar">
+            <div class="progress-bar-wrap">
+              <div class="progress-bar-fill ${status === 'active' ? 'active' : ''}" style="width: ${pct}%"></div>
+            </div>
+          </div>
+          <span class="keyword-status ${status}">${statusText}</span>
+        </div>
+      `;
+    }).join('');
+
     progressSection.innerHTML = `
-      <div class="progress-info">
-        <div class="progress-item">
-          <span class="progress-label">Current Keyword:</span>
-          <span class="progress-value">${escapeHtml(currentJobProgress.keyword) || '-'}</span>
+      <div class="scout-progress-panel">
+        <!-- Animated Scout Radar -->
+        <div class="scout-radar">
+          <div class="radar-ring r1"></div>
+          <div class="radar-ring r2"></div>
+          <div class="radar-ring r3"></div>
+          <span class="radar-icon">🔭</span>
         </div>
-        <div class="progress-item">
-          <span class="progress-label">Product Type:</span>
-          <span class="progress-value">${escapeHtml(currentJobProgress.type) || '-'}</span>
+
+        <div class="scout-running-title">SCOUT IS RUNNING</div>
+        <div class="scout-running-sub">Scraping Amazon for supplement market data...</div>
+
+        <!-- Overall Progress Bar -->
+        <div class="overall-progress">
+          <div class="progress-label">
+            <span>OVERALL PROGRESS</span>
+            <span>Keyword ${keywordIndex + 1} of ${totalKeywords}</span>
+          </div>
+          <div class="progress-bar-wrap large">
+            <div class="progress-bar-fill active" style="width: ${overallPct}%"></div>
+          </div>
+          <div class="progress-pct">${overallPct}%</div>
         </div>
-        <div class="progress-item">
-          <span class="progress-label">Products Scraped:</span>
-          <span class="progress-value">${currentJobProgress.products.toLocaleString()}</span>
+
+        <!-- Current Task Box -->
+        <div class="scout-current-task">
+          <div>🔍 Searching: <strong>"${escapeHtml(currentJobProgress.keyword) || 'Starting...'}"</strong></div>
+          <div>📁 Product Type: <strong>${escapeHtml(currentJobProgress.type) || 'Initializing...'}</strong></div>
+          <div>📦 Products found: <strong>${currentJobProgress.products.toLocaleString()}</strong></div>
+          <div>⭐ Reviews scraped: <strong>${currentJobProgress.reviews.toLocaleString()}</strong></div>
         </div>
-        <div class="progress-item">
-          <span class="progress-label">Reviews Scraped:</span>
-          <span class="progress-value">${currentJobProgress.reviews.toLocaleString()}</span>
+
+        <!-- Keyword Breakdown -->
+        <div class="keyword-breakdown">
+          <div class="progress-label" style="margin-bottom: 12px;"><span>KEYWORD PROGRESS</span></div>
+          ${keywordBreakdownHtml}
+        </div>
+
+        <!-- Stats Row -->
+        <div class="scout-stats-row">
+          <div class="scout-stat">
+            <div class="scout-stat-val">${etaStr}</div>
+            <div class="scout-stat-label">Est. Remaining</div>
+          </div>
+          <div class="scout-stat">
+            <div class="scout-stat-val">${startTime}</div>
+            <div class="scout-stat-label">Started</div>
+          </div>
+          <div class="scout-stat">
+            <div class="scout-stat-val">${currentJobProgress.products.toLocaleString()}</div>
+            <div class="scout-stat-label">Products</div>
+          </div>
+          <div class="scout-stat">
+            <div class="scout-stat-val">${currentJobProgress.reviews.toLocaleString()}</div>
+            <div class="scout-stat-label">Reviews</div>
+          </div>
         </div>
       </div>
     `;
