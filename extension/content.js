@@ -70,6 +70,10 @@ function isProductPage() {
   return window.location.pathname.includes('/dp/');
 }
 
+function isReviewsPage() {
+  return window.location.pathname.includes('/product-reviews/');
+}
+
 // ============ SEARCH PAGE SCRAPER ============
 
 async function scrapeSearchResults() {
@@ -164,82 +168,67 @@ async function scrapeSearchResults() {
   }
 }
 
-// ============ REVIEWS SCRAPER ============
+// ============ REVIEWS PAGE SCRAPER ============
 
-async function scrapeReviews(asin, maxPages = 3) {
-  const reviews = [];
+async function scrapeReviewsPage() {
+  try {
+    const asinMatch = window.location.pathname.match(/\/product-reviews\/([A-Z0-9]+)/i);
+    if (!asinMatch) return;
+    const asin = asinMatch[1];
+    const pageMatch = new URLSearchParams(window.location.search).get('pageNumber') || '1';
+    const page = parseInt(pageMatch);
 
-  for (let page = 1; page <= maxPages; page++) {
-    try {
-      console.log(`[Dovive Scout] Scraping reviews page ${page} for ${asin}`);
+    console.log(`[Dovive Scout] Scraping reviews page ${page} for ${asin}`);
 
-      // Navigate to reviews page
-      const reviewsUrl = `https://www.amazon.com/product-reviews/${asin}?pageNumber=${page}&sortBy=recent&reviewerType=all_reviews`;
+    await randomDelay(2000, 3500);
 
-      // Open reviews in same tab
-      window.location.href = reviewsUrl;
+    // Human scroll through reviews
+    await humanScroll(document.body.scrollHeight * 0.5);
+    await randomDelay(800, 1500);
+    await humanScroll(document.body.scrollHeight * 0.95);
+    await randomDelay(600, 1200);
 
-      // Wait for page load
-      await new Promise(resolve => {
-        if (document.readyState === 'complete') return resolve();
-        window.addEventListener('load', resolve, { once: true });
+    const reviewCards = document.querySelectorAll('[data-hook="review"]');
+    const reviews = [];
+
+    for (const card of reviewCards) {
+      const ratingEl = card.querySelector('[data-hook="review-star-rating"] .a-icon-alt, [data-hook="cmps-review-star-rating"] .a-icon-alt');
+      const titleEl = card.querySelector('[data-hook="review-title"] span:not(.a-icon-alt)');
+      const bodyEl = card.querySelector('[data-hook="review-body"] span');
+      const dateEl = card.querySelector('[data-hook="review-date"]');
+      const authorEl = card.querySelector('.a-profile-name');
+      const verifiedEl = card.querySelector('[data-hook="avp-badge"]');
+      const reviewIdMatch = card.getAttribute('id')?.match(/[A-Z0-9]{10,}/);
+
+      reviews.push({
+        asin,
+        review_id: reviewIdMatch ? reviewIdMatch[0] : `${asin}_p${page}_${reviews.length}`,
+        rating: ratingEl ? parseFloat(ratingEl.textContent) : null,
+        title: titleEl?.textContent?.trim(),
+        body: bodyEl?.textContent?.trim()?.substring(0, 2000),
+        date: dateEl?.textContent?.replace('Reviewed in', '').trim(),
+        author: authorEl?.textContent?.trim(),
+        verified: !!verifiedEl,
+        page_number: page,
+        scraped_at: new Date().toISOString()
       });
-      await randomDelay(2000, 3500);
-
-      // Human scroll through reviews
-      await humanScroll(document.body.scrollHeight * 0.5);
-      await randomDelay(800, 1500);
-      await humanScroll(document.body.scrollHeight * 0.95);
-      await randomDelay(600, 1200);
-
-      // Extract reviews from this page
-      const reviewCards = document.querySelectorAll('[data-hook="review"]');
-      if (reviewCards.length === 0) {
-        console.log('[Dovive Scout] No reviews on page', page, '— stopping');
-        break;
-      }
-
-      for (const card of reviewCards) {
-        const ratingEl = card.querySelector('[data-hook="review-star-rating"] .a-icon-alt, [data-hook="cmps-review-star-rating"] .a-icon-alt');
-        const titleEl = card.querySelector('[data-hook="review-title"] span:not(.a-icon-alt)');
-        const bodyEl = card.querySelector('[data-hook="review-body"] span');
-        const dateEl = card.querySelector('[data-hook="review-date"]');
-        const authorEl = card.querySelector('.a-profile-name');
-        const verifiedEl = card.querySelector('[data-hook="avp-badge"]');
-        const reviewIdMatch = card.getAttribute('id')?.match(/[A-Z0-9]{10,}/);
-
-        reviews.push({
-          asin,
-          review_id: reviewIdMatch ? reviewIdMatch[0] : `${asin}_${page}_${reviews.length}`,
-          rating: ratingEl ? parseFloat(ratingEl.textContent) : null,
-          title: titleEl?.textContent?.trim(),
-          body: bodyEl?.textContent?.trim()?.substring(0, 2000),
-          date: dateEl?.textContent?.replace('Reviewed in', '').trim(),
-          author: authorEl?.textContent?.trim(),
-          verified: !!verifiedEl,
-          page_number: page,
-          scraped_at: new Date().toISOString()
-        });
-      }
-
-      console.log(`[Dovive Scout] Page ${page}: ${reviewCards.length} reviews (total: ${reviews.length})`);
-
-      // Check if there's a next page
-      const nextBtn = document.querySelector('.a-pagination .a-last:not(.a-disabled) a');
-      if (!nextBtn) {
-        console.log('[Dovive Scout] No more review pages');
-        break;
-      }
-
-      await randomDelay(1500, 3000);
-
-    } catch (e) {
-      console.error('[Dovive Scout] Reviews page error:', e.message);
-      break;
     }
-  }
 
-  return reviews;
+    const hasNextPage = !!document.querySelector('.a-pagination .a-last:not(.a-disabled) a');
+    console.log(`[Dovive Scout] Reviews page ${page}: ${reviews.length} reviews, hasNext: ${hasNextPage}`);
+
+    chrome.runtime.sendMessage({
+      type: 'REVIEWS_DATA',
+      asin,
+      reviews,
+      page,
+      hasNextPage
+    });
+
+  } catch (e) {
+    console.error('[Dovive Scout] Reviews page error:', e);
+    chrome.runtime.sendMessage({ type: 'SCRAPE_ERROR', error: e.message });
+  }
 }
 
 // ============ PRODUCT PAGE SCRAPER ============
@@ -341,16 +330,10 @@ async function scrapeProductPage() {
 
     console.log('[Dovive Scout] Extracted product data:', productData.title);
 
-    // Scrape reviews (up to 3 pages = ~90 reviews)
-    const reviews = await scrapeReviews(asin);
-    productData.reviews_data = reviews;
-    console.log('[Dovive Scout] Reviews scraped:', reviews.length);
-
-    // Send to background
+    // Send product data back — background will navigate to reviews page next
     chrome.runtime.sendMessage({
       type: 'PRODUCT_DATA',
-      data: productData,
-      reviews
+      data: productData
     });
 
   } catch (e) {
@@ -446,6 +429,8 @@ async function checkAndScrape() {
     await scrapeSearchResults();
   } else if (isProductPage()) {
     await scrapeProductPage();
+  } else if (isReviewsPage()) {
+    await scrapeReviewsPage();
   }
 }
 

@@ -319,7 +319,40 @@ async function handleSearchResults(keyword, products) {
   await navigateToProduct(topProduct.asin);
 }
 
-async function handleProductData(data, reviews = []) {
+const MAX_REVIEW_PAGES = 3;
+
+async function navigateToReviews(asin, page = 1) {
+  const tabId = await getScoutTabId();
+  if (!tabId) return;
+  await randomDelay(2000, 4000);
+  const url = `https://www.amazon.com/product-reviews/${asin}?pageNumber=${page}&sortBy=recent&reviewerType=all_reviews`;
+  await chrome.tabs.update(tabId, { url });
+}
+
+async function handleReviewsData(asin, reviews, page, hasNextPage) {
+  const state = await getState();
+  if (!state.running) return;
+
+  // Save this page's reviews
+  if (reviews && reviews.length > 0) {
+    try {
+      await saveReviews(asin, state.currentKeyword, reviews);
+      await addLog(`Reviews p${page}: ${reviews.length} saved for ${asin}`, 'success');
+    } catch (e) {
+      await addLog(`Reviews save failed: ${e.message}`, 'error');
+    }
+  }
+
+  // Go to next page or move to next keyword
+  if (hasNextPage && page < MAX_REVIEW_PAGES) {
+    await navigateToReviews(asin, page + 1);
+  } else {
+    await addLog(`Reviews done for ${asin} (${page} page${page > 1 ? 's' : ''})`, 'info');
+    await moveToNextKeyword();
+  }
+}
+
+async function handleProductData(data) {
   const state = await getState();
   if (!state.running) return;
 
@@ -338,22 +371,15 @@ async function handleProductData(data, reviews = []) {
     await addLog(`Saved: ${data.asin} (${state.currentKeyword})`, 'success');
     await setState({ productsScraped: state.productsScraped + 1 });
 
-    // Save reviews if any
-    if (reviews && reviews.length > 0) {
-      try {
-        await saveReviews(data.asin, state.currentKeyword, reviews);
-        await addLog(`Saved ${reviews.length} reviews for ${data.asin}`, 'success');
-      } catch (e) {
-        await addLog(`Reviews save failed: ${e.message}`, 'error');
-      }
-    }
-
   } catch (e) {
     await addLog(`Save failed: ${e.message}`, 'error');
     await setState({ errors: state.errors + 1 });
+    await moveToNextKeyword();
+    return;
   }
 
-  await moveToNextKeyword();
+  // Navigate to reviews page — content script will handle scraping
+  await navigateToReviews(data.asin, 1);
 }
 
 async function moveToNextKeyword() {
@@ -400,7 +426,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
 
         case 'PRODUCT_DATA':
-          await handleProductData(message.data, message.reviews);
+          await handleProductData(message.data);
+          sendResponse({ success: true });
+          break;
+
+        case 'REVIEWS_DATA':
+          await handleReviewsData(message.asin, message.reviews, message.page, message.hasNextPage);
           sendResponse({ success: true });
           break;
 
