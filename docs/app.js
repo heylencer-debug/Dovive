@@ -82,7 +82,7 @@
     await loadFormatFocusData();
     await loadScoutSettings();
     await checkScoutStatus();
-    refreshScoutStatus(); // sync Start Scout button with latest job state
+    await refreshScoutStatus(); // sync Start Scout button with latest job state
     setupEventListeners();
     setupScoutSettingsToggle();
     startStatusPolling();
@@ -350,6 +350,8 @@
     refreshScoutStatus();
   }
 
+  let _lastJobStatus = null;
+
   async function refreshScoutStatus() {
     try {
       const jobs = await sbFetch('dovive_jobs', {
@@ -358,15 +360,55 @@
       });
       if (!jobs || jobs.length === 0) return;
       const job = jobs[0];
+
       updateScoutStatus(job.status, job);
 
-      // Stop polling when done/error
+      // Auto-start polling if job is active (handles page refresh / other device)
+      const isActive = job.status === 'queued' || job.status === 'running';
+      if (isActive && !scoutJobPollInterval) {
+        startScoutStatusPoll();
+      }
+
+      // Detect transition to done → reload products + show toast
+      if (_lastJobStatus && _lastJobStatus !== job.status) {
+        if (job.status === 'done') {
+          showToast(`✅ Scout done — ${job.products_scraped || 0} products saved`, 'success');
+          await loadProducts();
+          await loadKeywords();
+          renderProductsGrid();
+          renderKeywords();
+        } else if (job.status === 'error' || job.status === 'failed') {
+          showToast('⚠️ Scout run failed', 'error');
+        }
+      }
+      _lastJobStatus = job.status;
+
+      // Stop polling when terminal
       if (job.status === 'done' || job.status === 'error' || job.status === 'failed') {
         if (scoutJobPollInterval) { clearInterval(scoutJobPollInterval); scoutJobPollInterval = null; }
       }
     } catch (e) {
       console.error('Scout status poll error:', e);
     }
+  }
+
+  function showToast(message, type = 'info') {
+    const existing = document.getElementById('scout-toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.id = 'scout-toast';
+    toast.textContent = message;
+    toast.style.cssText = `
+      position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+      background: ${type === 'success' ? '#0A0A0A' : type === 'error' ? '#CC0000' : '#444'};
+      color: #fff; padding: 12px 20px; border-radius: 8px;
+      font-size: 13px; font-weight: 600; letter-spacing: 0.03em;
+      box-shadow: 4px 4px 0 rgba(0,0,0,0.2);
+      animation: fadeInUp 0.2s ease;
+    `;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 5000);
   }
 
   function updateScoutStatus(status, job = null) {
