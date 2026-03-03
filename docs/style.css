@@ -1359,6 +1359,83 @@ body {
   display: none;
 }
 
+/* ============================================================
+   FORMAT FOCUS - Gummies & Powder Cards
+   ============================================================ */
+
+.format-focus-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.format-focus-card {
+  background: var(--bg-main);
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.format-focus-card:hover {
+  box-shadow: 4px 4px 0 var(--border-color);
+  transform: translate(-2px, -2px);
+}
+
+.format-focus-title {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text-primary);
+}
+
+.format-stat {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 12px;
+}
+
+.format-stat:last-child {
+  border-bottom: none;
+}
+
+.format-stat-label {
+  color: var(--text-secondary);
+}
+
+.format-stat-val {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Format Focus Container */
+#format-focus-container {
+  margin-bottom: 24px;
+}
+
+/* Format Focus Section Header */
+.format-focus-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.format-focus-header .label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
 /* Mobile Responsive */
 @media (max-width: 768px) {
   .sidebar {
@@ -1429,6 +1506,10 @@ body {
 
   #product-type-filters {
     justify-content: flex-start;
+  }
+
+  .format-focus-grid {
+    grid-template-columns: 1fr;
   }
 
   .scout-progress-panel {

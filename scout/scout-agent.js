@@ -1,12 +1,17 @@
 /**
- * Dovive Scout Agent V2
+ * Dovive Scout Agent V2.4
  * Amazon Market Research Scraper + AI Analysis + Telegram Reports
  *
  * Features:
+ * - Best Sellers scraping (true sales-ranked top 100 per category)
+ * - Config-driven scrape modes (best_sellers_first, keyword_only, best_sellers_only)
  * - Product type categorization (20 types)
  * - Full review scraping (up to 200 per product)
  * - Deep ASIN data (images, specs, features, ingredients, certifications)
  * - Progress tracking
+ * - Gummies & Powder specialized extraction (sweetener, base, flavors)
+ * - Price per serving calculation
+ * - Review sentiment auto-tagging
  *
  * Run with: node start.js (keeps running and polling)
  * Or once: node scout-agent.js --once
@@ -19,18 +24,19 @@ const fetch = require('node-fetch');
 // ============================================================
 // PRODUCT TYPE CONFIGURATION
 // ============================================================
-// PHASE 1 FOCUS: Gummies and Powder only
-// Expand this list when ready to cover other formats
-const PRODUCT_TYPES = [
+// Priority types get more thorough scraping
+const PRIORITY_TYPES = ['gummies', 'gummy', 'powder'];
+
+// All product types
+const ALL_PRODUCT_TYPES = [
+  'capsule',
+  'capsules',
+  'tablet',
+  'tablets',
+  'softgel',
+  'softgels',
   'gummies',
   'gummy',
-  'powder',
-  // -- Add more formats here when ready --
-  // 'capsule', 'capsules', 'tablet', 'tablets',
-  // 'softgel', 'softgels', 'liquid', 'drops',
-  // 'spray', 'patch', 'tea', 'drink mix',
-  // 'stick pack', 'lozenge', 'chewable', 'liposomal'
-];
   'powder',
   'liquid',
   'drops',
@@ -44,6 +50,12 @@ const PRODUCT_TYPES = [
   'chewable',
   'liposomal'
 ];
+
+// Standard types (non-priority)
+const STANDARD_TYPES = ALL_PRODUCT_TYPES.filter(t => !PRIORITY_TYPES.includes(t));
+
+// Ordered types: priority first, then standard
+const PRODUCT_TYPES = [...PRIORITY_TYPES, ...STANDARD_TYPES];
 
 // Detect product type from title
 function detectProductType(title) {
@@ -77,10 +89,200 @@ const SCRAPE_DELAY_MIN = 2000;
 const SCRAPE_DELAY_MAX = 3000;
 const PRODUCT_PAGE_DELAY_MIN = 2500;
 const PRODUCT_PAGE_DELAY_MAX = 3500;
-const MAX_PRODUCTS_PER_SEARCH = 50;
-const MAX_DEEP_SCRAPE_PER_TYPE = 20;
-const MAX_REVIEWS_PER_PRODUCT = 200;
+
+// Scraping limits - different for priority vs standard types
+const PRIORITY_LIMITS = {
+  maxProductsPerSearch: 50,
+  maxDeepScrapePerType: 30,
+  maxReviewsPerProduct: 200
+};
+
+const STANDARD_LIMITS = {
+  maxProductsPerSearch: 20,
+  maxDeepScrapePerType: 10,
+  maxReviewsPerProduct: 50
+};
+
 const TOP_N_FOR_AI_SUMMARY = 10;
+
+// ============================================================
+// SCOUT CONFIG (loaded from Supabase at startup)
+// ============================================================
+let scoutConfig = {
+  best_sellers_categories: [],
+  product_types_active: ['gummies', 'gummy', 'powder'],
+  max_products_per_type: 50,
+  max_reviews_per_product: 200,
+  deep_scrape_top_n: 30,
+  scrape_mode: 'best_sellers_first'  // 'best_sellers_first' | 'keyword_only' | 'best_sellers_only'
+};
+
+/**
+ * Fetch Scout configuration from dovive_scout_config table
+ */
+async function fetchScoutConfig() {
+  try {
+    const rows = await sbFetch('dovive_scout_config', {
+      select: 'config_key,config_value'
+    });
+
+    if (rows && rows.length > 0) {
+      rows.forEach(r => {
+        try {
+          // Parse JSON values
+          if (r.config_value && (r.config_value.startsWith('[') || r.config_value.startsWith('{'))) {
+            scoutConfig[r.config_key] = JSON.parse(r.config_value);
+          } else if (r.config_value && !isNaN(r.config_value)) {
+            scoutConfig[r.config_key] = parseInt(r.config_value);
+          } else {
+            scoutConfig[r.config_key] = r.config_value;
+          }
+        } catch (e) {
+          scoutConfig[r.config_key] = r.config_value;
+        }
+      });
+      log(`Loaded ${rows.length} config values from Supabase`, 'success');
+    } else {
+      log('No scout config found in Supabase, using defaults', 'warn');
+    }
+
+    return scoutConfig;
+  } catch (err) {
+    log(`Failed to fetch scout config: ${err.message}`, 'error');
+    return scoutConfig;
+  }
+}
+
+// ============================================================
+// FORMAT-SPECIFIC EXTRACTORS
+// ============================================================
+
+// FLAVOR EXTRACTOR
+function extractFlavors(text) {
+  const flavors = [];
+  const flavorList = [
+    'strawberry', 'raspberry', 'cherry', 'blueberry', 'mixed berry', 'berry',
+    'watermelon', 'grape', 'orange', 'lemon', 'lime', 'peach', 'mango',
+    'pineapple', 'tropical', 'apple', 'coconut', 'vanilla', 'chocolate',
+    'caramel', 'unflavored', 'natural flavor'
+  ];
+  flavorList.forEach(f => {
+    if (text.includes(f)) flavors.push(f);
+  });
+  return [...new Set(flavors)];
+}
+
+// SERVING COUNT EXTRACTOR (for gummies: "2 gummies per serving" → 2)
+function extractServingCount(text) {
+  const match = text.match(/(\d+)\s*gumm/);
+  return match ? parseInt(match[1]) : null;
+}
+
+// SERVING GRAMS EXTRACTOR (for powder: "5g per serving" → 5)
+function extractServingGrams(text) {
+  const match = text.match(/(\d+(?:\.\d+)?)\s*g(?:rams?)?\s*per\s*serving/) ||
+                text.match(/serving size[:\s]+(\d+(?:\.\d+)?)\s*g/);
+  return match ? parseFloat(match[1]) : null;
+}
+
+// GUMMIES EXTRACTOR
+function extractGummiesData(title, bulletPoints, specsText, ingredientsText) {
+  const all = (title + ' ' + bulletPoints.join(' ') + ' ' + specsText + ' ' + ingredientsText).toLowerCase();
+  return {
+    base_type: all.includes('pectin') ? 'Pectin (Vegan)' : all.includes('gelatin') ? 'Gelatin' : 'Unknown',
+    is_sugar_free: all.includes('sugar-free') || all.includes('sugar free') || all.includes('no sugar') || all.includes('0g sugar'),
+    sweetener: all.includes('stevia') ? 'Stevia' :
+               all.includes('monk fruit') ? 'Monk Fruit' :
+               all.includes('sucralose') ? 'Sucralose' :
+               all.includes('erythritol') ? 'Erythritol' :
+               all.includes('xylitol') ? 'Xylitol' : 'Sugar',
+    has_coating: all.includes('sugar coated') || all.includes('sugar-coated') || all.includes('coated'),
+    flavors_mentioned: extractFlavors(all),
+    serving_per_gummy: extractServingCount(all)
+  };
+}
+
+// POWDER EXTRACTOR
+function extractPowderData(title, bulletPoints, specsText, ingredientsText) {
+  const all = (title + ' ' + bulletPoints.join(' ') + ' ' + specsText + ' ' + ingredientsText).toLowerCase();
+  return {
+    is_unflavored: all.includes('unflavored') || all.includes('flavorless') || all.includes('no flavor'),
+    sweetener: all.includes('stevia') ? 'Stevia' :
+               all.includes('monk fruit') ? 'Monk Fruit' :
+               all.includes('sucralose') ? 'Sucralose' :
+               all.includes('unsweetened') ? 'Unsweetened' :
+               all.includes('sugar') ? 'Sugar' : 'Unknown',
+    packaging_type: all.includes('stick pack') || all.includes('single serve') ? 'Stick Pack' :
+                    all.includes('pouch') ? 'Pouch' :
+                    all.includes('canister') ? 'Canister' : 'Tub',
+    is_instant: all.includes('instant') || all.includes('dissolves instantly') || all.includes('instantly dissolves'),
+    flavors_mentioned: extractFlavors(all),
+    serving_size_grams: extractServingGrams(all)
+  };
+}
+
+// PRICE PER SERVING CALCULATOR
+function calcPricePerServing(price, specsText, bulletPoints) {
+  const all = (specsText + ' ' + bulletPoints.join(' ')).toLowerCase();
+  // Look for "X servings" or "X count" or "X capsules"
+  const servingsMatch = all.match(/(\d+)\s*(?:servings?|count|ct\b|capsules?|tablets?|softgels?|gummies|pieces?)/);
+  if (servingsMatch && price) {
+    const servings = parseInt(servingsMatch[1]);
+    if (servings > 0 && servings < 1000) {
+      return parseFloat((price / servings).toFixed(3));
+    }
+  }
+  return null;
+}
+
+// Extract serving count from specs
+function extractServingCountFromSpecs(specsText, bulletPoints) {
+  const all = (specsText + ' ' + bulletPoints.join(' ')).toLowerCase();
+  const servingsMatch = all.match(/(\d+)\s*(?:servings?|count|ct\b|capsules?|tablets?|softgels?|gummies|pieces?)/);
+  if (servingsMatch) {
+    const count = parseInt(servingsMatch[1]);
+    if (count > 0 && count < 1000) return count;
+  }
+  return null;
+}
+
+// REVIEW SENTIMENT TAGGER
+function tagReviewSentiment(reviewTitle, reviewBody) {
+  const text = (reviewTitle + ' ' + reviewBody).toLowerCase();
+  const tags = [];
+
+  // Positive signals
+  if (text.match(/taste|flavor|delicious|yummy|good taste|great taste|love the taste/)) {
+    tags.push('taste-positive');
+  }
+  if (text.match(/work|effective|results|difference|help|improved|notice/)) {
+    tags.push('effectiveness-positive');
+  }
+  if (text.match(/worth|value|price|affordable|cheap|deal/)) {
+    tags.push('value-positive');
+  }
+  if (text.match(/package|packaging|bottle|container|seal/)) {
+    tags.push('packaging-mention');
+  }
+
+  // Negative signals
+  if (text.match(/taste|flavor|disgusting|awful|terrible|horrible|bad taste/)) {
+    if (text.match(/don't|doesn't|not|no |bad|awful|horrible|disgusting|terrible|gross|weird/)) {
+      tags.push('taste-negative');
+    }
+  }
+  if (text.match(/side effect|stomach|nausea|headache|upset|sick|reaction/)) {
+    tags.push('side-effects');
+  }
+  if (text.match(/not work|didn't work|no effect|waste|useless|fake/)) {
+    tags.push('effectiveness-negative');
+  }
+  if (text.match(/expensive|overpriced|not worth/)) {
+    tags.push('value-negative');
+  }
+
+  return tags;
+}
 
 // ============================================================
 // UTILITY HELPERS
@@ -97,6 +299,16 @@ function log(msg, level = 'info') {
   const ts = new Date().toISOString();
   const prefix = level === 'error' ? '❌' : level === 'warn' ? '⚠️' : level === 'success' ? '✅' : '📝';
   console.log(`[${ts}] ${prefix} ${msg}`);
+}
+
+// Check if product type is priority
+function isPriorityType(productType) {
+  return PRIORITY_TYPES.includes(productType.toLowerCase());
+}
+
+// Get limits based on product type
+function getLimitsForType(productType) {
+  return isPriorityType(productType) ? PRIORITY_LIMITS : STANDARD_LIMITS;
 }
 
 // ============================================================
@@ -384,8 +596,9 @@ async function scrapeSearchResults(page, searchQuery, keyword, productType, maxR
 
 /**
  * Scrape product detail page for images, features, and basic specs
+ * Now includes format-specific data extraction and price per serving
  */
-async function scrapeProductPage(page, asin, keyword) {
+async function scrapeProductPage(page, asin, keyword, productType) {
   log(`  Scraping product page: ${asin}`);
 
   try {
@@ -402,8 +615,13 @@ async function scrapeProductPage(page, asin, keyword) {
         features: [],
         specs: {},
         ingredients: null,
-        certifications: []
+        certifications: [],
+        title: ''
       };
+
+      // Title
+      const titleEl = document.querySelector('#productTitle');
+      result.title = titleEl?.textContent?.trim() || '';
 
       // BSR
       const detailsText = document.body.innerText;
@@ -497,6 +715,29 @@ async function scrapeProductPage(page, asin, keyword) {
       return result;
     });
 
+    // Now process format-specific data on the Node.js side
+    const specsText = Object.values(details.specs || {}).join(' ');
+    const bulletPoints = details.features || [];
+    const ingredientsText = details.ingredients || '';
+    const title = details.title || '';
+
+    // Calculate price per serving
+    details.price_per_serving = null;
+    details.serving_count = extractServingCountFromSpecs(specsText, bulletPoints);
+
+    // Extract format-specific data
+    details.format_data = {};
+    details.gummies_data = null;
+    details.powder_data = null;
+
+    if (productType === 'Gummies') {
+      details.gummies_data = extractGummiesData(title, bulletPoints, specsText, ingredientsText);
+      details.format_data = details.gummies_data;
+    } else if (productType === 'Powder') {
+      details.powder_data = extractPowderData(title, bulletPoints, specsText, ingredientsText);
+      details.format_data = details.powder_data;
+    }
+
     return details;
 
   } catch (err) {
@@ -507,6 +748,7 @@ async function scrapeProductPage(page, asin, keyword) {
 
 /**
  * Scrape all reviews for a product (up to maxReviews)
+ * Now includes sentiment tagging
  */
 async function scrapeReviews(page, asin, keyword, maxReviews = 200) {
   log(`  Scraping reviews for: ${asin} (max: ${maxReviews})`);
@@ -590,11 +832,13 @@ async function scrapeReviews(page, asin, keyword, maxReviews = 200) {
         break;
       }
 
-      // Add ASIN and keyword to each review
+      // Add ASIN, keyword, and sentiment tags to each review
       for (const r of pageReviews) {
         if (reviews.length >= maxReviews) break;
         r.asin = asin;
         r.keyword = keyword;
+        // Add sentiment tags
+        r.sentiment_tags = tagReviewSentiment(r.title, r.body);
         reviews.push(r);
       }
 
@@ -629,31 +873,37 @@ async function scrapeReviews(page, asin, keyword, maxReviews = 200) {
 
 /**
  * Save products to dovive_products (upsert)
+ * Now includes price_per_serving, serving_count, and format_data
  */
-async function saveProducts(products) {
+async function saveProducts(products, detailsMap = {}) {
   if (!products || products.length === 0) return;
 
   for (const p of products) {
     try {
+      const details = detailsMap[p.asin] || {};
+
       await sbUpsert('dovive_products', {
         asin: p.asin,
         keyword: p.keyword,
         product_type: p.product_type,
         title: p.title,
-        brand: p.brand || null,
+        brand: p.brand || details.brand || null,
         price: p.price,
         price_text: p.price_text,
-        bsr: p.bsr || null,
-        bsr_category: p.bsr_category || null,
+        bsr: p.bsr || details.bsr || null,
+        bsr_category: p.bsr_category || details.bsr_category || null,
         rating: p.rating,
         review_count: p.review_count,
-        images: p.images || [],
-        features: p.features || [],
+        images: p.images || details.images || [],
+        features: p.features || details.features || [],
         is_sponsored: p.is_sponsored || false,
         is_prime: p.is_prime || false,
         url: p.url,
         rank_position: p.rank_position,
         search_query: p.search_query,
+        price_per_serving: details.price_per_serving || null,
+        serving_count: details.serving_count || null,
+        format_data: details.format_data || {},
         scraped_at: new Date().toISOString()
       });
     } catch (err) {
@@ -668,8 +918,9 @@ async function saveProducts(products) {
 
 /**
  * Save/update product details to dovive_specs
+ * Now includes gummies_data and powder_data
  */
-async function saveProductDetails(asin, keyword, details) {
+async function saveProductDetails(asin, keyword, details, productType) {
   if (!details) return;
 
   try {
@@ -691,6 +942,8 @@ async function saveProductDetails(asin, keyword, details) {
       ingredients: details.ingredients,
       certifications: details.certifications || [],
       all_specs: specs,
+      gummies_data: details.gummies_data || {},
+      powder_data: details.powder_data || {},
       scraped_at: new Date().toISOString()
     });
   } catch (err) {
@@ -702,6 +955,7 @@ async function saveProductDetails(asin, keyword, details) {
 
 /**
  * Save reviews to dovive_reviews
+ * Now includes sentiment_tags
  */
 async function saveReviews(asin, keyword, reviews) {
   if (!reviews || reviews.length === 0) return;
@@ -719,6 +973,7 @@ async function saveReviews(asin, keyword, reviews) {
         review_date: r.review_date,
         verified_purchase: r.verified_purchase,
         helpful_votes: r.helpful_votes,
+        sentiment_tags: r.sentiment_tags || [],
         scraped_at: new Date().toISOString()
       });
       saved++;
@@ -733,16 +988,25 @@ async function saveReviews(asin, keyword, reviews) {
 /**
  * Update product with details from product page scrape
  */
-async function updateProductWithDetails(asin, keyword, details) {
+async function updateProductWithDetails(asin, keyword, details, price) {
   if (!details) return;
 
   try {
+    // Calculate price per serving if we have price and serving count
+    let pricePerServing = null;
+    if (price && details.serving_count) {
+      pricePerServing = parseFloat((price / details.serving_count).toFixed(3));
+    }
+
     await sbUpdate('dovive_products', `asin=eq.${asin}&keyword=eq.${encodeURIComponent(keyword)}`, {
       bsr: details.bsr,
       bsr_category: details.bsr_category,
       brand: details.brand,
       images: details.images || [],
-      features: details.features || []
+      features: details.features || [],
+      price_per_serving: pricePerServing,
+      serving_count: details.serving_count,
+      format_data: details.format_data || {}
     });
   } catch (err) {
     log(`Failed to update product ${asin}: ${err.message}`, 'warn');
@@ -847,7 +1111,7 @@ function extractKeyGap(summary) {
 // TELEGRAM REPORTING
 // ============================================================
 function buildTelegramReport(date, keywordResults) {
-  let msg = `⚗️ SCOUT V2 REPORT — ${date}\n\n`;
+  let msg = `⚗️ SCOUT V2.1 REPORT — ${date}\n\n`;
 
   for (const [keyword, data] of Object.entries(keywordResults)) {
     const { products, recommendation, keyGap, typeBreakdown } = data;
@@ -914,6 +1178,7 @@ async function runScout(job) {
 
     log(`Keywords to scrape: ${keywords.length}`);
     log(`Product types per keyword: ${PRODUCT_TYPES.length}`);
+    log(`Priority types: ${PRIORITY_TYPES.join(', ')}`);
     log(`Total search combinations: ${keywords.length * PRODUCT_TYPES.length}`);
 
     // Launch browser
@@ -942,11 +1207,17 @@ async function runScout(job) {
 
       const allProducts = [];
       const typeBreakdown = {};
+      const detailsMap = {};
 
-      // Process each product type
+      // Process each product type (priority types first)
       for (let i = 0; i < PRODUCT_TYPES.length; i++) {
         const productType = PRODUCT_TYPES[i];
         const searchQuery = `${keyword} ${productType}`;
+        const limits = getLimitsForType(productType);
+        const isPriority = isPriorityType(productType);
+
+        log(`\n--- ${isPriority ? '⭐ PRIORITY' : 'STANDARD'}: ${productType} ---`);
+        log(`  Limits: ${limits.maxProductsPerSearch} products, ${limits.maxDeepScrapePerType} deep, ${limits.maxReviewsPerProduct} reviews`);
 
         // Update job progress
         await updateJobProgress(job.id, {
@@ -957,14 +1228,10 @@ async function runScout(job) {
         });
 
         try {
-          // Scrape search results
-          const products = await scrapeSearchResults(page, searchQuery, keyword, productType, MAX_PRODUCTS_PER_SEARCH);
+          // Scrape search results with type-specific limits
+          const products = await scrapeSearchResults(page, searchQuery, keyword, productType, limits.maxProductsPerSearch);
 
           if (products.length > 0) {
-            // Save products to database
-            await saveProducts(products);
-            totalProductsScraped += products.length;
-
             // Track for AI summary
             allProducts.push(...products);
             products.forEach(p => {
@@ -972,24 +1239,27 @@ async function runScout(job) {
             });
 
             // Deep scrape top N products per type
-            const topProducts = products.filter(p => !p.is_sponsored).slice(0, MAX_DEEP_SCRAPE_PER_TYPE);
+            const topProducts = products.filter(p => !p.is_sponsored).slice(0, limits.maxDeepScrapePerType);
 
             for (const product of topProducts) {
               log(`  Deep scraping: ${product.asin}`);
 
-              // Scrape product page
-              const details = await scrapeProductPage(page, product.asin, keyword);
+              // Scrape product page with product type for format-specific extraction
+              const details = await scrapeProductPage(page, product.asin, keyword, product.product_type);
               if (details) {
-                await updateProductWithDetails(product.asin, keyword, details);
-                await saveProductDetails(product.asin, keyword, details);
+                // Store details for saving later
+                detailsMap[product.asin] = details;
+
+                await updateProductWithDetails(product.asin, keyword, details, product.price);
+                await saveProductDetails(product.asin, keyword, details, product.product_type);
 
                 // Merge details into product for AI summary
                 product.bsr = details.bsr;
                 product.brand = details.brand;
               }
 
-              // Scrape reviews
-              const reviews = await scrapeReviews(page, product.asin, keyword, MAX_REVIEWS_PER_PRODUCT);
+              // Scrape reviews with type-specific limits
+              const reviews = await scrapeReviews(page, product.asin, keyword, limits.maxReviewsPerProduct);
               if (reviews.length > 0) {
                 await saveReviews(product.asin, keyword, reviews);
                 totalReviewsScraped += reviews.length;
@@ -1004,6 +1274,10 @@ async function runScout(job) {
               // Delay between products
               await sleep(randomDelay(2000, 3000));
             }
+
+            // Save products to database with details
+            await saveProducts(products, detailsMap);
+            totalProductsScraped += products.length;
           }
 
           // Delay between product types
@@ -1091,7 +1365,7 @@ async function runScout(job) {
       updated_at: new Date().toISOString()
     });
 
-    await sendTelegram(`❌ Scout V2 Job Failed: ${err.message}`);
+    await sendTelegram(`❌ Scout V2.1 Job Failed: ${err.message}`);
   } finally {
     if (browser) {
       await browser.close();
@@ -1146,7 +1420,9 @@ function validateConfig() {
 
 async function main() {
   console.log('');
-  console.log('🔭 DOVIVE SCOUT AGENT V2');
+  console.log('🔭 DOVIVE SCOUT AGENT V2.1');
+  console.log('═══════════════════════════════════════');
+  console.log('   Gummies + Powder Intelligence');
   console.log('═══════════════════════════════════════');
   console.log('');
 
@@ -1154,9 +1430,9 @@ async function main() {
 
   log(`Supabase: ${SUPABASE_URL}`);
   log(`Poll interval: ${POLL_INTERVAL / 1000}s`);
-  log(`Product types: ${PRODUCT_TYPES.length}`);
-  log(`Max products per search: ${MAX_PRODUCTS_PER_SEARCH}`);
-  log(`Max reviews per product: ${MAX_REVIEWS_PER_PRODUCT}`);
+  log(`Product types: ${PRODUCT_TYPES.length} (${PRIORITY_TYPES.length} priority)`);
+  log(`Priority limits: ${PRIORITY_LIMITS.maxProductsPerSearch} products, ${PRIORITY_LIMITS.maxDeepScrapePerType} deep, ${PRIORITY_LIMITS.maxReviewsPerProduct} reviews`);
+  log(`Standard limits: ${STANDARD_LIMITS.maxProductsPerSearch} products, ${STANDARD_LIMITS.maxDeepScrapePerType} deep, ${STANDARD_LIMITS.maxReviewsPerProduct} reviews`);
   log(`Telegram: ${TELEGRAM_CHAT_ID ? 'Enabled' : 'Disabled'}`);
 
   const runOnce = process.argv.includes('--once');

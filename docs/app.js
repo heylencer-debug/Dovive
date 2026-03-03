@@ -59,9 +59,232 @@
     await loadKeywords();
     await loadReports();
     await loadProducts();
+    await loadFormatFocusData();
     await checkScoutStatus();
     setupEventListeners();
     startStatusPolling();
+  }
+
+  // ============================================================
+  // FORMAT FOCUS - Gummies & Powder Specialized Dashboard
+  // ============================================================
+
+  let formatFocusData = {
+    gummies: { count: 0, priceMin: null, priceMax: null, avgPricePerServing: null, topBrands: [], commonSweetener: null, veganPct: null, topFlavor: null },
+    powder: { count: 0, priceMin: null, priceMax: null, avgPricePerServing: null, topBrands: [], commonSweetener: null, instantPct: null, topFlavor: null }
+  };
+
+  // Load format focus data from products and specs
+  async function loadFormatFocusData() {
+    try {
+      // Filter gummies and powder products
+      const gummiesProducts = products.filter(p => p.product_type === 'Gummies');
+      const powderProducts = products.filter(p => p.product_type === 'Powder');
+
+      // Load specs for format-specific data
+      const specsData = await sbFetch('dovive_specs', {
+        select: 'asin,gummies_data,powder_data',
+        limit: 500
+      });
+
+      const specsMap = {};
+      if (specsData) {
+        specsData.forEach(s => { specsMap[s.asin] = s; });
+      }
+
+      // Process Gummies
+      formatFocusData.gummies = processFormatData(gummiesProducts, specsMap, 'gummies');
+
+      // Process Powder
+      formatFocusData.powder = processFormatData(powderProducts, specsMap, 'powder');
+
+      renderFormatFocus();
+    } catch (err) {
+      console.error('Failed to load format focus data:', err);
+    }
+  }
+
+  // Process format-specific data
+  function processFormatData(formatProducts, specsMap, formatType) {
+    const result = {
+      count: formatProducts.length,
+      priceMin: null,
+      priceMax: null,
+      avgPricePerServing: null,
+      topBrands: [],
+      commonSweetener: null,
+      veganPct: null,
+      instantPct: null,
+      topFlavor: null
+    };
+
+    if (formatProducts.length === 0) return result;
+
+    // Price calculations
+    const prices = formatProducts.filter(p => p.price).map(p => p.price);
+    if (prices.length > 0) {
+      result.priceMin = Math.min(...prices);
+      result.priceMax = Math.max(...prices);
+    }
+
+    // Price per serving (from products with price_per_serving or format_data)
+    const pricesPerServing = formatProducts
+      .filter(p => p.price_per_serving)
+      .map(p => p.price_per_serving);
+    if (pricesPerServing.length > 0) {
+      result.avgPricePerServing = (pricesPerServing.reduce((a, b) => a + b, 0) / pricesPerServing.length).toFixed(2);
+    }
+
+    // Top brands by review count
+    const brandReviews = {};
+    formatProducts.forEach(p => {
+      if (p.brand) {
+        brandReviews[p.brand] = (brandReviews[p.brand] || 0) + (p.review_count || 0);
+      }
+    });
+    result.topBrands = Object.entries(brandReviews)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([brand]) => brand);
+
+    // Extract format-specific data from specs
+    const sweetenerCounts = {};
+    const flavorCounts = {};
+    let veganCount = 0;
+    let instantCount = 0;
+    let formatDataCount = 0;
+
+    formatProducts.forEach(p => {
+      const spec = specsMap[p.asin];
+      const fmtData = formatType === 'gummies'
+        ? (spec?.gummies_data || p.format_data || {})
+        : (spec?.powder_data || p.format_data || {});
+
+      if (fmtData && Object.keys(fmtData).length > 0) {
+        formatDataCount++;
+
+        // Sweetener
+        if (fmtData.sweetener) {
+          sweetenerCounts[fmtData.sweetener] = (sweetenerCounts[fmtData.sweetener] || 0) + 1;
+        }
+
+        // Flavors
+        if (fmtData.flavors_mentioned && Array.isArray(fmtData.flavors_mentioned)) {
+          fmtData.flavors_mentioned.forEach(f => {
+            flavorCounts[f] = (flavorCounts[f] || 0) + 1;
+          });
+        }
+
+        // Vegan (gummies only - pectin based)
+        if (formatType === 'gummies' && fmtData.base_type && fmtData.base_type.includes('Pectin')) {
+          veganCount++;
+        }
+
+        // Instant (powder only)
+        if (formatType === 'powder' && fmtData.is_instant) {
+          instantCount++;
+        }
+      }
+    });
+
+    // Most common sweetener
+    const sortedSweeteners = Object.entries(sweetenerCounts).sort((a, b) => b[1] - a[1]);
+    result.commonSweetener = sortedSweeteners.length > 0 ? sortedSweeteners[0][0] : '-';
+
+    // Most mentioned flavor
+    const sortedFlavors = Object.entries(flavorCounts).sort((a, b) => b[1] - a[1]);
+    result.topFlavor = sortedFlavors.length > 0 ? sortedFlavors[0][0] : '-';
+
+    // Vegan % (gummies)
+    if (formatType === 'gummies' && formatDataCount > 0) {
+      result.veganPct = Math.round((veganCount / formatDataCount) * 100);
+    }
+
+    // Instant % (powder)
+    if (formatType === 'powder' && formatDataCount > 0) {
+      result.instantPct = Math.round((instantCount / formatDataCount) * 100);
+    }
+
+    return result;
+  }
+
+  // Render Format Focus section
+  function renderFormatFocus() {
+    const formatFocusContainer = document.getElementById('format-focus-container');
+    if (!formatFocusContainer) return;
+
+    const gummies = formatFocusData.gummies;
+    const powder = formatFocusData.powder;
+
+    formatFocusContainer.innerHTML = `
+      <div class="format-focus-grid">
+        <!-- GUMMIES CARD -->
+        <div class="format-focus-card">
+          <div class="format-focus-title">🍬 GUMMIES</div>
+          <div class="format-stat">
+            <span class="format-stat-label">Products Found</span>
+            <span class="format-stat-val">${gummies.count}</span>
+          </div>
+          <div class="format-stat">
+            <span class="format-stat-label">Price Range</span>
+            <span class="format-stat-val">${gummies.priceMin !== null ? '$' + gummies.priceMin.toFixed(2) + ' - $' + gummies.priceMax.toFixed(2) : '-'}</span>
+          </div>
+          <div class="format-stat">
+            <span class="format-stat-label">Avg Price/Serving</span>
+            <span class="format-stat-val">${gummies.avgPricePerServing ? '$' + gummies.avgPricePerServing : '-'}</span>
+          </div>
+          <div class="format-stat">
+            <span class="format-stat-label">Top Brands</span>
+            <span class="format-stat-val">${gummies.topBrands.length > 0 ? gummies.topBrands.slice(0, 2).join(', ') : '-'}</span>
+          </div>
+          <div class="format-stat">
+            <span class="format-stat-label">Common Sweetener</span>
+            <span class="format-stat-val">${gummies.commonSweetener || '-'}</span>
+          </div>
+          <div class="format-stat">
+            <span class="format-stat-label">Vegan (Pectin)</span>
+            <span class="format-stat-val">${gummies.veganPct !== null ? gummies.veganPct + '%' : '-'}</span>
+          </div>
+          <div class="format-stat">
+            <span class="format-stat-label">Top Flavor</span>
+            <span class="format-stat-val">${gummies.topFlavor || '-'}</span>
+          </div>
+        </div>
+
+        <!-- POWDER CARD -->
+        <div class="format-focus-card">
+          <div class="format-focus-title">🥤 POWDER</div>
+          <div class="format-stat">
+            <span class="format-stat-label">Products Found</span>
+            <span class="format-stat-val">${powder.count}</span>
+          </div>
+          <div class="format-stat">
+            <span class="format-stat-label">Price Range</span>
+            <span class="format-stat-val">${powder.priceMin !== null ? '$' + powder.priceMin.toFixed(2) + ' - $' + powder.priceMax.toFixed(2) : '-'}</span>
+          </div>
+          <div class="format-stat">
+            <span class="format-stat-label">Avg Price/Serving</span>
+            <span class="format-stat-val">${powder.avgPricePerServing ? '$' + powder.avgPricePerServing : '-'}</span>
+          </div>
+          <div class="format-stat">
+            <span class="format-stat-label">Top Brands</span>
+            <span class="format-stat-val">${powder.topBrands.length > 0 ? powder.topBrands.slice(0, 2).join(', ') : '-'}</span>
+          </div>
+          <div class="format-stat">
+            <span class="format-stat-label">Common Sweetener</span>
+            <span class="format-stat-val">${powder.commonSweetener || '-'}</span>
+          </div>
+          <div class="format-stat">
+            <span class="format-stat-label">Instant Dissolve</span>
+            <span class="format-stat-val">${powder.instantPct !== null ? powder.instantPct + '%' : '-'}</span>
+          </div>
+          <div class="format-stat">
+            <span class="format-stat-label">Top Flavor</span>
+            <span class="format-stat-val">${powder.topFlavor || '-'}</span>
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   // Load keywords from Supabase
@@ -101,6 +324,7 @@
         limit: 1000
       });
       renderResults();
+      await loadFormatFocusData(); // Refresh format focus when products change
     } catch (err) {
       console.error('Failed to load products:', err);
       // Fallback to legacy dovive_research table
