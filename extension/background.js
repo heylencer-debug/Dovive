@@ -513,9 +513,50 @@ async function markJobDone(jobId, productsScraped, errors) {
   await chrome.storage.local.remove('activeJobId');
 }
 
+// Reset stale state on service worker startup
+async function resetStaleState() {
+  const state = await getState();
+  if (state.running) {
+    // Check if there's actually a scout tab open
+    const tabId = await getScoutTabId();
+    let tabExists = false;
+    if (tabId) {
+      try {
+        await chrome.tabs.get(tabId);
+        tabExists = true;
+      } catch (e) {
+        // Tab doesn't exist
+      }
+    }
+    
+    if (!tabExists) {
+      console.log('[Dovive Scout] Found stale running state, resetting...');
+      await setState({ ...DEFAULT_STATE });
+      await chrome.storage.local.remove(['scoutTabId', 'activeJobId']);
+      
+      // Also mark any "running" jobs as cancelled in Supabase
+      try {
+        await fetch(`${SB_URL}/rest/v1/dovive_jobs?status=eq.running`, {
+          method: 'PATCH',
+          headers: {
+            'apikey': SB_KEY,
+            'Authorization': `Bearer ${SB_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ status: 'cancelled' })
+        });
+      } catch (e) {
+        console.error('[Dovive Scout] Failed to cancel stale jobs:', e);
+      }
+    }
+  }
+}
+
 // Start polling on service worker boot
-setInterval(pollJobQueue, 60000);
-pollJobQueue(); // check immediately on startup
+resetStaleState().then(() => {
+  setInterval(pollJobQueue, 60000);
+  pollJobQueue(); // check immediately on startup
+});
 
 // Log when service worker starts
 console.log('[Dovive Scout] Service worker started — polling for dashboard jobs every 60s');
