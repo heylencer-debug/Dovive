@@ -22,7 +22,9 @@
 
 require('dotenv').config();
 const path = require('path');
-const { chromium } = require('playwright');
+const { chromium } = require('playwright-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+chromium.use(StealthPlugin());
 const fetch = require('node-fetch');
 
 // ============================================================
@@ -1690,21 +1692,33 @@ async function runScout(job) {
     log(`Product types per keyword: ${PRODUCT_TYPES.length}`);
     log(`Priority types: ${PRIORITY_TYPES.join(', ')}`);
 
-    // Launch browser
-    // Use persistent context so Amazon login session is saved across runs
+    // Launch browser with stealth mode + persistent session
     const userDataDir = path.join(__dirname, '.browser-profile');
     const context = await chromium.launchPersistentContext(userDataDir, {
       headless: false,
       args: [
         '--disable-blink-features=AutomationControlled',
         '--no-sandbox',
-        '--disable-setuid-sandbox'
+        '--disable-setuid-sandbox',
+        '--disable-infobars',
+        '--window-size=1366,768'
       ],
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
       viewport: { width: 1366, height: 768 },
-      locale: 'en-US'
+      locale: 'en-US',
+      timezoneId: 'America/New_York',
+      geolocation: { longitude: -73.935242, latitude: 40.730610 }, // New York
+      permissions: ['geolocation']
     });
-    browser = context; // launchPersistentContext returns context directly
+    browser = context;
+
+    // Extra stealth: hide webdriver flag on every new page
+    context.on('page', async (p) => {
+      await p.addInitScript(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        window.chrome = { runtime: {} };
+      });
+    });
 
     const page = await context.newPage();
     const openRouterKey = await getOpenRouterKey();
