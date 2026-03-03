@@ -388,7 +388,8 @@ async function sbUpsert(table, data, onConflict = '') {
     'Prefer': 'return=representation,resolution=merge-duplicates'
   };
 
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+  const conflictParam = onConflict ? `?on_conflict=${onConflict}` : '';
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}${conflictParam}`, {
     method: 'POST',
     headers,
     body: JSON.stringify(data)
@@ -1335,7 +1336,7 @@ async function saveToResearch(product, details, source = 'keyword_search') {
       scraped_at: new Date().toISOString()
     };
 
-    await sbUpsert('dovive_research', data);
+    await sbUpsert('dovive_research', data, 'asin,keyword');
     log(`    Saved to dovive_research: ${product.asin}`, 'success');
   } catch (err) {
     if (!err.message.includes('duplicate')) {
