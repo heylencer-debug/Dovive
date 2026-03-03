@@ -287,7 +287,7 @@ async function handleSearchResults(keyword, products) {
   await navigateToProduct(topProduct.asin);
 }
 
-async function handleProductData(data) {
+async function handleProductData(data, reviews = []) {
   const state = await getState();
   if (!state.running) return;
 
@@ -305,6 +305,16 @@ async function handleProductData(data) {
     await saveProduct(productData);
     await addLog(`Saved: ${data.asin} (${state.currentKeyword})`, 'success');
     await setState({ productsScraped: state.productsScraped + 1 });
+
+    // Save reviews if any
+    if (reviews && reviews.length > 0) {
+      try {
+        await saveReviews(data.asin, state.currentKeyword, reviews);
+        await addLog(`Saved ${reviews.length} reviews for ${data.asin}`, 'success');
+      } catch (e) {
+        await addLog(`Reviews save failed: ${e.message}`, 'error');
+      }
+    }
 
   } catch (e) {
     await addLog(`Save failed: ${e.message}`, 'error');
@@ -358,7 +368,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
 
         case 'PRODUCT_DATA':
-          await handleProductData(message.data);
+          await handleProductData(message.data, message.reviews);
           sendResponse({ success: true });
           break;
 
