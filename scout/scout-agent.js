@@ -1,19 +1,20 @@
 /**
- * Dovive Scout Agent V2.8
+ * Dovive Scout Agent V2.9
  * Amazon Market Research Scraper + AI Analysis + Telegram Reports
  *
  * Features:
- * - Best Sellers scraping (true sales-ranked top 100 per category)
- * - Config-driven scrape modes (best_sellers_first, keyword_only, best_sellers_only)
- * - Product type categorization (20 types)
- * - Full review scraping (up to 200 per product)
+ * - Keyword search scraping (V2.9: simplified - just keyword, no product type suffix)
+ * - Deep scrape top 5 non-sponsored products per keyword (scrapeProductPage called for each)
+ * - Product type categorization (auto-detected from title)
+ * - Full review scraping (up to 50 per product)
  * - Deep ASIN data (images, specs, features, ingredients, certifications)
  * - Progress tracking
  * - Gummies & Powder specialized extraction (sweetener, base, flavors)
  * - Price per serving calculation
  * - Review sentiment auto-tagging
  * - Full image scraping: main, gallery, A+ content (for OCR pipeline)
- * - V2.8: Full product data saved to dovive_research (images, bullets, reviews, specs)
+ * - V2.9: Fixed keyword fetch (is_active), reports upsert (on_conflict=keyword),
+ *         price validation (1-300), and deep scrape now runs for every keyword
  *
  * Run with: node start.js (keeps running and polling)
  * Or once: node scout-agent.js --once
@@ -303,16 +304,19 @@ function log(msg, level = 'info') {
   console.log(`[${ts}] ${prefix} ${msg}`);
 }
 
-// Parse price from text like "$17.54" or "17.54" - returns dollars not cents
+// Parse price from text like "$17.54" or "$19.98 ($0.33/Count)" - returns dollars not cents
 function parsePrice(text) {
   if (!text) return null;
-  // Remove $ and commas, parse as float
-  const clean = String(text).replace(/[^0-9.]/g, '');
+  // Remove $ and commas, parse as float (only first number if multiple like "$19.98 ($0.33/Count)")
+  const clean = String(text).replace(/[^0-9.]/g, '').split('.').slice(0, 2).join('.');
   const val = parseFloat(clean);
   if (isNaN(val) || val <= 0) return null;
   // If value looks like it's in cents (> 500), divide by 100
-  if (val > 500) return Math.round((val / 100) * 100) / 100;
-  return Math.round(val * 100) / 100; // round to 2 decimal places
+  let price = val;
+  if (val > 500) price = val / 100;
+  // Validate range: must be between 1.00 and 300.00
+  if (price < 1.00 || price > 300.00) return null;
+  return Math.round(price * 100) / 100; // round to 2 decimal places
 }
 
 // Parse BSR from text - returns integer rank
@@ -882,7 +886,7 @@ async function scrapeProductPage(page, asin, keyword, productType) {
       });
       return imgs;
     });
-    log(`    Found ${allImages.length} images (main: ${allImages.filter(i => i.type === 'main').length}, gallery: ${allImages.filter(i => i.type === 'gallery').length}, aplus: ${allImages.filter(i => i.type === 'aplus').length})`);
+    log(`    Images found: ${allImages.length}`);
 
     // 2. BULLET POINTS
     const bulletPoints = await page.evaluate(() => {
@@ -972,6 +976,12 @@ async function scrapeProductPage(page, asin, keyword, productType) {
 
       return result;
     });
+
+    // Log extraction results
+    log(`    Bullets found: ${bulletPoints.length}`);
+    log(`    Specs found: ${Object.keys(specs).length}`);
+    log(`    Reviews found: ${pageReviews.length}`);
+    log(`    Brand: ${brand || 'null'}`);
 
     // 7. CERTIFICATIONS from bullet points and specs
     const certKeywords = ['non-gmo','vegan','vegetarian','gluten-free','organic','kosher','halal','gmp','nsf','third-party','usp verified','made in usa'];
@@ -1443,7 +1453,7 @@ function extractKeyGap(summary) {
 // TELEGRAM REPORTING
 // ============================================================
 function buildTelegramReport(date, keywordResults) {
-  let msg = `⚗️ SCOUT V2.4 REPORT — ${date}\n\n`;
+  let msg = `⚗️ SCOUT V2.9 REPORT — ${date}\n\n`;
 
   for (const [keyword, data] of Object.entries(keywordResults)) {
     const { products, recommendation, keyGap, typeBreakdown } = data;
@@ -1494,12 +1504,12 @@ async function runScout(job) {
   try {
     // Get active keywords
     const keywords = await sbFetch('dovive_keywords', {
-      filter: 'active=eq.true',
+      filter: 'is_active=eq.true',
       order: 'created_at.asc'
     });
 
     if (!keywords || keywords.length === 0) {
-      log('No active keywords to scrape');
+      log('No active keywords to scrape (check is_active column)');
       await sbUpdate('dovive_jobs', `id=eq.${job.id}`, {
         status: 'complete',
         completed_at: new Date().toISOString(),
@@ -1513,7 +1523,9 @@ async function runScout(job) {
     const activeProductTypes = scoutConfig.product_types_active || PRIORITY_TYPES;
     const bestSellersCategories = scoutConfig.best_sellers_categories || [];
 
-    log(`Keywords to scrape: ${keywords.length}`);
+    // Log all active keywords found
+    const keywordList = keywords.map(k => k.keyword).join(', ');
+    log(`Found ${keywords.length} active keywords: [${keywordList}]`, 'success');
     log(`Scrape mode: ${scrapeMode}`);
     log(`Active product types: ${activeProductTypes.join(', ')}`);
     log(`Best Sellers categories: ${bestSellersCategories.length}`);
@@ -1540,9 +1552,10 @@ async function runScout(job) {
     const openRouterKey = await getOpenRouterKey();
 
     // ============================================================
-    // PHASE 1: BEST SELLERS SCRAPING (if enabled)
+    // PHASE 1: BEST SELLERS SCRAPING (DISABLED for now - focus on keyword search only)
     // ============================================================
-    if ((scrapeMode === 'best_sellers_first' || scrapeMode === 'best_sellers_only') && bestSellersCategories.length > 0) {
+    // V2.9: Skip best sellers to simplify - only keyword search path for now
+    if (false && (scrapeMode === 'best_sellers_first' || scrapeMode === 'best_sellers_only') && bestSellersCategories.length > 0) {
       log(`\n========== BEST SELLERS PHASE ==========`);
       log(`Scraping ${bestSellersCategories.length} Best Sellers categories`);
 
@@ -1615,102 +1628,90 @@ async function runScout(job) {
     }
 
     // ============================================================
-    // PHASE 2: KEYWORD SEARCH SCRAPING (if enabled)
+    // PHASE 2: KEYWORD SEARCH SCRAPING (V2.9 simplified)
     // ============================================================
-    if (scrapeMode === 'best_sellers_first' || scrapeMode === 'keyword_only') {
-      log(`\n========== KEYWORD SEARCH PHASE ==========`);
+    // V2.9: Simplified flow - search keyword directly, deep scrape top 5
+    log(`\n========== KEYWORD SEARCH PHASE ==========`);
 
-      // Process each keyword
-      for (const kw of keywords) {
-        const keyword = kw.keyword;
-        log(`\n========== KEYWORD: ${keyword} ==========`);
+    // Process each keyword
+    for (const kw of keywords) {
+      const keyword = kw.keyword;
+      log(`\n========== KEYWORD: ${keyword} ==========`);
 
-        const allProducts = [];
-        const typeBreakdown = {};
-        const detailsMap = {};
+      const allProducts = [];
+      const typeBreakdown = {};
+      const detailsMap = {};
 
-        // Process each product type (priority types first)
-        for (let i = 0; i < PRODUCT_TYPES.length; i++) {
-          const productType = PRODUCT_TYPES[i];
-          const searchQuery = `${keyword} ${productType}`;
-          const limits = getLimitsForType(productType);
-          const isPriority = isPriorityType(productType);
+      // Update job progress
+      await updateJobProgress(job.id, {
+        current_keyword: keyword,
+        current_product_type: 'all',
+        products_scraped: totalProductsScraped,
+        reviews_scraped: totalReviewsScraped
+      });
 
-          log(`\n--- ${isPriority ? '⭐ PRIORITY' : 'STANDARD'}: ${productType} ---`);
-          log(`  Limits: ${limits.maxProductsPerSearch} products, ${limits.maxDeepScrapePerType} deep, ${limits.maxReviewsPerProduct} reviews`);
+      try {
+        // V2.9: Search just the keyword (no product type suffix)
+        const products = await scrapeSearchResults(page, keyword, keyword, 'all', 50);
+        products.forEach(p => { p.source = 'keyword_search'; });
+        log(`Found ${products.length} products for "${keyword}"`);
 
-          // Update job progress
-          await updateJobProgress(job.id, {
-            current_keyword: keyword,
-            current_product_type: productType,
-            products_scraped: totalProductsScraped,
-            reviews_scraped: totalReviewsScraped
+        if (products.length > 0) {
+          // Track for AI summary
+          allProducts.push(...products);
+          products.forEach(p => {
+            typeBreakdown[p.product_type] = (typeBreakdown[p.product_type] || 0) + 1;
           });
 
-          try {
-            // Scrape search results with type-specific limits
-            // Mark source as 'keyword_search'
-            const products = await scrapeSearchResults(page, searchQuery, keyword, productType, limits.maxProductsPerSearch);
-            products.forEach(p => { p.source = 'keyword_search'; });
+          // V2.9: Deep scrape top 5 non-sponsored products
+          const TOP_N_DEEP_SCRAPE = 5;
+          const topProducts = products.filter(p => !p.is_sponsored).slice(0, TOP_N_DEEP_SCRAPE);
+          log(`Deep scraping top ${topProducts.length} non-sponsored products...`);
 
-          if (products.length > 0) {
-            // Track for AI summary
-            allProducts.push(...products);
-            products.forEach(p => {
-              typeBreakdown[p.product_type] = (typeBreakdown[p.product_type] || 0) + 1;
-            });
+          for (let i = 0; i < topProducts.length; i++) {
+            const product = topProducts[i];
+            log(`\nScraping product page: ${product.asin} (#${i + 1} of ${topProducts.length})`);
 
-            // Deep scrape top N products per type
-            const topProducts = products.filter(p => !p.is_sponsored).slice(0, limits.maxDeepScrapePerType);
+            // Scrape product page with product type for format-specific extraction
+            const details = await scrapeProductPage(page, product.asin, keyword, product.product_type);
+            if (details) {
+              // Store details for saving later
+              detailsMap[product.asin] = details;
 
-            for (const product of topProducts) {
-              log(`  Deep scraping: ${product.asin}`);
+              await updateProductWithDetails(product.asin, keyword, details, product.price);
+              await saveProductDetails(product.asin, keyword, details, product.product_type);
+              // V2.9: Save full data to dovive_research with upsert
+              await saveToResearch(product, details, 'keyword_search');
 
-              // Scrape product page with product type for format-specific extraction
-              const details = await scrapeProductPage(page, product.asin, keyword, product.product_type);
-              if (details) {
-                // Store details for saving later
-                detailsMap[product.asin] = details;
-
-                await updateProductWithDetails(product.asin, keyword, details, product.price);
-                await saveProductDetails(product.asin, keyword, details, product.product_type);
-                // V2.8: Save full data to dovive_research
-                await saveToResearch(product, details, 'keyword_search');
-
-                // Merge details into product for AI summary
-                product.bsr = details.bsr;
-                product.brand = details.brand;
-              }
-
-              // Scrape reviews with type-specific limits
-              const reviews = await scrapeReviews(page, product.asin, keyword, limits.maxReviewsPerProduct);
-              if (reviews.length > 0) {
-                await saveReviews(product.asin, keyword, reviews);
-                totalReviewsScraped += reviews.length;
-              }
-
-              // Update progress
-              await updateJobProgress(job.id, {
-                products_scraped: totalProductsScraped,
-                reviews_scraped: totalReviewsScraped
-              });
-
-              // Delay between products
-              await sleep(randomDelay(2000, 3000));
+              // Merge details into product for AI summary
+              product.bsr = details.bsr;
+              product.brand = details.brand;
             }
 
-            // Save products to database with details
-            await saveProducts(products, detailsMap);
-            totalProductsScraped += products.length;
+            // Scrape reviews (max 50 per product)
+            const reviews = await scrapeReviews(page, product.asin, keyword, 50);
+            if (reviews.length > 0) {
+              await saveReviews(product.asin, keyword, reviews);
+              totalReviewsScraped += reviews.length;
+            }
+
+            // Update progress
+            await updateJobProgress(job.id, {
+              products_scraped: totalProductsScraped,
+              reviews_scraped: totalReviewsScraped
+            });
+
+            // Delay between products
+            await sleep(randomDelay(2000, 3000));
           }
 
-          // Delay between product types
-          await sleep(randomDelay(SCRAPE_DELAY_MIN, SCRAPE_DELAY_MAX));
-
-        } catch (err) {
-          log(`Error for "${searchQuery}": ${err.message}`, 'error');
-          continue;
+          // Save all products to database with details
+          await saveProducts(products, detailsMap);
+          totalProductsScraped += products.length;
         }
+
+      } catch (err) {
+        log(`Error for "${keyword}": ${err.message}`, 'error');
       }
 
       // Generate AI summary for this keyword (using all products)
@@ -1739,7 +1740,7 @@ async function runScout(job) {
         const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null;
         const avgReviews = reviews.length > 0 ? Math.round(reviews.reduce((a, b) => a + b, 0) / reviews.length) : null;
 
-        // Save report - try with recommendation column first, fallback without if column doesn't exist
+        // Save report - use upsert with on_conflict='keyword' to handle duplicates
         try {
           await sbUpsert('dovive_reports', {
             keyword,
@@ -1750,7 +1751,7 @@ async function runScout(job) {
             avg_rating: avgRating ? parseFloat(avgRating.toFixed(2)) : null,
             avg_reviews: avgReviews,
             analyzed_at: new Date().toISOString()
-          });
+          }, 'keyword');
           log(`Saved report for "${keyword}"`, 'success');
         } catch (reportErr) {
           // If recommendation column doesn't exist, retry without it
@@ -1764,7 +1765,7 @@ async function runScout(job) {
               avg_rating: avgRating ? parseFloat(avgRating.toFixed(2)) : null,
               avg_reviews: avgReviews,
               analyzed_at: new Date().toISOString()
-            });
+            }, 'keyword');
             log(`Saved report for "${keyword}" (without recommendation)`, 'success');
           } else {
             throw reportErr;
@@ -1772,10 +1773,9 @@ async function runScout(job) {
         }
       }
 
-        // Delay before next keyword
-        await sleep(randomDelay(3000, 5000));
-      }
-    } // End of KEYWORD SEARCH PHASE
+      // Delay before next keyword
+      await sleep(randomDelay(3000, 5000));
+    } // End of keyword loop
 
     // Mark job complete
     const completedAt = new Date().toISOString();
@@ -1808,7 +1808,7 @@ async function runScout(job) {
       updated_at: new Date().toISOString()
     });
 
-    await sendTelegram(`❌ Scout V2.4 Job Failed: ${err.message}`);
+    await sendTelegram(`❌ Scout V2.9 Job Failed: ${err.message}`);
   } finally {
     if (browser) {
       await browser.close();
@@ -1863,9 +1863,9 @@ function validateConfig() {
 
 async function main() {
   console.log('');
-  console.log('🔭 DOVIVE SCOUT AGENT V2.4');
+  console.log('🔭 DOVIVE SCOUT AGENT V2.9');
   console.log('═══════════════════════════════════════');
-  console.log('   Best Sellers + Keyword Intelligence');
+  console.log('   Keyword Search + Deep Product Scrape');
   console.log('═══════════════════════════════════════');
   console.log('');
 
