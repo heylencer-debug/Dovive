@@ -89,10 +89,10 @@ const OPENCLAW_TOKEN = process.env.OPENCLAW_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
 const POLL_INTERVAL = 60000; // 60 seconds
-const SCRAPE_DELAY_MIN = 2000;
-const SCRAPE_DELAY_MAX = 3000;
-const PRODUCT_PAGE_DELAY_MIN = 2500;
-const PRODUCT_PAGE_DELAY_MAX = 3500;
+const SCRAPE_DELAY_MIN = 3000;
+const SCRAPE_DELAY_MAX = 6000;
+const PRODUCT_PAGE_DELAY_MIN = 4000;
+const PRODUCT_PAGE_DELAY_MAX = 7000;
 
 // Scraping limits - different for priority vs standard types
 const PRIORITY_LIMITS = {
@@ -609,9 +609,24 @@ async function scrapeSearchResults(page, searchQuery, keyword, productType, maxR
       await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
       await sleep(randomDelay(SCRAPE_DELAY_MIN, SCRAPE_DELAY_MAX));
 
+      // Detect CAPTCHA / robot check
+      const isCaptcha = await page.evaluate(() => {
+        const body = document.body.innerText || '';
+        const title = document.title || '';
+        return body.includes('robot') || body.includes('captcha') || body.includes('Type the characters') ||
+               title.includes('Robot Check') || title.includes('CAPTCHA') ||
+               !!document.querySelector('form[action*="captcha"]') ||
+               !!document.querySelector('#captchacharacters');
+      });
+      if (isCaptcha) {
+        log('⚠️  CAPTCHA detected! Pausing 60s — please solve it in the browser window...', 'warn');
+        await sleep(60000); // Wait 60s for manual solve
+        log('Resuming after CAPTCHA pause...', 'warn');
+      }
+
       // Wait for results
       await page.waitForSelector('[data-asin]', { timeout: 15000 }).catch(() => {
-        log(`No results on page ${pageNum}`, 'warn');
+        log(`No results on page ${pageNum} — Amazon may be blocking. Try increasing delay.`, 'warn');
       });
 
       // Extract products from current page
