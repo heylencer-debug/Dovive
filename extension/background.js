@@ -23,7 +23,8 @@ async function sbUpsert(table, data, onConflict) {
     'apikey': SB_KEY,
     'Authorization': `Bearer ${SB_KEY}`,
     'Content-Type': 'application/json',
-    'Prefer': 'resolution=merge-duplicates,return=minimal'
+    // Only use merge-duplicates if we have an onConflict key
+    'Prefer': onConflict ? 'resolution=merge-duplicates,return=minimal' : 'return=minimal'
   };
 
   const response = await fetch(url, {
@@ -84,7 +85,8 @@ async function saveReviews(asin, keyword, reviews) {
     keyword
   }));
 
-  await sbUpsert('dovive_reviews', reviewsWithKeys, 'asin,review_id');
+  // No unique constraint - just insert all reviews
+  await sbUpsert('dovive_reviews', reviewsWithKeys, null);
 }
 
 // ============ STATE MANAGEMENT ============

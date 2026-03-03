@@ -198,18 +198,21 @@ async function scrapeReviewsPage() {
       const dateEl = card.querySelector('[data-hook="review-date"]');
       const authorEl = card.querySelector('.a-profile-name');
       const verifiedEl = card.querySelector('[data-hook="avp-badge"]');
-      const reviewIdMatch = card.getAttribute('id')?.match(/[A-Z0-9]{10,}/);
+
+      // Parse the review date to extract just the date portion
+      const dateText = dateEl?.textContent?.replace('Reviewed in', '').trim() || '';
+      const dateMatch = dateText.match(/on\s+(\w+\s+\d+,\s+\d+)/);
+      const reviewDateStr = dateMatch ? dateMatch[1] : null;
 
       reviews.push({
         asin,
-        review_id: reviewIdMatch ? reviewIdMatch[0] : `${asin}_p${page}_${reviews.length}`,
+        reviewer_name: authorEl?.textContent?.trim(),
         rating: ratingEl ? parseFloat(ratingEl.textContent) : null,
         title: titleEl?.textContent?.trim(),
         body: bodyEl?.textContent?.trim()?.substring(0, 2000),
-        date: dateEl?.textContent?.replace('Reviewed in', '').trim(),
-        author: authorEl?.textContent?.trim(),
-        verified: !!verifiedEl,
-        page_number: page,
+        review_date: reviewDateStr,  // Will be converted to date format
+        verified_purchase: !!verifiedEl,
+        helpful_votes: 0,
         scraped_at: new Date().toISOString()
       });
     }
