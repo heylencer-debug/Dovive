@@ -325,6 +325,23 @@
 
   let scoutJobPollInterval = null;
 
+  async function stopScoutJob() {
+    const btn = document.getElementById('stop-scout-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Stopping…'; }
+    try {
+      const jobs = await sbFetch('dovive_jobs', { order: 'created_at.desc', limit: 1 });
+      if (jobs && jobs.length > 0 && (jobs[0].status === 'queued' || jobs[0].status === 'running')) {
+        await sbUpdate('dovive_jobs', `id=eq.${jobs[0].id}`, { status: 'cancelled', finished_at: new Date().toISOString() });
+        updateScoutStatus('cancelled');
+        showToast('🛑 Scout stopped', 'info');
+        if (scoutJobPollInterval) { clearInterval(scoutJobPollInterval); scoutJobPollInterval = null; }
+      }
+    } catch (e) {
+      console.error('Stop scout failed:', e);
+      if (btn) { btn.disabled = false; btn.textContent = 'Stop'; }
+    }
+  }
+
   async function queueScoutJob() {
     const btn = document.getElementById('start-scout-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Queuing…'; }
@@ -417,12 +434,13 @@
     const btn = document.getElementById('start-scout-btn');
 
     const statusMap = {
-      'queued':  { label: 'QUEUED',  color: '#0066FF' },
-      'running': { label: 'RUNNING', color: '#00AA44' },
-      'done':    { label: 'DONE',    color: '#0A0A0A' },
-      'error':   { label: 'ERROR',   color: '#CC0000' },
-      'failed':  { label: 'FAILED',  color: '#CC0000' },
-      'idle':    { label: 'IDLE',    color: '#888888' }
+      'queued':    { label: 'QUEUED',    color: '#0066FF' },
+      'running':   { label: 'RUNNING',   color: '#00AA44' },
+      'done':      { label: 'DONE',      color: '#0A0A0A' },
+      'cancelled': { label: 'CANCELLED', color: '#888888' },
+      'error':     { label: 'ERROR',     color: '#CC0000' },
+      'failed':    { label: 'FAILED',    color: '#CC0000' },
+      'idle':      { label: 'IDLE',      color: '#888888' }
     };
 
     const s = statusMap[status] || statusMap['idle'];
@@ -442,10 +460,17 @@
       detail.textContent = parts.join(' · ');
     }
 
+    const stopBtn = document.getElementById('stop-scout-btn');
     if (btn) {
       const busy = status === 'queued' || status === 'running';
       btn.disabled = busy;
       btn.textContent = busy ? (status === 'queued' ? 'Queued…' : 'Running…') : 'Start Scout';
+    }
+    if (stopBtn) {
+      const busy = status === 'queued' || status === 'running';
+      stopBtn.style.display = busy ? 'inline-block' : 'none';
+      stopBtn.disabled = false;
+      stopBtn.textContent = 'Stop';
     }
   }
 
@@ -537,7 +562,10 @@
           <span id="scout-status-pill" class="scout-status-pill" style="color:#888;border-color:#888">IDLE</span>
           <span id="scout-status-detail" class="scout-status-detail"></span>
         </div>
-        <button id="start-scout-btn" class="start-scout-btn" onclick="window._queueScoutJob()">Start Scout</button>
+        <div style="display:flex;gap:8px;">
+          <button id="start-scout-btn" class="start-scout-btn" onclick="window._queueScoutJob()">Start Scout</button>
+          <button id="stop-scout-btn" class="stop-scout-btn" onclick="window._stopScoutJob()" style="display:none">Stop</button>
+        </div>
       </div>
       <div class="settings-row">
         <span class="settings-label">Scrape Mode</span>
@@ -1788,8 +1816,9 @@
   }
 
   // Open product modal
-  // Expose Start Scout to dashboard button (calls job queue function)
+  // Expose Scout controls to dashboard buttons
   window._queueScoutJob = queueScoutJob;
+  window._stopScoutJob = stopScoutJob;
 
   window.openProductModal = async function(asin) {
     if (!asin) {

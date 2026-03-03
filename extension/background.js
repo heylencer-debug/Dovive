@@ -222,6 +222,20 @@ async function startScout() {
   }
 }
 
+async function checkIfCancelled() {
+  try {
+    const jobs = await sbFetch('dovive_jobs', { 'order': 'created_at.desc', 'limit': '1' });
+    if (jobs && jobs.length > 0 && jobs[0].status === 'cancelled') {
+      await addLog('Job cancelled from dashboard', 'info');
+      await setState({ running: false, currentKeyword: '' });
+      await closeScoutTab();
+      await chrome.storage.local.remove('activeJobId');
+      return true;
+    }
+  } catch (e) { /* ignore */ }
+  return false;
+}
+
 async function processNextKeyword() {
   const state = await getState();
 
@@ -229,6 +243,9 @@ async function processNextKeyword() {
     await addLog('Scout stopped', 'info');
     return;
   }
+
+  // Check if dashboard cancelled the job
+  if (await checkIfCancelled()) return;
 
   if (state.currentKeywordIndex >= keywords.length) {
     // Done!
