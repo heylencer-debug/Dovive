@@ -1,8 +1,8 @@
 /**
  * Dovive Scout Agent
- * Amazon Market Research Scraper + AI Analysis
+ * Amazon Market Research Scraper + AI Analysis + Telegram Reports
  *
- * Run with: node scout-agent.js
+ * Run with: node start.js (keeps running and polling)
  * Or once: node scout-agent.js --once
  */
 
@@ -10,12 +10,37 @@ require('dotenv').config();
 const { chromium } = require('playwright');
 const fetch = require('node-fetch');
 
-// Config
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://fhfqjcvwcxizbioftvdw.supabase.co';
+// Config - loaded from environment (no hardcoding)
+const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
-const POLL_INTERVAL = 30000; // 30 seconds
-const SCRAPE_DELAY = 2500; // 2.5 seconds between requests
-const PRODUCT_PAGE_DELAY = 3000; // 3 seconds between product page visits
+const OPENCLAW_GATEWAY = process.env.OPENCLAW_GATEWAY;
+const OPENCLAW_TOKEN = process.env.OPENCLAW_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+
+const POLL_INTERVAL = 60000; // 60 seconds
+const SCRAPE_DELAY_MIN = 2000;
+const SCRAPE_DELAY_MAX = 3000;
+const PRODUCT_PAGE_DELAY_MIN = 2500;
+const PRODUCT_PAGE_DELAY_MAX = 3500;
+const MAX_PRODUCTS_TO_SCRAPE = 20;
+const TOP_N_FOR_BSR = 5;
+
+// Random delay helper
+function randomDelay(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+// Sleep helper
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Log with timestamp
+function log(msg, level = 'info') {
+  const ts = new Date().toISOString();
+  const prefix = level === 'error' ? '❌' : level === 'warn' ? '⚠️' : level === 'success' ? '✅' : '📝';
+  console.log(`[${ts}] ${prefix} ${msg}`);
+}
 
 // Supabase helpers
 async function sbFetch(table, options = {}) {
@@ -62,6 +87,26 @@ async function sbInsert(table, data) {
   return res.json();
 }
 
+async function sbUpsert(table, data, onConflict) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': `return=representation,resolution=merge-duplicates`
+    },
+    body: JSON.stringify(data)
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Supabase upsert error: ${res.status} - ${text}`);
+  }
+
+  return res.json();
+}
+
 async function sbUpdate(table, filter, data) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
     method: 'PATCH',
@@ -82,11 +127,6 @@ async function sbUpdate(table, filter, data) {
   return res.json();
 }
 
-// Sleep helper
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 // Get OpenRouter API key from app_settings
 async function getOpenRouterKey() {
   try {
@@ -97,34 +137,73 @@ async function getOpenRouterKey() {
     if (settings && settings.length > 0) {
       return settings[0].value;
     }
-    console.warn('OpenRouter key not found in app_settings');
+    log('OpenRouter key not found in app_settings', 'warn');
     return null;
   } catch (err) {
-    console.error('Failed to get OpenRouter key:', err);
+    log(`Failed to get OpenRouter key: ${err.message}`, 'error');
     return null;
   }
 }
 
-// Generate AI market summary
-async function generateAISummary(keyword, products, openRouterKey) {
-  if (!openRouterKey) {
-    return 'AI summary unavailable - OpenRouter key not configured';
+// Send Telegram message via OpenClaw Gateway
+async function sendTelegram(message) {
+  if (!OPENCLAW_GATEWAY || !OPENCLAW_TOKEN || !TELEGRAM_CHAT_ID) {
+    log('Telegram not configured - skipping notification', 'warn');
+    return;
   }
 
-  const productSummary = products.slice(0, 10).map((p, i) =>
-    `${i + 1}. ${p.title} - $${p.price || 'N/A'} - ${p.rating || 'N/A'} stars - ${p.review_count || 'N/A'} reviews - BSR: ${p.bsr || 'N/A'}`
+  try {
+    const res = await fetch(`${OPENCLAW_GATEWAY}/message/send`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENCLAW_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        channel: 'telegram',
+        to: TELEGRAM_CHAT_ID,
+        message
+      })
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      log(`Telegram send failed: ${res.status} - ${text}`, 'error');
+    } else {
+      log('Telegram notification sent', 'success');
+    }
+  } catch (err) {
+    log(`Telegram error: ${err.message}`, 'error');
+  }
+}
+
+// Generate AI market summary for a keyword
+async function generateAISummary(keyword, products, openRouterKey) {
+  if (!openRouterKey) {
+    return {
+      summary: 'AI summary unavailable - OpenRouter key not configured',
+      recommendation: 'MONITOR'
+    };
+  }
+
+  const top10 = products.slice(0, 10);
+  const productList = top10.map((p, i) =>
+    `${i + 1}. "${p.title}" - $${p.price || 'N/A'} - ${p.rating || 'N/A'}★ - ${(p.review_count || 0).toLocaleString()} reviews - BSR: ${p.bsr ? p.bsr.toLocaleString() : 'N/A'}${p.is_sponsored ? ' [SPONSORED]' : ''}`
   ).join('\n');
 
-  const prompt = `Analyze this Amazon supplement market data for "${keyword}". Identify:
-1. Market gaps and opportunities
-2. Pricing strategies (what price points are underserved?)
-3. Common product weaknesses based on the data
-4. Potential differentiators for a new entrant
+  const prompt = `You are Scout, a market research analyst for Dovive, a supplement brand launching on Amazon US.
 
-Products:
-${productSummary}
+You just scraped Amazon for '${keyword}'. Here is the data:
+${productList}
 
-Provide a concise, actionable summary (under 500 words) with specific insights.`;
+Write a market research summary covering:
+1. MARKET SIZE SIGNAL: How competitive is this market? (review counts, number of high-BSR products)
+2. PRICE OPPORTUNITY: What price range dominates? Is there a gap at premium or budget tier?
+3. MARKET GAP: What do top products seem to be missing? (based on titles and positioning)
+4. ENTRY RECOMMENDATION: Should Dovive enter this market? ENTER / MONITOR / AVOID — with 1-sentence reason
+5. TOP COMPETITOR: Which single product would be Dovive's main competition and why?
+
+Be specific. Use the actual data. Plain English — no jargon.`;
 
   try {
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -135,71 +214,91 @@ Provide a concise, actionable summary (under 500 words) with specific insights.`
         'HTTP-Referer': 'https://heylencer-debug.github.io/Dovive'
       },
       body: JSON.stringify({
-        model: 'anthropic/claude-opus-4-5',
+        model: 'anthropic/claude-3.5-sonnet',
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 1000
+        max_tokens: 1200
       })
     });
 
     if (!res.ok) {
       const text = await res.text();
-      console.error('OpenRouter error:', text);
-      return 'AI summary generation failed';
+      log(`OpenRouter error: ${text}`, 'error');
+      return { summary: 'AI summary generation failed', recommendation: 'MONITOR' };
     }
 
     const data = await res.json();
-    return data.choices?.[0]?.message?.content || 'No summary generated';
+    const summary = data.choices?.[0]?.message?.content || 'No summary generated';
+
+    // Extract recommendation
+    const recMatch = summary.match(/ENTRY RECOMMENDATION[:\s]*(ENTER|MONITOR|AVOID)/i);
+    const recommendation = recMatch ? recMatch[1].toUpperCase() : 'MONITOR';
+
+    return { summary, recommendation };
   } catch (err) {
-    console.error('AI summary error:', err);
-    return 'AI summary generation failed: ' + err.message;
+    log(`AI summary error: ${err.message}`, 'error');
+    return { summary: 'AI summary generation failed: ' + err.message, recommendation: 'MONITOR' };
   }
 }
 
-// Scrape Amazon search results
+// Scrape Amazon search results for a keyword
 async function scrapeKeyword(page, keyword) {
-  console.log(`\n🔍 Scraping: "${keyword}"`);
+  log(`Scraping: "${keyword}"`);
 
-  const searchUrl = `https://www.amazon.com/s?k=${encodeURIComponent(keyword)}`;
+  const searchUrl = `https://www.amazon.com/s?k=${encodeURIComponent(keyword)}&ref=nb_sb_noss`;
 
   try {
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await sleep(SCRAPE_DELAY);
+    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await sleep(randomDelay(SCRAPE_DELAY_MIN, SCRAPE_DELAY_MAX));
 
     // Wait for results to load
-    await page.waitForSelector('[data-asin]', { timeout: 10000 }).catch(() => {});
+    await page.waitForSelector('[data-asin]', { timeout: 15000 }).catch(() => {
+      log('No data-asin elements found, may be captcha or empty results', 'warn');
+    });
+
+    // Screenshot for debugging (optional)
+    // await page.screenshot({ path: `debug-${keyword.replace(/\s+/g, '-')}.png` });
 
     // Get search results
-    const results = await page.evaluate(() => {
+    const results = await page.evaluate((maxProducts) => {
       const items = [];
       const resultDivs = document.querySelectorAll('[data-asin]:not([data-asin=""])');
 
       let rank = 0;
       resultDivs.forEach((div) => {
-        if (rank >= 20) return;
+        if (rank >= maxProducts) return;
 
         const asin = div.getAttribute('data-asin');
         if (!asin || asin.length !== 10) return;
+
+        // Check if sponsored
+        const sponsoredEl = div.querySelector('[data-component-type="sp-sponsored-result"]') ||
+                          div.querySelector('.s-label-popover-default') ||
+                          div.textContent.includes('Sponsored');
+        const is_sponsored = !!sponsoredEl;
 
         // Title
         const titleEl = div.querySelector('h2 a span') || div.querySelector('h2 span');
         const title = titleEl?.textContent?.trim() || '';
         if (!title) return;
 
-        // Price
-        const priceWhole = div.querySelector('.a-price-whole')?.textContent?.replace(',', '') || '';
+        // Price - handle various price formats
+        const priceWhole = div.querySelector('.a-price-whole')?.textContent?.replace(/[,.\s]/g, '') || '';
         const priceFraction = div.querySelector('.a-price-fraction')?.textContent || '00';
         const price = priceWhole ? parseFloat(`${priceWhole}.${priceFraction}`) : null;
 
         // Rating
-        const ratingEl = div.querySelector('.a-icon-alt');
+        const ratingEl = div.querySelector('i.a-icon-star-small span.a-icon-alt') ||
+                        div.querySelector('i.a-icon-star span.a-icon-alt') ||
+                        div.querySelector('.a-icon-alt');
         const ratingText = ratingEl?.textContent || '';
         const ratingMatch = ratingText.match(/(\d+\.?\d*)\s*out\s*of\s*5/i);
         const rating = ratingMatch ? parseFloat(ratingMatch[1]) : null;
 
-        // Reviews
-        const reviewEl = div.querySelector('span[aria-label*="star"]')?.closest('div')?.querySelector('span:last-child') ||
+        // Reviews count
+        const reviewEl = div.querySelector('span.a-size-base.s-underline-text') ||
+                        div.querySelector('[aria-label*="rating"]')?.parentElement?.querySelector('span:last-child') ||
                         div.querySelector('.a-size-small .a-link-normal');
-        const reviewText = reviewEl?.textContent?.replace(/[,\s]/g, '') || '0';
+        let reviewText = reviewEl?.textContent?.replace(/[,\s]/g, '') || '0';
         const review_count = parseInt(reviewText) || null;
 
         rank++;
@@ -209,72 +308,138 @@ async function scrapeKeyword(page, keyword) {
           price,
           rating,
           review_count,
-          rank_position: rank
+          rank_position: rank,
+          is_sponsored
         });
       });
 
       return items;
-    });
+    }, MAX_PRODUCTS_TO_SCRAPE);
 
-    console.log(`  Found ${results.length} products`);
+    log(`  Found ${results.length} products (${results.filter(r => r.is_sponsored).length} sponsored)`);
 
-    // Get BSR for top 5 products
-    const topProducts = results.slice(0, 5);
+    // Get BSR and brand for top N non-sponsored products
+    const nonSponsored = results.filter(r => !r.is_sponsored);
+    const topProducts = nonSponsored.slice(0, TOP_N_FOR_BSR);
+
     for (let i = 0; i < topProducts.length; i++) {
       const product = topProducts[i];
-      console.log(`  Fetching BSR for #${i + 1}: ${product.asin}`);
+      log(`  Fetching details for #${i + 1}: ${product.asin}`);
 
       try {
         const productUrl = `https://www.amazon.com/dp/${product.asin}`;
-        await page.goto(productUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await sleep(PRODUCT_PAGE_DELAY);
+        await page.goto(productUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+        await sleep(randomDelay(PRODUCT_PAGE_DELAY_MIN, PRODUCT_PAGE_DELAY_MAX));
 
-        const bsr = await page.evaluate(() => {
-          // Look for BSR in product details
+        const details = await page.evaluate(() => {
+          let bsr = null;
+          let brand = null;
+          let category = null;
+
+          // BSR - multiple locations
           const detailsText = document.body.innerText;
           const bsrMatch = detailsText.match(/Best\s*Sellers\s*Rank[:\s#]*(\d[\d,]*)/i);
           if (bsrMatch) {
-            return parseInt(bsrMatch[1].replace(/,/g, ''));
+            bsr = parseInt(bsrMatch[1].replace(/,/g, ''));
           }
 
-          // Try alternative location
-          const bsrEl = document.querySelector('#SalesRank') ||
-                       document.querySelector('[data-feature-name="salesRank"]');
-          if (bsrEl) {
-            const match = bsrEl.textContent.match(/#?([\d,]+)/);
-            return match ? parseInt(match[1].replace(/,/g, '')) : null;
+          if (!bsr) {
+            const bsrEl = document.querySelector('#SalesRank') ||
+                         document.querySelector('[data-feature-name="salesRank"]') ||
+                         document.querySelector('#detailBulletsWrapper_feature_div');
+            if (bsrEl) {
+              const match = bsrEl.textContent.match(/#?([\d,]+)/);
+              if (match) bsr = parseInt(match[1].replace(/,/g, ''));
+            }
           }
 
-          return null;
+          // Brand
+          const brandEl = document.querySelector('#bylineInfo') ||
+                         document.querySelector('.po-brand .a-span9') ||
+                         document.querySelector('a#bylineInfo');
+          if (brandEl) {
+            brand = brandEl.textContent.replace(/^(Brand|Visit the|Store)[:.\s]*/i, '').trim();
+          }
+
+          // Category from breadcrumb
+          const categoryEl = document.querySelector('#wayfinding-breadcrumbs_feature_div ul li:last-child a') ||
+                            document.querySelector('.a-breadcrumb li:last-child a');
+          if (categoryEl) {
+            category = categoryEl.textContent.trim();
+          }
+
+          return { bsr, brand, category };
         });
 
-        if (bsr) {
-          product.bsr = bsr;
-          console.log(`    BSR: ${bsr.toLocaleString()}`);
+        // Update product with details
+        const idx = results.findIndex(r => r.asin === product.asin);
+        if (idx >= 0) {
+          if (details.bsr) results[idx].bsr = details.bsr;
+          if (details.brand) results[idx].brand = details.brand;
+          if (details.category) results[idx].category = details.category;
+          if (details.bsr) log(`    BSR: ${details.bsr.toLocaleString()}`);
         }
       } catch (err) {
-        console.warn(`    Failed to get BSR: ${err.message}`);
+        log(`    Failed to get details: ${err.message}`, 'warn');
       }
     }
 
     return results;
   } catch (err) {
-    console.error(`  Scrape failed: ${err.message}`);
+    log(`  Scrape failed: ${err.message}`, 'error');
     return [];
   }
 }
 
+// Build Telegram report message
+function buildTelegramReport(date, keywordResults) {
+  let msg = `⚗️ SCOUT REPORT — ${date}\n\n`;
+
+  for (const [keyword, data] of Object.entries(keywordResults)) {
+    const { products, recommendation, keyGap } = data;
+    const topProduct = products.find(p => !p.is_sponsored) || products[0];
+
+    msg += `📦 ${keyword.toUpperCase()}\n`;
+    if (topProduct) {
+      msg += `• Top: ${topProduct.title.slice(0, 50)}... ($${topProduct.price || 'N/A'}, ${topProduct.rating || 'N/A'}★, ${(topProduct.review_count || 0).toLocaleString()} reviews)\n`;
+    }
+    msg += `• Entry: ${recommendation}\n`;
+    if (keyGap) {
+      msg += `• Gap: ${keyGap.slice(0, 80)}\n`;
+    }
+    msg += '\n';
+  }
+
+  msg += `Full report: https://heylencer-debug.github.io/Dovive`;
+  return msg;
+}
+
+// Extract key gap from AI summary
+function extractKeyGap(summary) {
+  const gapMatch = summary.match(/MARKET GAP[:\s]*([^\n]+)/i);
+  if (gapMatch) return gapMatch[1].trim();
+
+  const missingMatch = summary.match(/missing[:\s]*([^\n.]+)/i);
+  if (missingMatch) return missingMatch[1].trim();
+
+  return null;
+}
+
 // Process a queued job
 async function processJob(job) {
-  console.log(`\n⚡ Processing job ${job.id} (triggered by: ${job.triggered_by})`);
+  log(`Processing job ${job.id} (triggered by: ${job.triggered_by || 'unknown'})`);
+
+  const startedAt = new Date().toISOString();
 
   // Update job to running
   await sbUpdate('dovive_jobs', `id=eq.${job.id}`, {
     status: 'running',
-    updated_at: new Date().toISOString()
+    started_at: startedAt,
+    updated_at: startedAt
   });
 
   let browser;
+  const keywordResults = {};
 
   try {
     // Get active keywords
@@ -284,24 +449,31 @@ async function processJob(job) {
     });
 
     if (!keywords || keywords.length === 0) {
-      console.log('No active keywords to scrape');
+      log('No active keywords to scrape');
       await sbUpdate('dovive_jobs', `id=eq.${job.id}`, {
         status: 'complete',
+        completed_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       });
       return;
     }
 
-    console.log(`\n📋 Keywords to scrape: ${keywords.length}`);
+    log(`Keywords to scrape: ${keywords.length}`);
 
     // Launch browser (visible so Carlo can watch)
     browser = await chromium.launch({
       headless: false,
-      args: ['--disable-blink-features=AutomationControlled']
+      args: [
+        '--disable-blink-features=AutomationControlled',
+        '--no-sandbox',
+        '--disable-setuid-sandbox'
+      ]
     });
 
     const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+      viewport: { width: 1366, height: 768 },
+      locale: 'en-US'
     });
 
     const page = await context.newPage();
@@ -315,18 +487,38 @@ async function processJob(job) {
         const products = await scrapeKeyword(page, kw.keyword);
 
         if (products.length > 0) {
-          // Save research data
+          // Save research data (upsert on asin+keyword)
           for (const product of products) {
-            await sbInsert('dovive_research', {
-              keyword: kw.keyword,
-              ...product,
-              scraped_at: new Date().toISOString()
-            });
+            try {
+              await sbInsert('dovive_research', {
+                keyword: kw.keyword,
+                asin: product.asin,
+                title: product.title,
+                price: product.price,
+                rating: product.rating,
+                review_count: product.review_count,
+                rank_position: product.rank_position,
+                bsr: product.bsr || null,
+                brand: product.brand || null,
+                category: product.category || null,
+                is_sponsored: product.is_sponsored || false,
+                scraped_at: new Date().toISOString()
+              });
+            } catch (err) {
+              // Likely duplicate, log and continue
+              if (!err.message.includes('duplicate')) {
+                log(`Failed to save product ${product.asin}: ${err.message}`, 'warn');
+              }
+            }
           }
 
           // Generate AI summary
-          console.log(`  🤖 Generating AI summary...`);
-          const aiSummary = await generateAISummary(kw.keyword, products, openRouterKey);
+          log(`  Generating AI summary...`);
+          const { summary: aiSummary, recommendation } = await generateAISummary(kw.keyword, products, openRouterKey);
+          const keyGap = extractKeyGap(aiSummary);
+
+          // Store for Telegram report
+          keywordResults[kw.keyword] = { products, recommendation, keyGap };
 
           // Calculate stats
           const prices = products.filter(p => p.price).map(p => p.price);
@@ -341,6 +533,7 @@ async function processJob(job) {
           await sbInsert('dovive_reports', {
             keyword: kw.keyword,
             ai_summary: aiSummary,
+            recommendation,
             total_products: products.length,
             avg_price: avgPrice ? parseFloat(avgPrice.toFixed(2)) : null,
             avg_rating: avgRating ? parseFloat(avgRating.toFixed(2)) : null,
@@ -348,30 +541,50 @@ async function processJob(job) {
             analyzed_at: new Date().toISOString()
           });
 
-          console.log(`  ✅ Saved ${products.length} products and report`);
+          log(`  Saved ${products.length} products and report`, 'success');
         }
 
         // Delay before next keyword
-        await sleep(SCRAPE_DELAY);
+        await sleep(randomDelay(SCRAPE_DELAY_MIN, SCRAPE_DELAY_MAX));
       } catch (err) {
-        console.error(`  ❌ Failed for "${kw.keyword}": ${err.message}`);
+        log(`Failed for "${kw.keyword}": ${err.message}`, 'error');
+
+        // Send error alert to Telegram
+        await sendTelegram(`⚠️ Scout Error on "${kw.keyword}": ${err.message}`);
+
         // Continue to next keyword
       }
     }
 
     // Mark job complete
+    const completedAt = new Date().toISOString();
     await sbUpdate('dovive_jobs', `id=eq.${job.id}`, {
       status: 'complete',
+      completed_at: completedAt,
+      updated_at: completedAt
+    });
+
+    log('Job completed successfully', 'success');
+
+    // Send Telegram summary report
+    if (Object.keys(keywordResults).length > 0) {
+      const today = new Date().toISOString().split('T')[0];
+      const reportMsg = buildTelegramReport(today, keywordResults);
+      await sendTelegram(reportMsg);
+    }
+
+  } catch (err) {
+    log(`Job failed: ${err.message}`, 'error');
+
+    await sbUpdate('dovive_jobs', `id=eq.${job.id}`, {
+      status: 'error',
+      error_message: err.message,
+      completed_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     });
 
-    console.log('\n✅ Job completed successfully');
-  } catch (err) {
-    console.error('Job failed:', err);
-    await sbUpdate('dovive_jobs', `id=eq.${job.id}`, {
-      status: 'error',
-      updated_at: new Date().toISOString()
-    });
+    // Send error alert to Telegram
+    await sendTelegram(`❌ Scout Job Failed: ${err.message}`);
   } finally {
     if (browser) {
       await browser.close();
@@ -392,27 +605,54 @@ async function pollForJobs() {
       await processJob(jobs[0]);
     }
   } catch (err) {
-    console.error('Poll error:', err);
+    log(`Poll error: ${err.message}`, 'error');
+  }
+}
+
+// Validate config
+function validateConfig() {
+  const required = [
+    ['SUPABASE_URL', SUPABASE_URL],
+    ['SUPABASE_KEY', SUPABASE_KEY]
+  ];
+
+  const missing = required.filter(([name, val]) => !val).map(([name]) => name);
+
+  if (missing.length > 0) {
+    console.error(`❌ Missing required environment variables: ${missing.join(', ')}`);
+    console.error('   Set these in scout/.env or parent .env file');
+    process.exit(1);
+  }
+
+  const optional = [
+    ['OPENCLAW_GATEWAY', OPENCLAW_GATEWAY],
+    ['OPENCLAW_TOKEN', OPENCLAW_TOKEN],
+    ['TELEGRAM_CHAT_ID', TELEGRAM_CHAT_ID]
+  ];
+
+  const missingOptional = optional.filter(([name, val]) => !val).map(([name]) => name);
+  if (missingOptional.length > 0) {
+    log(`Optional env vars not set (Telegram disabled): ${missingOptional.join(', ')}`, 'warn');
   }
 }
 
 // Main
 async function main() {
-  console.log('🔭 Dovive Scout Agent');
-  console.log('========================');
+  console.log('');
+  console.log('🔭 DOVIVE SCOUT AGENT');
+  console.log('═══════════════════════════════════════');
+  console.log('');
 
-  if (!SUPABASE_KEY) {
-    console.error('❌ SUPABASE_KEY not set in environment');
-    process.exit(1);
-  }
+  validateConfig();
 
-  console.log(`Supabase URL: ${SUPABASE_URL}`);
-  console.log(`Poll interval: ${POLL_INTERVAL / 1000}s`);
+  log(`Supabase: ${SUPABASE_URL}`);
+  log(`Poll interval: ${POLL_INTERVAL / 1000}s`);
+  log(`Telegram: ${TELEGRAM_CHAT_ID ? 'Enabled' : 'Disabled'}`);
 
   const runOnce = process.argv.includes('--once');
 
   if (runOnce) {
-    console.log('\n🔄 Running in single-shot mode');
+    log('Running in single-shot mode');
 
     // Create a job and process it
     const [job] = await sbInsert('dovive_jobs', {
@@ -424,12 +664,13 @@ async function main() {
       await processJob(job);
     }
 
-    console.log('\nDone.');
+    log('Done.');
     process.exit(0);
   }
 
   // Continuous polling mode
-  console.log('\n🔄 Starting continuous polling...');
+  log('Starting continuous polling...');
+  console.log('');
 
   while (true) {
     await pollForJobs();
@@ -437,6 +678,17 @@ async function main() {
     process.stdout.write('.');
   }
 }
+
+// Handle graceful shutdown
+process.on('SIGINT', () => {
+  log('Received SIGINT, shutting down...');
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  log('Received SIGTERM, shutting down...');
+  process.exit(0);
+});
 
 main().catch(err => {
   console.error('Fatal error:', err);
