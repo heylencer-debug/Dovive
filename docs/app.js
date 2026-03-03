@@ -1,6 +1,7 @@
-// Dovive Scout Dashboard V2.6 - Main Application
+// Dovive Scout Dashboard V2.7 - Main Application
 // Features: Product type filters, reviews panel, specs panel, live progress tracking, Scout Settings panel
 // V2.6: Product grid view + full detail modal with tabs
+// V2.7: Keywords page with drill-down, AI report, per-keyword product grid
 
 (function() {
   'use strict';
@@ -46,6 +47,11 @@
   let currentModalTab = 'overview';
   let modalProductData = {};
 
+  // V2.7: View State Management
+  let currentView = 'keywords'; // 'keywords' | 'keyword-detail' | 'product-explorer' | 'settings' | 'overview'
+  let selectedKeyword = null;
+  let keywordDetailSort = 'bsr'; // 'bsr' | 'price' | 'rating' | 'reviews'
+
   // DOM Elements
   const keywordList = document.getElementById('keyword-list');
   const keywordCount = document.getElementById('keyword-count');
@@ -81,6 +87,10 @@
     renderProductsGrid();
     renderProductsKeywordTabs();
     setupProductsGridListeners();
+
+    // V2.7: Setup navigation and render Keywords page by default
+    setupNavigation();
+    showKeywordsPage();
   }
 
   // ============================================================
@@ -2062,6 +2072,458 @@
   // Handle Escape key for modal
   function handleModalEsc(e) {
     if (e.key === 'Escape') closeModal();
+  }
+
+  // ============================================================
+  // V2.7: NAVIGATION AND VIEW MANAGEMENT
+  // ============================================================
+
+  // Setup sidebar navigation
+  function setupNavigation() {
+    const navItems = document.querySelectorAll('.nav-item');
+    navItems.forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.preventDefault();
+        const view = item.dataset.view;
+        if (view) {
+          navigateToView(view);
+        }
+      });
+    });
+  }
+
+  // Navigate to a specific view
+  function navigateToView(view) {
+    // Update nav active state
+    document.querySelectorAll('.nav-item').forEach(item => {
+      item.classList.toggle('active', item.dataset.view === view);
+    });
+
+    // Hide all views
+    document.querySelectorAll('.view-container').forEach(v => {
+      v.style.display = 'none';
+    });
+
+    // Show target view
+    const viewContainer = document.getElementById('view-' + view);
+    if (viewContainer) {
+      viewContainer.style.display = 'block';
+    }
+
+    // Update header
+    const pageTitle = document.getElementById('page-title');
+    const pageSubtitle = document.getElementById('page-subtitle');
+
+    switch (view) {
+      case 'keywords':
+        pageTitle.textContent = 'Keywords';
+        pageSubtitle.textContent = 'Track and analyze your target keywords';
+        showKeywordsPage();
+        break;
+      case 'keyword-detail':
+        // Header is set by showKeywordDetail
+        break;
+      case 'product-explorer':
+        pageTitle.textContent = 'Product Explorer';
+        pageSubtitle.textContent = 'Browse all tracked products';
+        break;
+      case 'settings':
+        pageTitle.textContent = 'Scout Settings';
+        pageSubtitle.textContent = 'Configure Scout behavior and view changelog';
+        renderSettingsPage();
+        break;
+      case 'overview':
+        pageTitle.textContent = 'Overview';
+        pageSubtitle.textContent = 'Dashboard overview with Scout controls';
+        break;
+    }
+
+    currentView = view;
+  }
+
+  // ============================================================
+  // V2.7: KEYWORDS PAGE
+  // ============================================================
+
+  // Show Keywords landing page
+  function showKeywordsPage() {
+    currentView = 'keywords';
+    selectedKeyword = null;
+
+    // Update nav
+    document.querySelectorAll('.nav-item').forEach(item => {
+      item.classList.toggle('active', item.dataset.view === 'keywords');
+    });
+
+    // Update header
+    document.getElementById('page-title').textContent = 'Keywords';
+    document.getElementById('page-subtitle').textContent = 'Track and analyze your target keywords';
+
+    // Show keywords view, hide others
+    document.querySelectorAll('.view-container').forEach(v => {
+      v.style.display = 'none';
+    });
+    document.getElementById('view-keywords').style.display = 'block';
+
+    renderKeywordsPage();
+  }
+
+  // Render Keywords page with keyword cards
+  async function renderKeywordsPage() {
+    const container = document.getElementById('keywords-page-container');
+    if (!container) return;
+
+    // Show loading
+    container.innerHTML = '<div class="modal-loading">Loading keywords...</div>';
+
+    // Fetch keywords with stats
+    const keywordsWithStats = await Promise.all(
+      keywords.map(async (kw) => {
+        // Get products for this keyword
+        const kwProducts = products.filter(p => p.keyword === kw.keyword);
+        const productCount = kwProducts.length;
+
+        // Calculate stats
+        const bsrs = kwProducts.filter(p => p.bsr).map(p => p.bsr);
+        const avgBsr = bsrs.length > 0 ? Math.round(bsrs.reduce((a, b) => a + b, 0) / bsrs.length) : null;
+
+        const prices = kwProducts.filter(p => p.price).map(p => p.price);
+        const priceMin = prices.length > 0 ? Math.min(...prices) : null;
+        const priceMax = prices.length > 0 ? Math.max(...prices) : null;
+
+        const ratings = kwProducts.filter(p => p.rating).map(p => p.rating);
+        const avgRating = ratings.length > 0 ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1) : null;
+
+        // Get last scraped time
+        const scrapedDates = kwProducts.filter(p => p.scraped_at).map(p => new Date(p.scraped_at));
+        const lastScraped = scrapedDates.length > 0 ? new Date(Math.max(...scrapedDates)) : null;
+
+        // Check for AI report
+        const report = reports.find(r => r.keyword === kw.keyword);
+
+        return {
+          ...kw,
+          productCount,
+          avgBsr,
+          priceMin,
+          priceMax,
+          avgRating,
+          lastScraped,
+          hasReport: !!report
+        };
+      })
+    );
+
+    // Render cards
+    if (keywordsWithStats.length === 0) {
+      container.innerHTML = `
+        <div class="keywords-empty">
+          <div class="keywords-empty-icon">🔍</div>
+          <div class="keywords-empty-title">No keywords tracked yet</div>
+          <div class="keywords-empty-text">Add keywords in the Overview page to start tracking.</div>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="keyword-grid">
+        ${keywordsWithStats.map(kw => renderKeywordCard(kw)).join('')}
+      </div>
+    `;
+
+    // Setup click handlers
+    container.querySelectorAll('.keyword-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const keyword = card.dataset.keyword;
+        showKeywordDetail(keyword);
+      });
+    });
+  }
+
+  // Render a single keyword card
+  function renderKeywordCard(kw) {
+    const productType = kw.product_type || detectProductType(kw.keyword);
+    const typeClass = productType.toLowerCase().replace(/[^a-z]/g, '');
+
+    const lastScrapedText = kw.lastScraped
+      ? `Last scraped: ${kw.lastScraped.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · ${formatTimeAgo(kw.lastScraped)}`
+      : 'Not yet scraped';
+
+    return `
+      <div class="keyword-card" data-keyword="${escapeHtml(kw.keyword)}">
+        <div class="kw-header">
+          <div class="kw-name">${escapeHtml(kw.keyword)}</div>
+          <span class="kw-type-badge ${typeClass}">${productType.toUpperCase()}</span>
+        </div>
+
+        <div class="kw-stats">
+          <div class="kw-stat">Products tracked: <span>${kw.productCount}</span></div>
+          <div class="kw-stat">Avg BSR: <span>${kw.avgBsr ? '#' + kw.avgBsr.toLocaleString() : '-'}</span></div>
+          <div class="kw-stat">Price range: <span>${kw.priceMin ? '$' + kw.priceMin.toFixed(2) + ' – $' + kw.priceMax.toFixed(2) : '-'}</span></div>
+          <div class="kw-stat">Avg rating: <span>${kw.avgRating ? '★ ' + kw.avgRating : '-'}</span></div>
+        </div>
+
+        <div class="kw-last-scraped">${lastScrapedText}</div>
+
+        <div class="kw-report-chip ${kw.hasReport ? 'ready' : 'pending'}">
+          ${kw.hasReport ? '✓ AI Report ready' : 'No report yet'}
+        </div>
+
+        <button class="kw-view-btn">View Products →</button>
+      </div>
+    `;
+  }
+
+  // Detect product type from keyword
+  function detectProductType(keyword) {
+    const kw = keyword.toLowerCase();
+    if (kw.includes('gummies') || kw.includes('gummy')) return 'Gummies';
+    if (kw.includes('powder')) return 'Powder';
+    if (kw.includes('capsule')) return 'Capsule';
+    if (kw.includes('liquid') || kw.includes('drops') || kw.includes('tincture')) return 'Liquid';
+    return 'Other';
+  }
+
+  // ============================================================
+  // V2.7: KEYWORD DETAIL VIEW
+  // ============================================================
+
+  // Show Keyword detail view
+  function showKeywordDetail(keyword) {
+    currentView = 'keyword-detail';
+    selectedKeyword = keyword;
+
+    // Update header
+    document.getElementById('page-title').textContent = keyword;
+    document.getElementById('page-subtitle').textContent = 'Keyword research details and products';
+
+    // Hide all views, show detail view
+    document.querySelectorAll('.view-container').forEach(v => {
+      v.style.display = 'none';
+    });
+    document.getElementById('view-keyword-detail').style.display = 'block';
+
+    renderKeywordDetail(keyword);
+  }
+
+  // Render Keyword detail view
+  async function renderKeywordDetail(keyword) {
+    const container = document.getElementById('keyword-detail-container');
+    if (!container) return;
+
+    // Show loading
+    container.innerHTML = '<div class="modal-loading">Loading keyword data...</div>';
+
+    // Get keyword info
+    const kwInfo = keywords.find(k => k.keyword === keyword);
+    const productType = kwInfo?.product_type || detectProductType(keyword);
+
+    // Get products for this keyword
+    let kwProducts = products.filter(p => p.keyword === keyword);
+
+    // Get last scraped time
+    const scrapedDates = kwProducts.filter(p => p.scraped_at).map(p => new Date(p.scraped_at));
+    const lastScraped = scrapedDates.length > 0 ? new Date(Math.max(...scrapedDates)) : null;
+
+    // Get AI report
+    const report = reports.find(r => r.keyword === keyword);
+
+    // Sort products
+    kwProducts = sortProducts(kwProducts, keywordDetailSort);
+
+    // Deduplicate by ASIN
+    const seenAsins = new Set();
+    kwProducts = kwProducts.filter(p => {
+      if (seenAsins.has(p.asin)) return false;
+      seenAsins.add(p.asin);
+      return true;
+    });
+
+    // Build HTML
+    const lastScrapedText = lastScraped
+      ? lastScraped.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' · ' + formatTimeAgo(lastScraped)
+      : 'Not yet scraped';
+
+    container.innerHTML = `
+      <button class="back-btn" id="back-to-keywords">← Keywords</button>
+
+      <div class="kw-detail-header">
+        <div>
+          <div class="kw-detail-title">${escapeHtml(keyword)}</div>
+          <div class="kw-detail-meta">
+            <span class="kw-type-badge ${productType.toLowerCase()}">${productType.toUpperCase()}</span>
+            <span style="font-size: 12px; color: #6B7280;">${lastScrapedText}</span>
+          </div>
+        </div>
+      </div>
+
+      ${renderAIReportSection(report)}
+
+      <div class="products-section-header">
+        <div>
+          <span class="products-section-title">Products</span>
+          <span class="products-section-count">${kwProducts.length} products tracked</span>
+        </div>
+        <div class="sort-tabs">
+          <button class="sort-tab ${keywordDetailSort === 'bsr' ? 'active' : ''}" data-sort="bsr">BSR</button>
+          <button class="sort-tab ${keywordDetailSort === 'price' ? 'active' : ''}" data-sort="price">Price</button>
+          <button class="sort-tab ${keywordDetailSort === 'rating' ? 'active' : ''}" data-sort="rating">Rating</button>
+          <button class="sort-tab ${keywordDetailSort === 'reviews' ? 'active' : ''}" data-sort="reviews">Reviews</button>
+        </div>
+      </div>
+
+      ${kwProducts.length > 0 ? `
+        <div class="products-grid">
+          ${kwProducts.slice(0, 50).map(p => renderProductCard(p)).join('')}
+        </div>
+      ` : `
+        <div class="products-empty-state">
+          <div class="products-empty-icon">📦</div>
+          <div class="products-empty-title">No products yet</div>
+          <div class="products-empty-text">Run Scout to collect products for this keyword.</div>
+        </div>
+      `}
+    `;
+
+    // Setup back button
+    document.getElementById('back-to-keywords').addEventListener('click', () => {
+      showKeywordsPage();
+    });
+
+    // Setup sort tabs
+    container.querySelectorAll('.sort-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        keywordDetailSort = tab.dataset.sort;
+        renderKeywordDetail(keyword);
+      });
+    });
+  }
+
+  // Sort products by specified field
+  function sortProducts(productsList, sortBy) {
+    return [...productsList].sort((a, b) => {
+      switch (sortBy) {
+        case 'bsr':
+          return (a.bsr || Infinity) - (b.bsr || Infinity);
+        case 'price':
+          return (a.price || Infinity) - (b.price || Infinity);
+        case 'rating':
+          return (b.rating || 0) - (a.rating || 0);
+        case 'reviews':
+          return (b.review_count || 0) - (a.review_count || 0);
+        default:
+          return 0;
+      }
+    });
+  }
+
+  // Render AI Report section
+  function renderAIReportSection(report) {
+    if (!report || !report.ai_summary) {
+      return `
+        <div class="ai-report-card empty">
+          <div style="font-size: 32px; margin-bottom: 12px;">🤖</div>
+          <div style="font-size: 14px; font-weight: 600; margin-bottom: 8px;">No AI report yet for this keyword</div>
+          <div style="font-size: 13px;">Run Scout to generate an AI market analysis.</div>
+        </div>
+      `;
+    }
+
+    const summaryParagraphs = report.ai_summary.split('\n\n').map(p => `<p>${escapeHtml(p)}</p>`).join('');
+    const generatedDate = report.analyzed_at
+      ? new Date(report.analyzed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      : 'Unknown';
+
+    return `
+      <div class="ai-report-card">
+        <div class="ai-report-label">🤖 AI MARKET REPORT</div>
+        <div class="ai-report-summary">${summaryParagraphs}</div>
+        ${report.recommendation ? `
+          <div class="ai-report-recommendation">
+            <strong>Recommendation:</strong> ${escapeHtml(report.recommendation)}
+          </div>
+        ` : ''}
+        <div class="ai-report-footer">Generated: ${generatedDate}</div>
+      </div>
+    `;
+  }
+
+  // ============================================================
+  // V2.7: SETTINGS PAGE
+  // ============================================================
+
+  function renderSettingsPage() {
+    const container = document.getElementById('settings-page-container');
+    if (!container) return;
+
+    // Mode badge
+    const modeLabel = {
+      'best_sellers_first': 'Best Sellers First',
+      'best_sellers_only': 'Best Sellers Only',
+      'keyword_only': 'Keyword Search Only'
+    }[scoutSettings.scrape_mode] || scoutSettings.scrape_mode;
+
+    // Active types chips
+    const activeTypes = scoutSettings.product_types_active || [];
+    const typesHtml = activeTypes.length > 0
+      ? activeTypes.map(t => `<span class="chip">${t}</span>`).join(' ')
+      : '<span class="muted">All types</span>';
+
+    // Best Sellers categories
+    const bsCategories = scoutSettings.best_sellers_categories || [];
+    const categoriesHtml = bsCategories.length > 0
+      ? bsCategories.map(c => `<div class="category-item">• ${c.name || c}</div>`).join('')
+      : '<span class="muted">None configured</span>';
+
+    // Changelog
+    const changelogHtml = scoutChangelog.length > 0
+      ? scoutChangelog.map(c => `
+          <div class="changelog-entry">
+            <div class="changelog-version">${c.version || 'v?'}</div>
+            <div class="changelog-desc">${c.description || ''}</div>
+            <div class="changelog-date">${c.created_at ? new Date(c.created_at).toLocaleDateString() : ''}</div>
+          </div>
+        `).join('')
+      : '<div class="muted">No changelog entries</div>';
+
+    container.innerHTML = `
+      <div class="card" style="max-width: 600px;">
+        <div class="card-header">
+          <span class="label">SCOUT CONFIGURATION</span>
+        </div>
+
+        <div class="settings-row">
+          <span class="settings-label">Scrape Mode</span>
+          <span class="settings-value badge">${modeLabel}</span>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Active Types</span>
+          <div class="settings-chips">${typesHtml}</div>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Best Sellers Categories</span>
+          <div class="categories-list">${categoriesHtml}</div>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Products/Type</span>
+          <span class="settings-value">${scoutSettings.max_products_per_type || 50}</span>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Deep Scrape Top N</span>
+          <span class="settings-value">${scoutSettings.deep_scrape_top_n || 30}</span>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Max Reviews/Product</span>
+          <span class="settings-value">${scoutSettings.max_reviews_per_product || 200}</span>
+        </div>
+
+        <div class="changelog-section">
+          <div class="changelog-title">Recent Changes</div>
+          ${changelogHtml}
+        </div>
+      </div>
+    `;
   }
 
   // Initialize when DOM is ready

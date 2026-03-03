@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dovive | Scout V2.6 Dashboard</title>
+  <title>Dovive | Scout V2.7 Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cutive+Mono&display=swap" rel="stylesheet">
@@ -18,24 +18,64 @@
         <div class="logo-sub">Product Intelligence</div>
       </div>
       <nav class="sidebar-nav">
-        <a href="#" class="nav-item active">
+        <a href="#" class="nav-item" data-view="overview">
+          <span class="nav-icon">🏠</span>
+          <span class="nav-label">Overview</span>
+        </a>
+        <a href="#" class="nav-item active" data-view="keywords">
           <span class="nav-icon">🔍</span>
-          <span class="nav-label">Market Research</span>
+          <span class="nav-label">Keywords</span>
+        </a>
+        <a href="#" class="nav-item" data-view="product-explorer">
+          <span class="nav-icon">🗺️</span>
+          <span class="nav-label">Product Explorer</span>
+        </a>
+        <a href="#" class="nav-item" data-view="settings">
+          <span class="nav-icon">⚙️</span>
+          <span class="nav-label">Scout Settings</span>
         </a>
       </nav>
       <div class="sidebar-footer">
-        <div class="powered-by">Powered by Scout V2.6</div>
+        <div class="powered-by">Powered by Scout V2.7</div>
       </div>
     </aside>
 
     <!-- Main Content -->
     <main class="main">
-      <header class="main-header">
-        <h1>Market Research</h1>
-        <p class="subtitle">Amazon US supplement market intelligence — Best Sellers + 20 product types</p>
+      <!-- Dynamic Header -->
+      <header class="main-header" id="main-header">
+        <h1 id="page-title">Keywords</h1>
+        <p class="subtitle" id="page-subtitle">Track and analyze your target keywords</p>
       </header>
 
-      <div class="content-grid">
+      <!-- Keywords View (default) -->
+      <div class="view-container" id="view-keywords">
+        <div id="keywords-page-container"></div>
+      </div>
+
+      <!-- Keyword Detail View -->
+      <div class="view-container" id="view-keyword-detail" style="display:none;">
+        <div id="keyword-detail-container"></div>
+      </div>
+
+      <!-- Product Explorer View (placeholder) -->
+      <div class="view-container" id="view-product-explorer" style="display:none;">
+        <div class="placeholder-page">
+          <div class="placeholder-icon">🗺️</div>
+          <h2 class="placeholder-title">Product Explorer</h2>
+          <p class="placeholder-text">View and filter all tracked products across every keyword.</p>
+          <span class="coming-soon-chip">COMING SOON</span>
+        </div>
+      </div>
+
+      <!-- Settings View -->
+      <div class="view-container" id="view-settings" style="display:none;">
+        <div id="settings-page-container"></div>
+      </div>
+
+      <!-- Overview View (legacy dashboard) -->
+      <div class="view-container" id="view-overview" style="display:none;">
+        <div class="content-grid">
         <!-- Keyword Manager Card -->
         <section class="card keyword-manager">
           <div class="card-header">
@@ -54,7 +94,7 @@
         <!-- Scout Control Card -->
         <section class="card scout-control">
           <div class="card-header">
-            <span class="label">SCOUT V2.6 AGENT</span>
+            <span class="label">SCOUT V2.7 AGENT</span>
             <span class="badge" id="scout-status">IDLE</span>
           </div>
           <div class="scout-info">
@@ -68,7 +108,7 @@
             </div>
           </div>
           <button id="run-scout-btn" class="btn btn-primary">
-            <span class="btn-icon">⚡</span> RUN SCOUT V2.6
+            <span class="btn-icon">⚡</span> RUN SCOUT V2.7
           </button>
           <!-- Progress Section -->
           <div id="progress-section"></div>
@@ -160,6 +200,7 @@
             </div>
           </div>
         </section>
+        </div>
       </div>
     </main>
   </div>

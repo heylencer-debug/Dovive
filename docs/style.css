@@ -2674,3 +2674,371 @@ body {
 .btn-run-scout:hover {
   background: #E55A28;
 }
+
+/* ============================================================
+   V2.7 KEYWORDS PAGE - Keyword cards with drill-down
+   ============================================================ */
+
+/* View Container */
+.view-container {
+  min-height: calc(100vh - 150px);
+}
+
+/* Keyword Grid */
+.keyword-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 600px) {
+  .keyword-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Keyword Card */
+.keyword-card {
+  border: 1.5px solid #0A0A0A;
+  border-radius: 8px;
+  padding: 16px;
+  cursor: pointer;
+  background: #fff;
+  transition: all 0.15s;
+}
+
+.keyword-card:hover {
+  box-shadow: 4px 4px 0 #0A0A0A;
+  transform: translate(-1px, -1px);
+}
+
+.kw-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.kw-name {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.kw-type-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1.5px solid;
+  background: transparent;
+}
+
+.kw-type-badge.gummies {
+  border-color: #059669;
+  color: #059669;
+}
+
+.kw-type-badge.powder {
+  border-color: #2563EB;
+  color: #2563EB;
+}
+
+.kw-type-badge.capsule {
+  border-color: #7C3AED;
+  color: #7C3AED;
+}
+
+.kw-type-badge.liquid {
+  border-color: #DC2626;
+  color: #DC2626;
+}
+
+.kw-type-badge.other {
+  border-color: #6B7280;
+  color: #6B7280;
+}
+
+.kw-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.kw-stat {
+  font-size: 12px;
+  color: #374151;
+}
+
+.kw-stat span {
+  font-weight: 700;
+  color: #0A0A0A;
+}
+
+.kw-last-scraped {
+  font-size: 11px;
+  color: #9CA3AF;
+  margin-bottom: 10px;
+}
+
+.kw-report-chip {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1.5px solid;
+  margin-bottom: 12px;
+}
+
+.kw-report-chip.ready {
+  border-color: #059669;
+  color: #059669;
+}
+
+.kw-report-chip.pending {
+  border-color: #D1D5DB;
+  color: #9CA3AF;
+}
+
+.kw-view-btn {
+  width: 100%;
+  padding: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: 1.5px solid #0A0A0A;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.kw-view-btn:hover {
+  background: #0A0A0A;
+  color: #fff;
+}
+
+/* Back Button */
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #F3F4F6;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #374151;
+  margin-bottom: 20px;
+  transition: all 0.15s;
+}
+
+.back-btn:hover {
+  background: #E5E7EB;
+  color: #0A0A0A;
+}
+
+/* Keyword Detail Header */
+.kw-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1.5px solid #E5E5E5;
+}
+
+.kw-detail-title {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.kw-detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+/* AI Market Report Card */
+.ai-report-card {
+  background: #fff;
+  border: 1.5px solid #0A0A0A;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 24px;
+  box-shadow: 4px 4px 0 #0A0A0A;
+}
+
+.ai-report-card.empty {
+  background: #F9FAFB;
+  border-color: #E5E5E5;
+  box-shadow: none;
+  color: #6B7280;
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.ai-report-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #059669;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-report-summary {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #374151;
+  margin-bottom: 16px;
+}
+
+.ai-report-summary p {
+  margin-bottom: 12px;
+}
+
+.ai-report-recommendation {
+  background: #F0FDF4;
+  border: 1px solid #86EFAC;
+  border-radius: 6px;
+  padding: 12px 16px;
+  font-size: 13px;
+  color: #166534;
+  margin-bottom: 12px;
+}
+
+.ai-report-footer {
+  font-size: 11px;
+  color: #9CA3AF;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #E5E5E5;
+}
+
+/* Products Section in Detail View */
+.products-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.products-section-title {
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.products-section-count {
+  font-size: 12px;
+  color: #6B7280;
+}
+
+.sort-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.sort-tab {
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #F3F4F6;
+  border: 1px solid #E5E7EB;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.sort-tab:hover {
+  border-color: #0A0A0A;
+}
+
+.sort-tab.active {
+  background: #0A0A0A;
+  color: #fff;
+  border-color: #0A0A0A;
+}
+
+/* Placeholder Page */
+.placeholder-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 80px 20px;
+  min-height: 400px;
+}
+
+.placeholder-icon {
+  font-size: 64px;
+  margin-bottom: 20px;
+}
+
+.placeholder-title {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.placeholder-text {
+  font-size: 15px;
+  color: #6B7280;
+  max-width: 400px;
+  margin-bottom: 20px;
+}
+
+.coming-soon-chip {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 6px 16px;
+  border-radius: 20px;
+  background: #FEF3C7;
+  color: #92400E;
+  border: 1.5px solid #FCD34D;
+}
+
+/* Keywords Empty State */
+.keywords-empty {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.keywords-empty-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.6;
+}
+
+.keywords-empty-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.keywords-empty-text {
+  font-size: 14px;
+  color: #6B7280;
+}
