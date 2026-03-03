@@ -18,17 +18,13 @@ const DEFAULT_STATE = {
 // ============ SUPABASE FUNCTIONS ============
 
 async function sbUpsert(table, data, onConflict) {
-  const url = `${SB_URL}/rest/v1/${table}`;
+  const url = `${SB_URL}/rest/v1/${table}${onConflict ? `?on_conflict=${onConflict}` : ''}`;
   const headers = {
     'apikey': SB_KEY,
     'Authorization': `Bearer ${SB_KEY}`,
     'Content-Type': 'application/json',
-    'Prefer': 'resolution=merge-duplicates'
+    'Prefer': 'resolution=merge-duplicates,return=minimal'
   };
-
-  if (onConflict) {
-    headers['Prefer'] += `,on_conflict=${onConflict}`;
-  }
 
   const response = await fetch(url, {
     method: 'POST',
