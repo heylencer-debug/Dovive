@@ -1,0 +1,16 @@
+{
+  "name": "dovive-scout",
+  "version": "1.0.0",
+  "description": "Scout agent for Dovive market research",
+  "main": "scout-agent.js",
+  "scripts": {
+    "start": "node scout-agent.js",
+    "once": "node scout-agent.js --once",
+    "install-browsers": "npx playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.40.0",
+    "node-fetch": "^2.7.0",
+    "dotenv": "^16.0.0"
+  }
+}

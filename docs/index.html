@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dovive | Scout Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">DOVIVE</div>
+        <div class="logo-sub">Product Intelligence</div>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-item active">
+          <span class="nav-icon">🔍</span>
+          <span class="nav-label">Market Research</span>
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="powered-by">Powered by Scout</div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main">
+      <header class="main-header">
+        <h1>Market Research</h1>
+        <p class="subtitle">Amazon US supplement market intelligence</p>
+      </header>
+
+      <div class="content-grid">
+        <!-- Keyword Manager Card -->
+        <section class="card keyword-manager">
+          <div class="card-header">
+            <span class="label">KEYWORDS</span>
+            <span class="keyword-count" id="keyword-count">0 active</span>
+          </div>
+          <div class="keyword-list" id="keyword-list">
+            <div class="empty-state">Loading keywords...</div>
+          </div>
+          <div class="keyword-add">
+            <input type="text" id="keyword-input" placeholder="Add new keyword..." class="input">
+            <button id="add-keyword-btn" class="btn btn-secondary">Add</button>
+          </div>
+        </section>
+
+        <!-- Scout Control Card -->
+        <section class="card scout-control">
+          <div class="card-header">
+            <span class="label">SCOUT AGENT</span>
+            <span class="badge" id="scout-status">IDLE</span>
+          </div>
+          <div class="scout-info">
+            <div class="scout-stat">
+              <span class="stat-label">Last Run</span>
+              <span class="stat-value" id="last-run">Never</span>
+            </div>
+            <div class="scout-stat">
+              <span class="stat-label">Keywords Tracked</span>
+              <span class="stat-value" id="keywords-tracked">0</span>
+            </div>
+          </div>
+          <button id="run-scout-btn" class="btn btn-primary">
+            <span class="btn-icon">⚡</span> RUN SCOUT NOW
+          </button>
+        </section>
+
+        <!-- Research Results Card -->
+        <section class="card research-results full-width">
+          <div class="card-header">
+            <span class="label">RESEARCH RESULTS</span>
+            <div class="keyword-tabs" id="keyword-tabs"></div>
+          </div>
+          <div class="results-container" id="results-container">
+            <div class="empty-state">
+              <div class="empty-icon">📊</div>
+              <div class="empty-title">No data yet</div>
+              <div class="empty-text">Run Scout to start collecting market research data.</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- AI Market Summary Card -->
+        <section class="card ai-summary full-width">
+          <div class="card-header">
+            <span class="label">AI MARKET SUMMARY</span>
+            <span class="summary-time" id="summary-time"></span>
+          </div>
+          <div class="summary-content" id="summary-content">
+            <div class="empty-state">
+              <div class="empty-icon">🤖</div>
+              <div class="empty-title">No analysis available</div>
+              <div class="empty-text">AI summary will appear after Scout completes a research run.</div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="data/sb.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
