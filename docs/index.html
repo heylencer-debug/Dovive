@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dovive | Scout V2.4 Dashboard</title>
+  <title>Dovive | Scout V2.6 Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cutive+Mono&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -21,7 +24,7 @@
         </a>
       </nav>
       <div class="sidebar-footer">
-        <div class="powered-by">Powered by Scout V2.4</div>
+        <div class="powered-by">Powered by Scout V2.6</div>
       </div>
     </aside>
 
@@ -51,7 +54,7 @@
         <!-- Scout Control Card -->
         <section class="card scout-control">
           <div class="card-header">
-            <span class="label">SCOUT V2.4 AGENT</span>
+            <span class="label">SCOUT V2.6 AGENT</span>
             <span class="badge" id="scout-status">IDLE</span>
           </div>
           <div class="scout-info">
@@ -65,7 +68,7 @@
             </div>
           </div>
           <button id="run-scout-btn" class="btn btn-primary">
-            <span class="btn-icon">⚡</span> RUN SCOUT V2.4
+            <span class="btn-icon">⚡</span> RUN SCOUT V2.6
           </button>
           <!-- Progress Section -->
           <div id="progress-section"></div>
@@ -135,6 +138,25 @@
               <div class="empty-icon">🤖</div>
               <div class="empty-title">No analysis available</div>
               <div class="empty-text">AI summary will appear after Scout V2 completes a research run.</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Products Grid Card -->
+        <section class="card products-grid-section full-width">
+          <div class="card-header">
+            <span class="label">PRODUCTS</span>
+            <span class="products-count" id="products-count">0 products</span>
+          </div>
+          <!-- Keyword Filter Tabs -->
+          <div class="keyword-filter-tabs" id="products-keyword-tabs"></div>
+          <!-- Products Grid Container -->
+          <div id="products-grid-container">
+            <div class="products-empty-state">
+              <div class="products-empty-icon">🔭</div>
+              <div class="products-empty-title">No data yet</div>
+              <div class="products-empty-text">Run Scout to start scraping Amazon market data</div>
+              <button class="btn-run-scout" id="run-scout-empty-btn">⚡ RUN SCOUT NOW</button>
             </div>
           </div>
         </section>

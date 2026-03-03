@@ -1,5 +1,6 @@
-// Dovive Scout Dashboard V2.4 - Main Application
+// Dovive Scout Dashboard V2.6 - Main Application
 // Features: Product type filters, reviews panel, specs panel, live progress tracking, Scout Settings panel
+// V2.6: Product grid view + full detail modal with tabs
 
 (function() {
   'use strict';
@@ -38,6 +39,13 @@
   let isPollingJob = false;
   let expandedProducts = new Set();
 
+  // Product Grid State
+  let currentGridKeyword = 'ALL';
+  let modalReviewsLoaded = 0;
+  let currentModalAsin = null;
+  let currentModalTab = 'overview';
+  let modalProductData = {};
+
   // DOM Elements
   const keywordList = document.getElementById('keyword-list');
   const keywordCount = document.getElementById('keyword-count');
@@ -54,6 +62,11 @@
   const productTypeFilters = document.getElementById('product-type-filters');
   const progressSection = document.getElementById('progress-section');
 
+  // Products Grid DOM Elements
+  const productsGridContainer = document.getElementById('products-grid-container');
+  const productsKeywordTabs = document.getElementById('products-keyword-tabs');
+  const productsCount = document.getElementById('products-count');
+
   // Initialize
   async function init() {
     await loadKeywords();
@@ -65,6 +78,9 @@
     setupEventListeners();
     setupScoutSettingsToggle();
     startStatusPolling();
+    renderProductsGrid();
+    renderProductsKeywordTabs();
+    setupProductsGridListeners();
   }
 
   // ============================================================
@@ -471,6 +487,8 @@
         limit: 1000
       });
       renderResults();
+      renderProductsGrid(); // V2.6: Render product cards grid
+      renderProductsKeywordTabs(); // V2.6: Update keyword tabs
       await loadFormatFocusData(); // Refresh format focus when products change
     } catch (err) {
       console.error('Failed to load products:', err);
@@ -481,6 +499,8 @@
           limit: 500
         });
         renderResults();
+        renderProductsGrid();
+        renderProductsKeywordTabs();
       } catch (e) {
         console.error('Failed to load legacy research:', e);
       }
@@ -1423,6 +1443,625 @@
         isPollingJob = false;
       }
     }, 5000);
+  }
+
+  // ============================================================
+  // PRODUCTS GRID - Card-based view with keyword filters
+  // ============================================================
+
+  // Render keyword filter tabs above products grid
+  function renderProductsKeywordTabs() {
+    if (!productsKeywordTabs) return;
+
+    const allKeywords = ['ALL', ...keywords.map(k => k.keyword)];
+
+    productsKeywordTabs.innerHTML = allKeywords.map(kw => `
+      <button class="keyword-filter-tab ${currentGridKeyword === kw ? 'active' : ''}" data-keyword="${escapeHtml(kw)}">
+        ${kw === 'ALL' ? 'ALL' : escapeHtml(kw)}
+      </button>
+    `).join('');
+  }
+
+  // Render products grid
+  function renderProductsGrid() {
+    if (!productsGridContainer) return;
+
+    // Filter products by keyword
+    let filteredProducts = currentGridKeyword === 'ALL'
+      ? products
+      : products.filter(p => p.keyword === currentGridKeyword);
+
+    // Sort by BSR (ascending)
+    filteredProducts = [...filteredProducts].sort((a, b) => {
+      const aBsr = a.bsr || Infinity;
+      const bBsr = b.bsr || Infinity;
+      return aBsr - bBsr;
+    });
+
+    // Deduplicate by ASIN
+    const seenAsins = new Set();
+    filteredProducts = filteredProducts.filter(p => {
+      if (seenAsins.has(p.asin)) return false;
+      seenAsins.add(p.asin);
+      return true;
+    });
+
+    // Limit to 100
+    filteredProducts = filteredProducts.slice(0, 100);
+
+    // Update count
+    if (productsCount) {
+      productsCount.textContent = `${filteredProducts.length} products`;
+    }
+
+    // Empty state
+    if (filteredProducts.length === 0) {
+      productsGridContainer.innerHTML = `
+        <div class="products-empty-state">
+          <div class="products-empty-icon">🔭</div>
+          <div class="products-empty-title">No data yet</div>
+          <div class="products-empty-text">Run Scout to start scraping Amazon market data</div>
+          <button class="btn-run-scout" id="run-scout-empty-btn">⚡ RUN SCOUT NOW</button>
+        </div>
+      `;
+      // Re-attach listener for empty state button
+      const emptyBtn = document.getElementById('run-scout-empty-btn');
+      if (emptyBtn) {
+        emptyBtn.addEventListener('click', runScout);
+      }
+      return;
+    }
+
+    // Render grid
+    productsGridContainer.innerHTML = `
+      <div class="products-grid">
+        ${filteredProducts.map(p => renderProductCard(p)).join('')}
+      </div>
+    `;
+  }
+
+  // Render a single product card
+  function renderProductCard(p) {
+    const productType = p.product_type || 'Other';
+    const typeClass = productType.toLowerCase().replace(/[^a-z]/g, '-');
+    const mainImage = p.main_image || (p.images && p.images.length > 0 ? p.images[0] : null);
+    const ratingStars = p.rating ? renderStarsCompact(p.rating) : '';
+    const source = p.source_type || (p.bsr && p.bsr < 10000 ? 'bestseller' : 'keyword');
+
+    return `
+      <div class="product-card" data-asin="${p.asin}" onclick="window.openProductModal('${p.asin}')">
+        ${mainImage
+          ? `<img src="${escapeHtml(mainImage)}" alt="${escapeHtml(p.title || '')}" class="product-card-img" loading="lazy">`
+          : `<div class="product-card-img-placeholder">📦</div>`
+        }
+        <div class="product-card-badges">
+          ${p.bsr ? `<span class="bsr-badge">#${p.bsr.toLocaleString()} ${p.bsr_category || ''}</span>` : ''}
+          <span class="product-type-badge type-${typeClass}">${productType}</span>
+        </div>
+        <div class="product-card-title">${escapeHtml(p.title || 'Unknown Product')}</div>
+        <div class="product-card-brand">${escapeHtml(p.brand || 'Unknown Brand')}</div>
+        <div style="display: flex; align-items: baseline;">
+          <span class="product-card-price">${p.price ? '$' + p.price.toFixed(2) : '-'}</span>
+          ${p.price_per_serving ? `<span class="product-card-pps">$${p.price_per_serving.toFixed(2)}/serving</span>` : ''}
+        </div>
+        <div class="product-card-rating">
+          ${ratingStars} ${p.review_count ? `(${p.review_count.toLocaleString()})` : ''}
+        </div>
+        <div style="margin-top: 8px;">
+          <span class="source-badge ${source === 'bestseller' ? 'best-seller' : 'keyword'}">
+            ${source === 'bestseller' ? 'BEST SELLER' : 'KEYWORD'}
+          </span>
+        </div>
+      </div>
+    `;
+  }
+
+  // Compact star rendering for cards
+  function renderStarsCompact(rating) {
+    const fullStars = Math.floor(rating);
+    const hasHalf = rating - fullStars >= 0.5;
+    let stars = '★'.repeat(fullStars);
+    if (hasHalf) stars += '½';
+    const emptyStars = 5 - fullStars - (hasHalf ? 1 : 0);
+    stars += '☆'.repeat(Math.max(0, emptyStars));
+    return `<span class="stars">${stars}</span> ${rating.toFixed(1)}`;
+  }
+
+  // Setup products grid event listeners
+  function setupProductsGridListeners() {
+    // Keyword filter tabs
+    if (productsKeywordTabs) {
+      productsKeywordTabs.addEventListener('click', (e) => {
+        if (e.target.classList.contains('keyword-filter-tab')) {
+          currentGridKeyword = e.target.dataset.keyword;
+          document.querySelectorAll('.keyword-filter-tab').forEach(tab => tab.classList.remove('active'));
+          e.target.classList.add('active');
+          renderProductsGrid();
+        }
+      });
+    }
+
+    // Empty state run scout button
+    const emptyBtn = document.getElementById('run-scout-empty-btn');
+    if (emptyBtn) {
+      emptyBtn.addEventListener('click', runScout);
+    }
+  }
+
+  // ============================================================
+  // PRODUCT DETAIL MODAL
+  // ============================================================
+
+  // Simple fetch helper for modal
+  async function sbFetchSimple(path) {
+    const { url, anonKey } = window.DOVIVE_SB;
+    try {
+      const res = await fetch(url + '/rest/v1/' + path, {
+        headers: { 'apikey': anonKey, 'Authorization': 'Bearer ' + anonKey }
+      });
+      return res.json();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Open product modal
+  window.openProductModal = async function(asin) {
+    currentModalAsin = asin;
+    currentModalTab = 'overview';
+    modalReviewsLoaded = 0;
+
+    // Show modal with loading state
+    showModal('<div class="modal-loading"><div class="spinner"></div> Loading product data...</div>');
+
+    // Fetch all data in parallel
+    const [productArr, specsArr, reviewsArr, imagesArr] = await Promise.all([
+      sbFetchSimple('dovive_products?asin=eq.' + asin + '&limit=1'),
+      sbFetchSimple('dovive_specs?asin=eq.' + asin + '&limit=1'),
+      sbFetchSimple('dovive_reviews?asin=eq.' + asin + '&order=scraped_at.desc&limit=50'),
+      sbFetchSimple('dovive_product_images?asin=eq.' + asin + '&order=image_index.asc')
+    ]);
+
+    modalProductData = {
+      product: productArr[0] || {},
+      specs: specsArr[0] || {},
+      reviews: reviewsArr || [],
+      images: imagesArr || []
+    };
+
+    renderProductModal();
+  };
+
+  // Render product modal
+  function renderProductModal() {
+    const { product: p, specs: s, reviews: revs, images: imgs } = modalProductData;
+
+    if (!p || !p.asin) {
+      showModal('<div class="modal-loading">Product not found</div>');
+      return;
+    }
+
+    const reviewCount = revs.length;
+    const imageCount = imgs.length || (p.images ? p.images.length : 0);
+    const scrapedDate = p.scraped_at ? new Date(p.scraped_at).toLocaleDateString() : 'Unknown';
+    const source = p.source_type || (p.bsr && p.bsr < 10000 ? 'Best Seller' : 'Keyword Search');
+
+    const modalHtml = `
+      <div class="modal-header">
+        <span class="modal-title">${escapeHtml(truncate(p.title || 'Product Details', 60))}</span>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-tabs">
+        <button class="modal-tab ${currentModalTab === 'overview' ? 'active' : ''}" data-tab="overview">Overview</button>
+        <button class="modal-tab ${currentModalTab === 'specs' ? 'active' : ''}" data-tab="specs">Specs & Formula</button>
+        <button class="modal-tab ${currentModalTab === 'reviews' ? 'active' : ''}" data-tab="reviews">Reviews (${reviewCount})</button>
+        <button class="modal-tab ${currentModalTab === 'images' ? 'active' : ''}" data-tab="images">Images (${imageCount})</button>
+      </div>
+      <div class="modal-body">
+        ${renderModalTabContent()}
+      </div>
+      <div class="modal-footer">
+        Data scraped ${scrapedDate} · Source: ${source}
+      </div>
+    `;
+
+    showModal(modalHtml);
+
+    // Setup tab switching
+    document.querySelectorAll('.modal-tab').forEach(tab => {
+      tab.addEventListener('click', (e) => {
+        currentModalTab = e.target.dataset.tab;
+        document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+        e.target.classList.add('active');
+        document.querySelector('.modal-body').innerHTML = renderModalTabContent();
+        setupModalInteractions();
+      });
+    });
+
+    setupModalInteractions();
+  }
+
+  // Setup modal interactions (expand reviews, raw specs toggle)
+  function setupModalInteractions() {
+    // Review expand
+    document.querySelectorAll('.review-expand').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const body = e.target.previousElementSibling;
+        if (body) {
+          body.classList.toggle('expanded');
+          e.target.textContent = body.classList.contains('expanded') ? 'Show less' : 'Show more';
+        }
+      });
+    });
+
+    // Raw specs toggle
+    const rawToggle = document.querySelector('.raw-specs-toggle');
+    if (rawToggle) {
+      rawToggle.addEventListener('click', () => {
+        const content = document.querySelector('.raw-specs-content');
+        if (content) {
+          content.classList.toggle('show');
+          rawToggle.textContent = content.classList.contains('show') ? '▼ Hide raw data' : '▶ Show raw data';
+        }
+      });
+    }
+
+    // Load more reviews
+    const loadMoreBtn = document.querySelector('.load-more-btn');
+    if (loadMoreBtn) {
+      loadMoreBtn.addEventListener('click', async () => {
+        modalReviewsLoaded += 20;
+        document.querySelector('.modal-body').innerHTML = renderModalTabContent();
+        setupModalInteractions();
+      });
+    }
+  }
+
+  // Render modal tab content
+  function renderModalTabContent() {
+    const { product: p, specs: s, reviews: revs, images: imgs } = modalProductData;
+
+    switch (currentModalTab) {
+      case 'overview':
+        return renderOverviewTab(p, s, imgs);
+      case 'specs':
+        return renderSpecsTab(p, s);
+      case 'reviews':
+        return renderReviewsTab(p, revs);
+      case 'images':
+        return renderImagesTab(p, imgs);
+      default:
+        return renderOverviewTab(p, s, imgs);
+    }
+  }
+
+  // TAB 1: Overview
+  function renderOverviewTab(p, s, imgs) {
+    const mainImage = p.main_image || (imgs.length > 0 ? imgs[0].url : (p.images && p.images.length > 0 ? p.images[0] : null));
+    const thumbImages = imgs.length > 0 ? imgs.slice(0, 6) : (p.images || []).slice(0, 6);
+    const productType = p.product_type || 'Other';
+    const ratingStars = p.rating ? '★'.repeat(Math.floor(p.rating)) + (p.rating % 1 >= 0.5 ? '½' : '') : '-';
+
+    // Format data based on product type
+    let formatDataHtml = '';
+    const fmtData = p.format_data || (productType === 'Gummies' ? s.gummies_data : s.powder_data) || {};
+
+    if (productType === 'Gummies' && Object.keys(fmtData).length > 0) {
+      formatDataHtml = `
+        <div class="format-data-section">
+          <div class="format-data-title">GUMMIES FORMAT DATA</div>
+          <div class="format-data-grid">
+            ${fmtData.base_type ? `<div class="format-data-item"><span class="format-data-label">Base:</span> <span class="format-data-value">${escapeHtml(fmtData.base_type)}</span></div>` : ''}
+            ${fmtData.sugar_free !== undefined ? `<div class="format-data-item"><span class="format-data-label">Sugar:</span> <span class="format-data-value">${fmtData.sugar_free ? 'Sugar-Free' : 'Regular'}</span></div>` : ''}
+            ${fmtData.sweetener ? `<div class="format-data-item"><span class="format-data-label">Sweetener:</span> <span class="format-data-value">${escapeHtml(fmtData.sweetener)}</span></div>` : ''}
+            ${fmtData.flavors_mentioned && fmtData.flavors_mentioned.length > 0 ? `<div class="format-data-item"><span class="format-data-label">Flavors:</span> <span class="format-data-value">${escapeHtml(fmtData.flavors_mentioned.join(', '))}</span></div>` : ''}
+          </div>
+        </div>
+      `;
+    } else if (productType === 'Powder' && Object.keys(fmtData).length > 0) {
+      formatDataHtml = `
+        <div class="format-data-section">
+          <div class="format-data-title">POWDER FORMAT DATA</div>
+          <div class="format-data-grid">
+            ${fmtData.sweetener ? `<div class="format-data-item"><span class="format-data-label">Sweetener:</span> <span class="format-data-value">${escapeHtml(fmtData.sweetener)}</span></div>` : ''}
+            ${fmtData.packaging_type ? `<div class="format-data-item"><span class="format-data-label">Packaging:</span> <span class="format-data-value">${escapeHtml(fmtData.packaging_type)}</span></div>` : ''}
+            ${fmtData.serving_size ? `<div class="format-data-item"><span class="format-data-label">Serving Size:</span> <span class="format-data-value">${escapeHtml(fmtData.serving_size)}</span></div>` : ''}
+            ${fmtData.is_instant !== undefined ? `<div class="format-data-item"><span class="format-data-label">Instant:</span> <span class="format-data-value">${fmtData.is_instant ? 'Yes' : 'No'}</span></div>` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    // Certifications
+    const certs = s.certifications || [];
+    const certsHtml = certs.length > 0
+      ? `<div class="certifications-row">${certs.map(c => `<span class="cert-tag">${escapeHtml(c)}</span>`).join('')}</div>`
+      : '';
+
+    // Features
+    const features = s.features || p.features || [];
+    const featuresHtml = features.length > 0
+      ? `<div class="features-section"><div class="features-title">Features / Bullet Points</div><ul class="features-bullets">${features.slice(0, 6).map(f => `<li>${escapeHtml(f)}</li>`).join('')}</ul></div>`
+      : '';
+
+    return `
+      <div class="modal-overview-grid">
+        <div class="overview-left">
+          ${mainImage
+            ? `<img src="${escapeHtml(mainImage)}" alt="${escapeHtml(p.title || '')}" class="overview-main-img">`
+            : '<div class="product-card-img-placeholder" style="height:200px;font-size:48px;">📦</div>'
+          }
+          ${thumbImages.length > 1 ? `
+            <div class="overview-thumbs">
+              ${thumbImages.map((img, i) => `
+                <img src="${escapeHtml(img.url || img)}" alt="Thumbnail ${i + 1}" class="overview-thumb ${i === 0 ? 'active' : ''}">
+              `).join('')}
+            </div>
+          ` : ''}
+          <a href="https://www.amazon.com/dp/${p.asin}" target="_blank" rel="noopener" class="btn-amazon">
+            View on Amazon ↗
+          </a>
+        </div>
+        <div class="overview-right">
+          <div class="overview-title">${escapeHtml(p.title || 'Unknown Product')}</div>
+          <div class="overview-meta">${escapeHtml(p.brand || 'Unknown')} | ASIN: ${p.asin}</div>
+
+          <div class="overview-price-row">
+            <span class="overview-price">${p.price ? '$' + p.price.toFixed(2) : '-'}</span>
+            ${p.price_per_serving ? `<span class="overview-price-detail">$${p.price_per_serving.toFixed(2)} / serving</span>` : ''}
+            ${p.servings ? `<span class="overview-price-detail">${p.servings} servings</span>` : ''}
+          </div>
+
+          <div class="performance-badges">
+            ${p.bsr ? `<span class="perf-badge bsr">BSR #${p.bsr.toLocaleString()} ${p.bsr_category ? 'in ' + escapeHtml(p.bsr_category) : ''}</span>` : ''}
+            ${p.rating ? `<span class="perf-badge rating">${ratingStars} ${p.rating.toFixed(1)} (${(p.review_count || 0).toLocaleString()} reviews)</span>` : ''}
+            <span class="perf-badge">${p.source_type || (p.bsr && p.bsr < 10000 ? 'Best Seller' : 'Keyword')}</span>
+            <span class="perf-badge">${escapeHtml(productType)}</span>
+          </div>
+
+          ${formatDataHtml}
+          ${certsHtml}
+          ${featuresHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  // TAB 2: Specs & Formula
+  function renderSpecsTab(p, s) {
+    // Ingredients section
+    let ingredientsHtml = '';
+    if (s.ingredients) {
+      ingredientsHtml = `
+        <div class="specs-section-box">
+          <div class="specs-section-title">INGREDIENTS / SUPPLEMENT FACTS</div>
+          <div class="ingredients-box">${escapeHtml(s.ingredients)}</div>
+        </div>
+      `;
+    } else {
+      ingredientsHtml = `
+        <div class="specs-section-box">
+          <div class="specs-section-title">INGREDIENTS / SUPPLEMENT FACTS</div>
+          <div class="ocr-pending">⏳ Waiting for OCR extraction</div>
+        </div>
+      `;
+    }
+
+    // All specs table
+    const allSpecs = s.all_specs || {};
+    const specKeys = ['Brand', 'Item Form', 'Unit Count', 'Flavor', 'Primary Ingredient', 'Weight', 'Diet Type', 'Allergen Info', 'Country of Origin', 'Manufacturer'];
+    const specsRows = specKeys
+      .filter(key => allSpecs[key] || s[key.toLowerCase().replace(/\s+/g, '_')])
+      .map(key => {
+        const val = allSpecs[key] || s[key.toLowerCase().replace(/\s+/g, '_')] || '';
+        return `<tr><td>${escapeHtml(key)}</td><td>${escapeHtml(val)}</td></tr>`;
+      })
+      .join('');
+
+    const specsTableHtml = specsRows ? `
+      <div class="specs-section-box">
+        <div class="specs-section-title">ALL SPECIFICATIONS</div>
+        <table class="specs-table">
+          ${specsRows}
+        </table>
+      </div>
+    ` : '';
+
+    // Raw specs JSON
+    const rawJson = JSON.stringify(s, null, 2);
+
+    return `
+      ${ingredientsHtml}
+      ${specsTableHtml}
+      <div class="raw-specs-toggle">▶ Show raw data</div>
+      <div class="raw-specs-content">${escapeHtml(rawJson)}</div>
+    `;
+  }
+
+  // TAB 3: Reviews
+  function renderReviewsTab(p, revs) {
+    const totalReviews = revs.length;
+    const avgRating = p.rating || (totalReviews > 0 ? (revs.reduce((sum, r) => sum + (r.rating || 0), 0) / totalReviews) : 0);
+    const ratingStars = '★'.repeat(Math.floor(avgRating)) + (avgRating % 1 >= 0.5 ? '½' : '');
+
+    // Sentiment breakdown
+    const sentimentCounts = {};
+    revs.forEach(r => {
+      if (r.sentiment_tags && Array.isArray(r.sentiment_tags)) {
+        r.sentiment_tags.forEach(tag => {
+          sentimentCounts[tag] = (sentimentCounts[tag] || 0) + 1;
+        });
+      }
+    });
+
+    const sentimentItems = Object.entries(sentimentCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([tag, count]) => {
+        const isPositive = tag.includes('positive');
+        const isNegative = tag.includes('negative') || tag.includes('side-effects');
+        const pct = Math.min(100, Math.round((count / totalReviews) * 100));
+        return `
+          <div class="sentiment-item">
+            <span class="sentiment-label">${escapeHtml(tag)}</span>
+            <div class="sentiment-bar"><div class="sentiment-fill ${isPositive ? 'positive' : isNegative ? 'negative' : ''}" style="width:${pct}%"></div></div>
+            <span class="sentiment-count">${count}</span>
+          </div>
+        `;
+      })
+      .join('');
+
+    // Reviews list (paginated)
+    const displayReviews = revs.slice(0, 20 + modalReviewsLoaded);
+    const hasMore = revs.length > displayReviews.length;
+
+    const reviewsListHtml = displayReviews.map(r => {
+      const stars = r.rating ? '★'.repeat(Math.floor(r.rating)) : '';
+      const verified = r.verified_purchase ? '<span class="verified-check">✓ Verified</span>' : '';
+      const tags = (r.sentiment_tags || []).map(t => {
+        const isPos = t.includes('positive');
+        const isNeg = t.includes('negative') || t.includes('side-effects');
+        return `<span class="sentiment-tag ${isPos ? 'positive' : isNeg ? 'negative' : ''}">${escapeHtml(t)}</span>`;
+      }).join('');
+
+      return `
+        <div class="review-item">
+          <div class="review-top">
+            <span class="review-stars">${stars}</span>
+            ${verified}
+          </div>
+          <div class="review-title">${escapeHtml(r.title || '')}</div>
+          <div class="review-body">${escapeHtml(r.body || '')}</div>
+          ${r.body && r.body.length > 200 ? '<span class="review-expand">Show more</span>' : ''}
+          <div class="review-meta">
+            ${escapeHtml(r.reviewer_name || 'Anonymous')} · ${r.review_date || ''} ${r.helpful_votes ? '· Helpful: ' + r.helpful_votes : ''}
+          </div>
+          ${tags ? `<div class="review-tags">${tags}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="review-summary-bar">
+        <span class="review-overall"><span class="stars">${ratingStars}</span> ${avgRating.toFixed(1)} overall</span>
+        <span class="review-scraped-count">${totalReviews} reviews scraped</span>
+      </div>
+
+      ${sentimentItems ? `<div class="sentiment-breakdown">${sentimentItems}</div>` : ''}
+
+      <div class="reviews-list-modal">
+        ${reviewsListHtml || '<p class="no-data">No reviews available</p>'}
+      </div>
+
+      ${hasMore ? '<button class="load-more-btn">Load more reviews</button>' : ''}
+    `;
+  }
+
+  // TAB 4: Images
+  function renderImagesTab(p, imgs) {
+    // Group images by type
+    const mainImages = imgs.filter(i => i.image_type === 'main');
+    const galleryImages = imgs.filter(i => i.image_type === 'gallery');
+    const aplusImages = imgs.filter(i => i.image_type === 'aplus');
+
+    // Fallback to product.images if no images in dovive_product_images
+    const fallbackImages = (imgs.length === 0 && p.images) ? p.images : [];
+
+    const renderImageItem = (img, isUrl = false) => {
+      const url = isUrl ? img : img.url;
+      const ocrStatus = isUrl ? 'pending' : (img.ocr_status || 'pending');
+      return `
+        <div class="image-item">
+          <a href="${escapeHtml(url)}" target="_blank" rel="noopener">
+            <img src="${escapeHtml(url)}" alt="Product image" class="listing-img" loading="lazy">
+          </a>
+          <span class="ocr-badge-img ${ocrStatus === 'done' ? 'done' : 'pending'}">
+            ${ocrStatus === 'done' ? '✓ Text Extracted' : '⏳ OCR Pending'}
+          </span>
+        </div>
+      `;
+    };
+
+    let html = '';
+
+    if (mainImages.length > 0) {
+      html += `
+        <div class="images-group-title">MAIN IMAGE</div>
+        <div class="main-image-display">
+          <a href="${escapeHtml(mainImages[0].url)}" target="_blank" rel="noopener">
+            <img src="${escapeHtml(mainImages[0].url)}" alt="Main product image">
+          </a>
+        </div>
+      `;
+    }
+
+    if (galleryImages.length > 0) {
+      html += `
+        <div class="images-group-title">GALLERY (${galleryImages.length})</div>
+        <div class="images-grid">
+          ${galleryImages.map(img => renderImageItem(img)).join('')}
+        </div>
+      `;
+    }
+
+    if (aplusImages.length > 0) {
+      html += `
+        <div class="images-group-title">A+ CONTENT (${aplusImages.length})</div>
+        <div class="images-grid aplus">
+          ${aplusImages.map(img => renderImageItem(img)).join('')}
+        </div>
+      `;
+    }
+
+    // Fallback
+    if (fallbackImages.length > 0 && imgs.length === 0) {
+      html += `
+        <div class="images-group-title">PRODUCT IMAGES (${fallbackImages.length})</div>
+        <div class="images-grid">
+          ${fallbackImages.map(url => renderImageItem(url, true)).join('')}
+        </div>
+      `;
+    }
+
+    if (!html) {
+      html = '<div class="no-data">No images available</div>';
+    }
+
+    html += `
+      <div class="images-note">
+        Images marked OCR Pending will be analyzed for supplement facts and formula data in a future run.
+      </div>
+    `;
+
+    return html;
+  }
+
+  // Show modal
+  function showModal(html) {
+    let overlay = document.getElementById('product-modal-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'product-modal-overlay';
+      overlay.className = 'modal-overlay';
+      overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+      document.body.appendChild(overlay);
+    }
+    overlay.innerHTML = '<div class="modal-container">' + html + '</div>';
+    overlay.style.display = 'flex';
+    document.addEventListener('keydown', handleModalEsc);
+  }
+
+  // Close modal
+  window.closeModal = function() {
+    const overlay = document.getElementById('product-modal-overlay');
+    if (overlay) overlay.style.display = 'none';
+    document.removeEventListener('keydown', handleModalEsc);
+    currentModalAsin = null;
+  };
+
+  // Handle Escape key for modal
+  function handleModalEsc(e) {
+    if (e.key === 'Escape') closeModal();
   }
 
   // Initialize when DOM is ready
