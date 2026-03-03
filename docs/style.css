@@ -1,4 +1,4 @@
-/* Dovive Scout Dashboard V2.4 - GenZ Minimalist Design + Live Progress UI + Best Sellers */
+/* Dovive Scout Dashboard V2.8 - GenZ Minimalist Design + Live Progress UI + Full Product Data */
 
 :root {
   --bg-main: #FFFFFF;
@@ -3042,3 +3042,135 @@ body {
   font-size: 14px;
   color: #6B7280;
 }
+
+/* ============================================================
+   V2.8: ENHANCED PRODUCT CARD STYLES
+   ============================================================ */
+
+/* Product card price row */
+.product-card-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.product-card-price {
+  font-family: 'Cutive Mono', monospace;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.product-card-pps {
+  font-family: 'Cutive Mono', monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.product-card-servings {
+  font-size: 11px;
+  color: var(--text-light);
+}
+
+/* Certification mini badges on product cards */
+.product-card-certs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.cert-mini {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  background: transparent;
+}
+
+/* Product card footer */
+.product-card-footer {
+  margin-top: 10px;
+}
+
+/* Source badge styling */
+.source-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.source-badge.best-seller {
+  background: var(--orange);
+  color: white;
+}
+
+.source-badge.keyword {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
+}
+
+/* V2.8: Reviews note */
+.reviews-note {
+  font-size: 11px;
+  color: var(--text-light);
+  background: var(--bg-secondary);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 16px;
+}
+
+/* V2.8: Description box in specs tab */
+.description-box {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* V2.8: BSR badge on product card */
+.bsr-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--purple);
+  color: white;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+}
+
+/* V2.8: Product type badge uppercase */
+.product-type-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--border-color);
+  color: white;
+}
+
+.product-type-badge.type-gummies { background: #F472B6; }
+.product-type-badge.type-powder { background: #60A5FA; }
+.product-type-badge.type-capsule { background: #34D399; }
+.product-type-badge.type-softgel { background: #A78BFA; }
+.product-type-badge.type-tablet { background: #FBBF24; color: #1F2937; }
+.product-type-badge.type-liquid-drops { background: #2DD4BF; }
+.product-type-badge.type-other { background: #9CA3AF; }

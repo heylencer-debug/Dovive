@@ -1,5 +1,5 @@
 /**
- * Dovive Scout Agent V2.5
+ * Dovive Scout Agent V2.8
  * Amazon Market Research Scraper + AI Analysis + Telegram Reports
  *
  * Features:
@@ -13,6 +13,7 @@
  * - Price per serving calculation
  * - Review sentiment auto-tagging
  * - Full image scraping: main, gallery, A+ content (for OCR pipeline)
+ * - V2.8: Full product data saved to dovive_research (images, bullets, reviews, specs)
  *
  * Run with: node start.js (keeps running and polling)
  * Or once: node scout-agent.js --once
@@ -306,10 +307,11 @@ function log(msg, level = 'info') {
 function parsePrice(text) {
   if (!text) return null;
   // Remove $ and commas, parse as float
-  const clean = text.replace(/[^0-9.]/g, '');
+  const clean = String(text).replace(/[^0-9.]/g, '');
   const val = parseFloat(clean);
-  // Sanity check: supplement prices should be between $1 and $500
-  if (isNaN(val) || val <= 0 || val > 500) return null;
+  if (isNaN(val) || val <= 0) return null;
+  // If value looks like it's in cents (> 500), divide by 100
+  if (val > 500) return Math.round((val / 100) * 100) / 100;
   return Math.round(val * 100) / 100; // round to 2 decimal places
 }
 
@@ -845,7 +847,8 @@ async function saveProductImages(asin, keyword, images) {
 
 /**
  * Scrape product detail page for images, features, and basic specs
- * Now includes format-specific data extraction and price per serving
+ * V2.8: Expanded to collect full data for dovive_research including
+ * images, bullet points, brand, description, ingredients, specs, reviews, certifications
  */
 async function scrapeProductPage(page, asin, keyword, productType) {
   log(`  Scraping product page: ${asin}`);
@@ -855,109 +858,152 @@ async function scrapeProductPage(page, asin, keyword, productType) {
     await page.goto(productUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await sleep(randomDelay(PRODUCT_PAGE_DELAY_MIN, PRODUCT_PAGE_DELAY_MAX));
 
-    // Scrape ALL images (main, gallery, A+ content) for OCR pipeline
-    const allImages = await scrapeAllImages(page);
+    // 1. IMAGES - all gallery images
+    const allImages = await page.evaluate(() => {
+      const imgs = [];
+      // Main image
+      const main = document.querySelector('#landingImage');
+      if (main) {
+        const src = (main.getAttribute('data-old-hires') || main.src || '').replace(/\._[A-Z0-9_,]+_\./g, '.');
+        if (src) imgs.push({ type: 'main', url: src });
+      }
+      // Gallery thumbnails → full size
+      document.querySelectorAll('#altImages li.item img').forEach((img, i) => {
+        let src = (img.getAttribute('data-old-hires') || img.src || '').replace(/\._[A-Z0-9_,]+_\./g, '.');
+        if (src && src.includes('amazon') && !src.includes('transparent')) {
+          imgs.push({ type: 'gallery', url: src, index: i });
+        }
+      });
+      // A+ content images
+      document.querySelectorAll('#aplus img, .aplus-module img').forEach((img, i) => {
+        const src = (img.src || img.getAttribute('data-src') || '').replace(/\._[A-Z0-9_,]+_\./g, '.');
+        if (src && src.includes('amazon')) imgs.push({ type: 'aplus', url: src });
+      });
+      return imgs;
+    });
     log(`    Found ${allImages.length} images (main: ${allImages.filter(i => i.type === 'main').length}, gallery: ${allImages.filter(i => i.type === 'gallery').length}, aplus: ${allImages.filter(i => i.type === 'aplus').length})`);
 
-    const details = await page.evaluate(() => {
-      const result = {
-        bsr: null,
-        bsr_category: null,
-        brand: null,
-        images: [],
-        features: [],
-        specs: {},
-        ingredients: null,
-        certifications: [],
-        title: ''
-      };
+    // 2. BULLET POINTS
+    const bulletPoints = await page.evaluate(() => {
+      const bullets = [];
+      document.querySelectorAll('#feature-bullets li span.a-list-item').forEach(el => {
+        const text = el.textContent.trim();
+        if (text && text.length > 5) bullets.push(text);
+      });
+      return bullets;
+    });
 
-      // Title
+    // 3. BRAND
+    const brand = await page.evaluate(() => {
+      const byline = document.querySelector('#bylineInfo, #brand, .po-brand .a-span9');
+      return byline ? byline.textContent.replace('Visit the', '').replace('Store', '').replace('Brand:', '').trim() : null;
+    });
+
+    // 4. DESCRIPTION / INGREDIENTS
+    const description = await page.evaluate(() => {
+      const desc = document.querySelector('#productDescription p, #productDescription_fullView');
+      return desc ? desc.textContent.trim().substring(0, 2000) : null;
+    });
+
+    // Try to extract ingredients from description or bullet points
+    const ingredientsText = await page.evaluate(() => {
+      // Look for "Ingredients:" section in product description
+      const full = document.body.innerText;
+      const match = full.match(/ingredients[:\s]+([^\n]{20,500})/i);
+      return match ? match[1].trim() : null;
+    });
+
+    // 5. SPECS (from product details table)
+    const specs = await page.evaluate(() => {
+      const data = {};
+      document.querySelectorAll('#productDetails_techSpec_section_1 tr, #productDetails_detailBullets_sections1 tr, .detail-bullet-list li').forEach(row => {
+        const cells = row.querySelectorAll('td, span.a-text-bold');
+        if (cells.length >= 2) {
+          const key = cells[0].textContent.replace(/[:\u200F\u200E]/g, '').trim();
+          const val = cells[1].textContent.trim();
+          if (key && val) data[key] = val;
+        }
+      });
+      // Also get detail bullets format
+      document.querySelectorAll('.detail-bullet-list span.a-list-item').forEach(item => {
+        const bold = item.querySelector('span.a-text-bold');
+        if (bold) {
+          const key = bold.textContent.replace(/[:\u200F\u200E]/g, '').trim();
+          const val = item.textContent.replace(bold.textContent, '').trim();
+          if (key && val) data[key] = val;
+        }
+      });
+      return data;
+    });
+
+    // 6. REVIEWS - top 10 reviews from product page
+    const pageReviews = await page.evaluate(() => {
+      const revs = [];
+      document.querySelectorAll('[data-hook="review"]').forEach(el => {
+        const rating = el.querySelector('[data-hook="review-star-rating"] .a-icon-alt');
+        const title = el.querySelector('[data-hook="review-title"] span:not(.a-icon-alt)');
+        const body = el.querySelector('[data-hook="review-body"] span');
+        const date = el.querySelector('[data-hook="review-date"]');
+        const verified = el.querySelector('[data-hook="avp-badge"]');
+        revs.push({
+          rating: rating ? parseFloat(rating.textContent) : null,
+          title: title ? title.textContent.trim() : null,
+          body: body ? body.textContent.trim().substring(0, 500) : null,
+          date: date ? date.textContent.trim() : null,
+          verified: !!verified
+        });
+      });
+      return revs.slice(0, 10);
+    });
+
+    // Extract title and BSR
+    const pageDetails = await page.evaluate(() => {
+      const result = { title: '', bsr: null, bsr_category: null };
       const titleEl = document.querySelector('#productTitle');
       result.title = titleEl?.textContent?.trim() || '';
 
-      // BSR - extract raw text, will parse properly outside evaluate
       const detailsText = document.body.innerText;
       const bsrMatch = detailsText.match(/Best\s*Sellers\s*Rank[:\s#]*(\d[\d,]*)/i);
-      if (bsrMatch) {
-        result.bsr_text = bsrMatch[1];  // Return raw text for proper parsing
-      }
+      if (bsrMatch) result.bsr_text = bsrMatch[1];
 
-      // BSR Category
       const bsrCatMatch = detailsText.match(/Best\s*Sellers\s*Rank[:\s#]*[\d,]+\s*in\s*([^\n(]+)/i);
-      if (bsrCatMatch) {
-        result.bsr_category = bsrCatMatch[1].trim().replace(/\s*\(.*$/, '');
-      }
-
-      // Brand
-      const brandEl = document.querySelector('#bylineInfo') ||
-                     document.querySelector('.po-brand .a-span9') ||
-                     document.querySelector('a#bylineInfo');
-      if (brandEl) {
-        result.brand = brandEl.textContent.replace(/^(Brand|Visit the|Store)[:.\s]*/i, '').trim();
-      }
-
-      // Feature bullets
-      const bulletItems = document.querySelectorAll('#feature-bullets ul li span.a-list-item');
-      bulletItems.forEach(item => {
-        const text = item.textContent?.trim();
-        if (text && text.length > 5 && !text.startsWith('Make sure')) {
-          result.features.push(text);
-        }
-      });
-
-      // Product specifications from various tables
-      const specTables = [
-        '#productDetails_techSpec_section_1 tr',
-        '#productDetails_detailBullets_sections1 tr',
-        '#detailBullets_feature_div li',
-        '.a-section.a-spacing-small.a-padding-small table tr'
-      ];
-
-      specTables.forEach(selector => {
-        document.querySelectorAll(selector).forEach(row => {
-          const key = row.querySelector('th, .a-text-bold')?.textContent?.trim()?.replace(/[:\s]+$/, '');
-          const val = row.querySelector('td, .a-list-item:not(.a-text-bold)')?.textContent?.trim();
-          if (key && val && val.length < 500) {
-            result.specs[key] = val;
-          }
-        });
-      });
-
-      // Try to get ingredients/supplement facts
-      const ingredientKeywords = ['Supplement Facts', 'Ingredients:', 'Other Ingredients:', 'Active Ingredients'];
-      const allText = document.body.innerText;
-      for (const kw of ingredientKeywords) {
-        const idx = allText.indexOf(kw);
-        if (idx !== -1) {
-          // Extract ~500 chars after keyword
-          result.ingredients = allText.slice(idx, idx + 500).replace(/\n+/g, ' ').trim();
-          break;
-        }
-      }
-
-      // Look for certifications/badges
-      const certKeywords = ['Certified', 'Non-GMO', 'Organic', 'GMP', 'Third Party Tested',
-                           'NSF', 'USP', 'Vegan', 'Gluten Free', 'Kosher', 'Halal',
-                           'USDA Organic', 'Made in USA'];
-      certKeywords.forEach(cert => {
-        if (allText.toLowerCase().includes(cert.toLowerCase())) {
-          result.certifications.push(cert);
-        }
-      });
+      if (bsrCatMatch) result.bsr_category = bsrCatMatch[1].trim().replace(/\s*\(.*$/, '');
 
       return result;
     });
 
-    // Now process format-specific data on the Node.js side
-    const specsText = Object.values(details.specs || {}).join(' ');
-    const bulletPoints = details.features || [];
-    const ingredientsText = details.ingredients || '';
-    const title = details.title || '';
+    // 7. CERTIFICATIONS from bullet points and specs
+    const certKeywords = ['non-gmo','vegan','vegetarian','gluten-free','organic','kosher','halal','gmp','nsf','third-party','usp verified','made in usa'];
+    const allText = [...bulletPoints, description || '', JSON.stringify(specs)].join(' ').toLowerCase();
+    const certifications = certKeywords.filter(k => allText.includes(k));
 
-    // Calculate price per serving
-    details.price_per_serving = null;
-    details.serving_count = extractServingCountFromSpecs(specsText, bulletPoints);
+    // 8. MAIN IMAGE (just the first/main image URL for quick display)
+    const mainImage = allImages.find(i => i.type === 'main')?.url || allImages[0]?.url || null;
+
+    // 9. SERVINGS data from specs
+    const specsText = JSON.stringify(specs);
+    const servMatch = specsText.match(/(\d+)\s*(serving|count|capsule|tablet|gummy|piece)/i);
+    const totalServings = servMatch ? parseInt(servMatch[1]) : null;
+
+    // Build details object
+    const details = {
+      title: pageDetails.title,
+      brand,
+      bsr: parseBSR(pageDetails.bsr_text),
+      bsr_category: pageDetails.bsr_category,
+      allImages,
+      images: allImages.map(img => upgradeImageUrl(img.url)),
+      main_image: mainImage,
+      bullet_points: bulletPoints,
+      features: bulletPoints, // Keep for backwards compatibility
+      description,
+      ingredients: ingredientsText,
+      specs,
+      reviews: pageReviews,
+      certifications,
+      total_servings: totalServings,
+      serving_count: totalServings // Keep for backwards compatibility
+    };
 
     // Extract format-specific data
     details.format_data = {};
@@ -965,20 +1011,12 @@ async function scrapeProductPage(page, asin, keyword, productType) {
     details.powder_data = null;
 
     if (productType === 'Gummies') {
-      details.gummies_data = extractGummiesData(title, bulletPoints, specsText, ingredientsText);
+      details.gummies_data = extractGummiesData(pageDetails.title, bulletPoints, specsText, ingredientsText || '');
       details.format_data = details.gummies_data;
     } else if (productType === 'Powder') {
-      details.powder_data = extractPowderData(title, bulletPoints, specsText, ingredientsText);
+      details.powder_data = extractPowderData(pageDetails.title, bulletPoints, specsText, ingredientsText || '');
       details.format_data = details.powder_data;
     }
-
-    // Parse BSR from raw text using helper function
-    details.bsr = parseBSR(details.bsr_text);
-    delete details.bsr_text;  // Clean up temp field
-
-    // Add comprehensive image data for OCR pipeline
-    details.allImages = allImages;
-    details.images = allImages.map(img => upgradeImageUrl(img.url));
 
     // Save images to dovive_product_images for OCR processing
     await saveProductImages(asin, keyword, allImages);
@@ -1259,6 +1297,53 @@ async function updateProductWithDetails(asin, keyword, details, price) {
   }
 }
 
+/**
+ * Save full product data to dovive_research table (V2.8)
+ * This is the primary data store for Scout dashboard
+ */
+async function saveToResearch(product, details, source = 'keyword_search') {
+  try {
+    const price = product.price;
+    const totalServings = details?.total_servings || null;
+    const pricePerServing = (price && totalServings && totalServings > 0)
+      ? Math.round((price / totalServings) * 100) / 100
+      : null;
+
+    const data = {
+      keyword: product.keyword,
+      asin: product.asin,
+      title: details?.title || product.title,
+      brand: details?.brand || product.brand || null,
+      price: price,
+      bsr: details?.bsr || product.bsr || null,
+      rating: product.rating,
+      review_count: product.review_count,
+      rank_position: product.rank_position,
+      is_sponsored: product.is_sponsored || false,
+      source: source,
+      main_image: details?.main_image || null,
+      images: details?.allImages || [],
+      bullet_points: details?.bullet_points || [],
+      description: details?.description || null,
+      ingredients: details?.ingredients || null,
+      specs: details?.specs || {},
+      certifications: details?.certifications || [],
+      reviews: details?.reviews || [],
+      format_data: details?.format_data || {},
+      total_servings: totalServings,
+      price_per_serving: pricePerServing,
+      scraped_at: new Date().toISOString()
+    };
+
+    await sbUpsert('dovive_research', data);
+    log(`    Saved to dovive_research: ${product.asin}`, 'success');
+  } catch (err) {
+    if (!err.message.includes('duplicate')) {
+      log(`Failed to save to dovive_research ${product.asin}: ${err.message}`, 'warn');
+    }
+  }
+}
+
 // ============================================================
 // AI SUMMARY GENERATION
 // ============================================================
@@ -1501,6 +1586,8 @@ async function runScout(job) {
               if (details) {
                 await updateProductWithDetails(product.asin, bsKeyword, details, product.price);
                 await saveProductDetails(product.asin, bsKeyword, details, product.product_type);
+                // V2.8: Save full data to dovive_research
+                await saveToResearch(product, details, 'best_sellers');
               }
 
               // Scrape reviews for top Best Sellers
@@ -1586,6 +1673,8 @@ async function runScout(job) {
 
                 await updateProductWithDetails(product.asin, keyword, details, product.price);
                 await saveProductDetails(product.asin, keyword, details, product.product_type);
+                // V2.8: Save full data to dovive_research
+                await saveToResearch(product, details, 'keyword_search');
 
                 // Merge details into product for AI summary
                 product.bsr = details.bsr;

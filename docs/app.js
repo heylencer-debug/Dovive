@@ -1,7 +1,8 @@
-// Dovive Scout Dashboard V2.7 - Main Application
+// Dovive Scout Dashboard V2.8 - Main Application
 // Features: Product type filters, reviews panel, specs panel, live progress tracking, Scout Settings panel
 // V2.6: Product grid view + full detail modal with tabs
 // V2.7: Keywords page with drill-down, AI report, per-keyword product grid
+// V2.8: Full product data from dovive_research (images, bullets, reviews, specs, certifications), Product Explorer removed
 
 (function() {
   'use strict';
@@ -1534,32 +1535,45 @@
   function renderProductCard(p) {
     const productType = p.product_type || 'Other';
     const typeClass = productType.toLowerCase().replace(/[^a-z]/g, '-');
-    const mainImage = p.main_image || (p.images && p.images.length > 0 ? p.images[0] : null);
+    // V2.8: Use main_image from dovive_research, fallback to images array
+    const mainImage = p.main_image || (p.images && p.images.length > 0 ? (p.images[0].url || p.images[0]) : null);
     const ratingStars = p.rating ? renderStarsCompact(p.rating) : '';
-    const source = p.source_type || (p.bsr && p.bsr < 10000 ? 'bestseller' : 'keyword');
+    const source = p.source || (p.bsr && p.bsr < 10000 ? 'best_sellers' : 'keyword_search');
+    const isBestSeller = source === 'best_sellers';
+
+    // V2.8: Certifications - show first 3 as small badges
+    const certs = p.certifications || [];
+    const certsHtml = certs.length > 0
+      ? `<div class="product-card-certs">${certs.slice(0, 3).map(c => `<span class="cert-mini">${escapeHtml(c)}</span>`).join('')}</div>`
+      : '';
+
+    // V2.8: Servings info
+    const servingsInfo = p.total_servings ? `<span class="product-card-servings">${p.total_servings} servings</span>` : '';
 
     return `
       <div class="product-card" data-asin="${p.asin}" onclick="window.openProductModal('${p.asin}')">
         ${mainImage
           ? `<img src="${escapeHtml(mainImage)}" alt="${escapeHtml(p.title || '')}" class="product-card-img" loading="lazy">`
-          : `<div class="product-card-img-placeholder">📦</div>`
+          : `<div class="product-card-img-placeholder">💊</div>`
         }
         <div class="product-card-badges">
-          ${p.bsr ? `<span class="bsr-badge">#${p.bsr.toLocaleString()} ${p.bsr_category || ''}</span>` : ''}
-          <span class="product-type-badge type-${typeClass}">${productType}</span>
+          ${p.bsr ? `<span class="bsr-badge">#${p.bsr.toLocaleString()}${p.bsr_category ? ' in ' + escapeHtml(p.bsr_category.substring(0, 20)) : ''}</span>` : ''}
+          <span class="product-type-badge type-${typeClass}">${productType.toUpperCase()}</span>
         </div>
-        <div class="product-card-title">${escapeHtml(p.title || 'Unknown Product')}</div>
-        <div class="product-card-brand">${escapeHtml(p.brand || 'Unknown Brand')}</div>
-        <div style="display: flex; align-items: baseline;">
+        <div class="product-card-title">${escapeHtml(truncate(p.title, 60) || 'Unknown Product')}</div>
+        <div class="product-card-brand">${escapeHtml(p.brand || '')}</div>
+        <div class="product-card-price-row">
           <span class="product-card-price">${p.price ? '$' + p.price.toFixed(2) : '-'}</span>
-          ${p.price_per_serving ? `<span class="product-card-pps">$${p.price_per_serving.toFixed(2)}/serving</span>` : ''}
+          ${p.price_per_serving ? `<span class="product-card-pps">~$${p.price_per_serving.toFixed(2)}/serving</span>` : ''}
+          ${servingsInfo}
         </div>
         <div class="product-card-rating">
-          ${ratingStars} ${p.review_count ? `(${p.review_count.toLocaleString()})` : ''}
+          ${ratingStars} ${p.review_count ? `(${p.review_count.toLocaleString()} reviews)` : ''}
         </div>
-        <div style="margin-top: 8px;">
-          <span class="source-badge ${source === 'bestseller' ? 'best-seller' : 'keyword'}">
-            ${source === 'bestseller' ? 'BEST SELLER' : 'KEYWORD'}
+        ${certsHtml}
+        <div class="product-card-footer">
+          <span class="source-badge ${isBestSeller ? 'best-seller' : 'keyword'}">
+            ${isBestSeller ? 'BEST SELLER' : 'KEYWORD'}
           </span>
         </div>
       </div>
@@ -1624,19 +1638,25 @@
     // Show modal with loading state
     showModal('<div class="modal-loading"><div class="spinner"></div> Loading product data...</div>');
 
-    // Fetch all data in parallel
-    const [productArr, specsArr, reviewsArr, imagesArr] = await Promise.all([
+    // V2.8: Fetch from dovive_research first (has full data), fallback to other tables
+    const [researchArr, productArr, specsArr, reviewsArr, imagesArr] = await Promise.all([
+      sbFetchSimple('dovive_research?asin=eq.' + asin + '&limit=1'),
       sbFetchSimple('dovive_products?asin=eq.' + asin + '&limit=1'),
       sbFetchSimple('dovive_specs?asin=eq.' + asin + '&limit=1'),
       sbFetchSimple('dovive_reviews?asin=eq.' + asin + '&order=scraped_at.desc&limit=50'),
       sbFetchSimple('dovive_product_images?asin=eq.' + asin + '&order=image_index.asc')
     ]);
 
+    // V2.8: Merge research data with product data
+    const research = researchArr[0] || {};
+    const product = productArr[0] || {};
+
     modalProductData = {
-      product: productArr[0] || {},
+      product: { ...product, ...research }, // Research data takes precedence
       specs: specsArr[0] || {},
       reviews: reviewsArr || [],
-      images: imagesArr || []
+      images: imagesArr || [],
+      research: research // Keep full research object for modal tabs
     };
 
     renderProductModal();
@@ -1747,8 +1767,17 @@
 
   // TAB 1: Overview
   function renderOverviewTab(p, s, imgs) {
-    const mainImage = p.main_image || (imgs.length > 0 ? imgs[0].url : (p.images && p.images.length > 0 ? p.images[0] : null));
-    const thumbImages = imgs.length > 0 ? imgs.slice(0, 6) : (p.images || []).slice(0, 6);
+    // V2.8: Use main_image from dovive_research, fallback to images
+    const mainImage = p.main_image || (p.images && p.images.length > 0 ? (p.images[0].url || p.images[0]) : (imgs.length > 0 ? imgs[0].url : null));
+
+    // V2.8: Use images array from dovive_research
+    let thumbImages = [];
+    if (p.images && p.images.length > 0) {
+      thumbImages = p.images.slice(0, 6).map(img => typeof img === 'string' ? img : img.url);
+    } else if (imgs.length > 0) {
+      thumbImages = imgs.slice(0, 6).map(img => img.url || img);
+    }
+
     const productType = p.product_type || 'Other';
     const ratingStars = p.rating ? '★'.repeat(Math.floor(p.rating)) + (p.rating % 1 >= 0.5 ? '½' : '') : '-';
 
@@ -1782,29 +1811,33 @@
       `;
     }
 
-    // Certifications
-    const certs = s.certifications || [];
+    // V2.8: Certifications from dovive_research or specs
+    const certs = p.certifications || s.certifications || [];
     const certsHtml = certs.length > 0
       ? `<div class="certifications-row">${certs.map(c => `<span class="cert-tag">${escapeHtml(c)}</span>`).join('')}</div>`
       : '';
 
-    // Features
-    const features = s.features || p.features || [];
-    const featuresHtml = features.length > 0
-      ? `<div class="features-section"><div class="features-title">Features / Bullet Points</div><ul class="features-bullets">${features.slice(0, 6).map(f => `<li>${escapeHtml(f)}</li>`).join('')}</ul></div>`
+    // V2.8: Bullet points from dovive_research (KEY SELLING POINTS section)
+    const bulletPoints = p.bullet_points || p.features || s.features || [];
+    const bulletPointsHtml = bulletPoints.length > 0
+      ? `<div class="features-section"><div class="features-title">KEY SELLING POINTS</div><ul class="features-bullets">${bulletPoints.slice(0, 6).map(f => `<li>${escapeHtml(f)}</li>`).join('')}</ul></div>`
       : '';
+
+    // V2.8: Source badge
+    const source = p.source || 'keyword_search';
+    const sourceLabel = source === 'best_sellers' ? 'Best Seller' : 'Keyword Search';
 
     return `
       <div class="modal-overview-grid">
         <div class="overview-left">
           ${mainImage
             ? `<img src="${escapeHtml(mainImage)}" alt="${escapeHtml(p.title || '')}" class="overview-main-img">`
-            : '<div class="product-card-img-placeholder" style="height:200px;font-size:48px;">📦</div>'
+            : '<div class="product-card-img-placeholder" style="height:200px;font-size:48px;">💊</div>'
           }
           ${thumbImages.length > 1 ? `
             <div class="overview-thumbs">
               ${thumbImages.map((img, i) => `
-                <img src="${escapeHtml(img.url || img)}" alt="Thumbnail ${i + 1}" class="overview-thumb ${i === 0 ? 'active' : ''}">
+                <img src="${escapeHtml(img)}" alt="Thumbnail ${i + 1}" class="overview-thumb ${i === 0 ? 'active' : ''}">
               `).join('')}
             </div>
           ` : ''}
@@ -1818,20 +1851,20 @@
 
           <div class="overview-price-row">
             <span class="overview-price">${p.price ? '$' + p.price.toFixed(2) : '-'}</span>
-            ${p.price_per_serving ? `<span class="overview-price-detail">$${p.price_per_serving.toFixed(2)} / serving</span>` : ''}
-            ${p.servings ? `<span class="overview-price-detail">${p.servings} servings</span>` : ''}
+            ${p.price_per_serving ? `<span class="overview-price-detail">~$${p.price_per_serving.toFixed(2)}/serving</span>` : ''}
+            ${p.total_servings ? `<span class="overview-price-detail">${p.total_servings} servings total</span>` : ''}
           </div>
 
           <div class="performance-badges">
             ${p.bsr ? `<span class="perf-badge bsr">BSR #${p.bsr.toLocaleString()} ${p.bsr_category ? 'in ' + escapeHtml(p.bsr_category) : ''}</span>` : ''}
             ${p.rating ? `<span class="perf-badge rating">${ratingStars} ${p.rating.toFixed(1)} (${(p.review_count || 0).toLocaleString()} reviews)</span>` : ''}
-            <span class="perf-badge">${p.source_type || (p.bsr && p.bsr < 10000 ? 'Best Seller' : 'Keyword')}</span>
+            <span class="perf-badge">${sourceLabel}</span>
             <span class="perf-badge">${escapeHtml(productType)}</span>
           </div>
 
           ${formatDataHtml}
           ${certsHtml}
-          ${featuresHtml}
+          ${bulletPointsHtml}
         </div>
       </div>
     `;
@@ -1839,33 +1872,32 @@
 
   // TAB 2: Specs & Formula
   function renderSpecsTab(p, s) {
-    // Ingredients section
+    // V2.8: Ingredients from dovive_research or specs
+    const ingredients = p.ingredients || s.ingredients || null;
     let ingredientsHtml = '';
-    if (s.ingredients) {
+    if (ingredients) {
       ingredientsHtml = `
         <div class="specs-section-box">
           <div class="specs-section-title">INGREDIENTS / SUPPLEMENT FACTS</div>
-          <div class="ingredients-box">${escapeHtml(s.ingredients)}</div>
+          <div class="ingredients-box">${escapeHtml(ingredients)}</div>
         </div>
       `;
     } else {
       ingredientsHtml = `
         <div class="specs-section-box">
           <div class="specs-section-title">INGREDIENTS / SUPPLEMENT FACTS</div>
-          <div class="ocr-pending">⏳ Waiting for OCR extraction</div>
+          <div class="ocr-pending">⏳ OCR pending</div>
         </div>
       `;
     }
 
-    // All specs table
-    const allSpecs = s.all_specs || {};
-    const specKeys = ['Brand', 'Item Form', 'Unit Count', 'Flavor', 'Primary Ingredient', 'Weight', 'Diet Type', 'Allergen Info', 'Country of Origin', 'Manufacturer'];
-    const specsRows = specKeys
-      .filter(key => allSpecs[key] || s[key.toLowerCase().replace(/\s+/g, '_')])
-      .map(key => {
-        const val = allSpecs[key] || s[key.toLowerCase().replace(/\s+/g, '_')] || '';
-        return `<tr><td>${escapeHtml(key)}</td><td>${escapeHtml(val)}</td></tr>`;
-      })
+    // V2.8: Specs from dovive_research or dovive_specs
+    const allSpecs = p.specs || s.all_specs || {};
+
+    // Build specs table from all keys in the specs object
+    const specsRows = Object.entries(allSpecs)
+      .filter(([key, val]) => val && String(val).length > 0 && String(val).length < 500)
+      .map(([key, val]) => `<tr><td>${escapeHtml(key)}</td><td>${escapeHtml(String(val))}</td></tr>`)
       .join('');
 
     const specsTableHtml = specsRows ? `
@@ -1875,14 +1907,24 @@
           ${specsRows}
         </table>
       </div>
+    ` : '<div class="specs-section-box"><div class="specs-section-title">SPECIFICATIONS</div><p class="no-data">No specs available</p></div>';
+
+    // V2.8: Description from dovive_research
+    const descriptionHtml = p.description ? `
+      <div class="specs-section-box">
+        <div class="specs-section-title">PRODUCT DESCRIPTION</div>
+        <div class="description-box">${escapeHtml(p.description)}</div>
+      </div>
     ` : '';
 
     // Raw specs JSON
-    const rawJson = JSON.stringify(s, null, 2);
+    const rawData = { specs: allSpecs, ingredients, format_data: p.format_data || {} };
+    const rawJson = JSON.stringify(rawData, null, 2);
 
     return `
       ${ingredientsHtml}
       ${specsTableHtml}
+      ${descriptionHtml}
       <div class="raw-specs-toggle">▶ Show raw data</div>
       <div class="raw-specs-content">${escapeHtml(rawJson)}</div>
     `;
@@ -1890,11 +1932,19 @@
 
   // TAB 3: Reviews
   function renderReviewsTab(p, revs) {
-    const totalReviews = revs.length;
-    const avgRating = p.rating || (totalReviews > 0 ? (revs.reduce((sum, r) => sum + (r.rating || 0), 0) / totalReviews) : 0);
+    // V2.8: Merge reviews from dovive_research (p.reviews) with dovive_reviews (revs)
+    const researchReviews = p.reviews || [];
+    const allReviews = researchReviews.length > 0 ? researchReviews : revs;
+    const totalReviews = allReviews.length;
+    const avgRating = p.rating || (totalReviews > 0 ? (allReviews.reduce((sum, r) => sum + (r.rating || 0), 0) / totalReviews) : 0);
     const ratingStars = '★'.repeat(Math.floor(avgRating)) + (avgRating % 1 >= 0.5 ? '½' : '');
 
-    // Sentiment breakdown
+    // V2.8: Note about data source
+    const dataSourceNote = researchReviews.length > 0
+      ? '<div class="reviews-note">Showing top 10 reviews from product page</div>'
+      : '<div class="reviews-note">Showing reviews from full scrape</div>';
+
+    // Sentiment breakdown (only for full reviews from dovive_reviews)
     const sentimentCounts = {};
     revs.forEach(r => {
       if (r.sentiment_tags && Array.isArray(r.sentiment_tags)) {
@@ -1910,7 +1960,7 @@
       .map(([tag, count]) => {
         const isPositive = tag.includes('positive');
         const isNegative = tag.includes('negative') || tag.includes('side-effects');
-        const pct = Math.min(100, Math.round((count / totalReviews) * 100));
+        const pct = Math.min(100, Math.round((count / Math.max(revs.length, 1)) * 100));
         return `
           <div class="sentiment-item">
             <span class="sentiment-label">${escapeHtml(tag)}</span>
@@ -1922,12 +1972,12 @@
       .join('');
 
     // Reviews list (paginated)
-    const displayReviews = revs.slice(0, 20 + modalReviewsLoaded);
-    const hasMore = revs.length > displayReviews.length;
+    const displayReviews = allReviews.slice(0, 20 + modalReviewsLoaded);
+    const hasMore = allReviews.length > displayReviews.length;
 
     const reviewsListHtml = displayReviews.map(r => {
       const stars = r.rating ? '★'.repeat(Math.floor(r.rating)) : '';
-      const verified = r.verified_purchase ? '<span class="verified-check">✓ Verified</span>' : '';
+      const verified = (r.verified_purchase || r.verified) ? '<span class="verified-check">✓ Verified</span>' : '';
       const tags = (r.sentiment_tags || []).map(t => {
         const isPos = t.includes('positive');
         const isNeg = t.includes('negative') || t.includes('side-effects');
@@ -1944,7 +1994,7 @@
           <div class="review-body">${escapeHtml(r.body || '')}</div>
           ${r.body && r.body.length > 200 ? '<span class="review-expand">Show more</span>' : ''}
           <div class="review-meta">
-            ${escapeHtml(r.reviewer_name || 'Anonymous')} · ${r.review_date || ''} ${r.helpful_votes ? '· Helpful: ' + r.helpful_votes : ''}
+            ${escapeHtml(r.reviewer_name || 'Anonymous')} · ${r.review_date || r.date || ''} ${r.helpful_votes ? '· Helpful: ' + r.helpful_votes : ''}
           </div>
           ${tags ? `<div class="review-tags">${tags}</div>` : ''}
         </div>
@@ -1954,8 +2004,10 @@
     return `
       <div class="review-summary-bar">
         <span class="review-overall"><span class="stars">${ratingStars}</span> ${avgRating.toFixed(1)} overall</span>
-        <span class="review-scraped-count">${totalReviews} reviews scraped</span>
+        <span class="review-scraped-count">${totalReviews} reviews</span>
       </div>
+
+      ${dataSourceNote}
 
       ${sentimentItems ? `<div class="sentiment-breakdown">${sentimentItems}</div>` : ''}
 
@@ -1969,66 +2021,80 @@
 
   // TAB 4: Images
   function renderImagesTab(p, imgs) {
-    // Group images by type
-    const mainImages = imgs.filter(i => i.image_type === 'main');
-    const galleryImages = imgs.filter(i => i.image_type === 'gallery');
-    const aplusImages = imgs.filter(i => i.image_type === 'aplus');
+    // V2.8: Use images from dovive_research first (has type info)
+    const researchImages = p.images || [];
 
-    // Fallback to product.images if no images in dovive_product_images
-    const fallbackImages = (imgs.length === 0 && p.images) ? p.images : [];
+    // Group images by type from dovive_research
+    const mainImages = researchImages.filter(i => i.type === 'main');
+    const galleryImages = researchImages.filter(i => i.type === 'gallery');
+    const aplusImages = researchImages.filter(i => i.type === 'aplus');
+
+    // Also check dovive_product_images table
+    const tableMainImages = imgs.filter(i => i.image_type === 'main');
+    const tableGalleryImages = imgs.filter(i => i.image_type === 'gallery');
+    const tableAplusImages = imgs.filter(i => i.image_type === 'aplus');
 
     const renderImageItem = (img, isUrl = false) => {
-      const url = isUrl ? img : img.url;
+      const url = isUrl ? img : (img.url || img);
       const ocrStatus = isUrl ? 'pending' : (img.ocr_status || 'pending');
       return `
         <div class="image-item">
           <a href="${escapeHtml(url)}" target="_blank" rel="noopener">
             <img src="${escapeHtml(url)}" alt="Product image" class="listing-img" loading="lazy">
           </a>
-          <span class="ocr-badge-img ${ocrStatus === 'done' ? 'done' : 'pending'}">
-            ${ocrStatus === 'done' ? '✓ Text Extracted' : '⏳ OCR Pending'}
-          </span>
+          ${!isUrl && ocrStatus ? `
+            <span class="ocr-badge-img ${ocrStatus === 'done' ? 'done' : 'pending'}">
+              ${ocrStatus === 'done' ? '✓ Text Extracted' : '⏳ OCR Pending'}
+            </span>
+          ` : ''}
         </div>
       `;
     };
 
     let html = '';
 
-    if (mainImages.length > 0) {
+    // Use research images if available, otherwise fall back to table images
+    const useResearch = researchImages.length > 0;
+    const finalMainImages = useResearch ? mainImages : tableMainImages;
+    const finalGalleryImages = useResearch ? galleryImages : tableGalleryImages;
+    const finalAplusImages = useResearch ? aplusImages : tableAplusImages;
+
+    if (finalMainImages.length > 0) {
+      const mainUrl = finalMainImages[0].url || finalMainImages[0];
       html += `
         <div class="images-group-title">MAIN IMAGE</div>
         <div class="main-image-display">
-          <a href="${escapeHtml(mainImages[0].url)}" target="_blank" rel="noopener">
-            <img src="${escapeHtml(mainImages[0].url)}" alt="Main product image">
+          <a href="${escapeHtml(mainUrl)}" target="_blank" rel="noopener">
+            <img src="${escapeHtml(mainUrl)}" alt="Main product image">
           </a>
         </div>
       `;
     }
 
-    if (galleryImages.length > 0) {
+    if (finalGalleryImages.length > 0) {
       html += `
-        <div class="images-group-title">GALLERY (${galleryImages.length})</div>
+        <div class="images-group-title">GALLERY (${finalGalleryImages.length})</div>
         <div class="images-grid">
-          ${galleryImages.map(img => renderImageItem(img)).join('')}
+          ${finalGalleryImages.map(img => renderImageItem(img)).join('')}
         </div>
       `;
     }
 
-    if (aplusImages.length > 0) {
+    if (finalAplusImages.length > 0) {
       html += `
-        <div class="images-group-title">A+ CONTENT (${aplusImages.length})</div>
+        <div class="images-group-title">A+ CONTENT (${finalAplusImages.length})</div>
         <div class="images-grid aplus">
-          ${aplusImages.map(img => renderImageItem(img)).join('')}
+          ${finalAplusImages.map(img => renderImageItem(img)).join('')}
         </div>
       `;
     }
 
-    // Fallback
-    if (fallbackImages.length > 0 && imgs.length === 0) {
+    // Fallback to flat images array
+    if (!html && researchImages.length > 0 && !researchImages[0].type) {
       html += `
-        <div class="images-group-title">PRODUCT IMAGES (${fallbackImages.length})</div>
+        <div class="images-group-title">PRODUCT IMAGES (${researchImages.length})</div>
         <div class="images-grid">
-          ${fallbackImages.map(url => renderImageItem(url, true)).join('')}
+          ${researchImages.map(img => renderImageItem(img, typeof img === 'string')).join('')}
         </div>
       `;
     }
@@ -2039,7 +2105,7 @@
 
     html += `
       <div class="images-note">
-        Images marked OCR Pending will be analyzed for supplement facts and formula data in a future run.
+        Click any image to open full size. Images marked OCR Pending will be analyzed for supplement facts and formula data.
       </div>
     `;
 
