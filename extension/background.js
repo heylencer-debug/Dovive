@@ -141,52 +141,14 @@ async function openSearchTab(keyword) {
     await setScoutTabId(tabId);
   }
 
-  // Wait for homepage to load
-  await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 2000));
+  // Wait for homepage to fully load including Amazon's JS
+  await new Promise(resolve => setTimeout(resolve, 5000 + Math.random() * 3000));
 
-  // Type keyword into search box character by character
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    func: async (keyword) => {
-      // Find search box
-      const searchBox = document.querySelector('#twotabsearchtextbox, input[name="field-keywords"], #nav-search-bar-form input[type="text"]');
-      if (!searchBox) return false;
-
-      // Click on search box
-      searchBox.focus();
-      searchBox.click();
-      await new Promise(r => setTimeout(r, 500 + Math.random() * 500));
-
-      // Clear existing value
-      searchBox.value = '';
-
-      // Type each character with human-like delays
-      for (const char of keyword) {
-        searchBox.value += char;
-        searchBox.dispatchEvent(new Event('input', { bubbles: true }));
-        searchBox.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
-        searchBox.dispatchEvent(new KeyboardEvent('keypress', { bubbles: true }));
-        searchBox.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
-        await new Promise(r => setTimeout(r, 80 + Math.random() * 120));
-      }
-
-      // Pause like thinking before submitting
-      await new Promise(r => setTimeout(r, 800 + Math.random() * 700));
-
-      // Submit the search form
-      const form = document.querySelector('#nav-search-bar-form, form[role="search"]');
-      if (form) {
-        form.submit();
-      } else {
-        searchBox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
-      }
-      return true;
-    },
-    args: [keyword]
-  });
+  // Send message to content script to type and search (avoids detectable executeScript)
+  await chrome.tabs.sendMessage(tabId, { type: 'TYPE_SEARCH', keyword });
 
   // Wait for search results to load
-  await new Promise(resolve => setTimeout(resolve, 4000 + Math.random() * 2000));
+  await new Promise(resolve => setTimeout(resolve, 6000 + Math.random() * 3000));
 
   return tabId;
 }

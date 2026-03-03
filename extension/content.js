@@ -362,6 +362,61 @@ async function scrapeProductPage() {
   }
 }
 
+// ============ SEARCH TYPER ============
+
+async function typeAndSearch(keyword) {
+  try {
+    // Find search box
+    const searchBox = document.querySelector('#twotabsearchtextbox, input[name="field-keywords"]');
+    if (!searchBox) {
+      console.error('[Dovive Scout] Search box not found');
+      return;
+    }
+
+    // Move mouse over search area naturally
+    humanHover(searchBox);
+    await randomDelay(500, 1000);
+
+    // Click search box
+    searchBox.focus();
+    searchBox.click();
+    await randomDelay(400, 800);
+
+    // Clear any existing text
+    searchBox.value = '';
+    searchBox.dispatchEvent(new Event('input', { bubbles: true }));
+    await randomDelay(200, 400);
+
+    // Type each character with natural cadence
+    for (const char of keyword) {
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      nativeInputValueSetter.call(searchBox, searchBox.value + char);
+      searchBox.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+      await randomDelay(70, 160);
+    }
+
+    // Pause like re-reading what you typed
+    await randomDelay(1000, 2000);
+
+    // Find and click the search BUTTON (not form.submit)
+    const submitBtn = document.querySelector('#nav-search-submit-button, input[value="Go"], .nav-input[type="submit"]');
+    if (submitBtn) {
+      humanHover(submitBtn);
+      await randomDelay(300, 600);
+      submitBtn.click();
+    } else {
+      // Fallback: press Enter naturally
+      searchBox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, code: 'Enter', bubbles: true, cancelable: true }));
+      await randomDelay(100, 200);
+      searchBox.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, code: 'Enter', bubbles: true }));
+    }
+
+    console.log('[Dovive Scout] Typed and submitted search:', keyword);
+  } catch (e) {
+    console.error('[Dovive Scout] Type search error:', e);
+  }
+}
+
 // ============ MAIN ============
 
 let hasScraped = false;
@@ -393,6 +448,15 @@ async function checkAndScrape() {
     await scrapeProductPage();
   }
 }
+
+// Listen for messages from background
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'TYPE_SEARCH') {
+    typeAndSearch(message.keyword);
+    sendResponse({ ok: true });
+  }
+  return true;
+});
 
 // Check on load
 if (document.readyState === 'complete') {
