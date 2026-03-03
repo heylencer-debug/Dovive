@@ -124,28 +124,22 @@ async function setScoutTabId(tabId) {
 async function openSearchTab(keyword) {
   let tabId = await getScoutTabId();
 
-  // Always start from Amazon homepage — real humans don't jump to search URLs
-  const homepageUrl = 'https://www.amazon.com';
+  // Navigate directly to search URL — typing triggers bot detection
+  const searchUrl = `https://www.amazon.com/s?k=${encodeURIComponent(keyword)}`;
 
   if (tabId) {
     try {
-      await chrome.tabs.update(tabId, { url: homepageUrl, active: true });
+      await chrome.tabs.update(tabId, { url: searchUrl, active: true });
     } catch (e) {
-      const tab = await chrome.tabs.create({ url: homepageUrl, active: true });
+      const tab = await chrome.tabs.create({ url: searchUrl, active: true });
       tabId = tab.id;
       await setScoutTabId(tabId);
     }
   } else {
-    const tab = await chrome.tabs.create({ url: homepageUrl, active: true });
+    const tab = await chrome.tabs.create({ url: searchUrl, active: true });
     tabId = tab.id;
     await setScoutTabId(tabId);
   }
-
-  // Wait for homepage to fully load including Amazon's JS
-  await new Promise(resolve => setTimeout(resolve, 5000 + Math.random() * 3000));
-
-  // Send message to content script to type and search (avoids detectable executeScript)
-  await chrome.tabs.sendMessage(tabId, { type: 'TYPE_SEARCH', keyword });
 
   // Wait for search results to load
   await new Promise(resolve => setTimeout(resolve, 6000 + Math.random() * 3000));
