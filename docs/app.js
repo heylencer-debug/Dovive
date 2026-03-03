@@ -490,31 +490,26 @@
     }
   }
 
-  // Load products from dovive_products
+  // Load products from dovive_research (main product table)
   async function loadProducts() {
     try {
-      products = await sbFetch('dovive_products', {
-        order: 'scraped_at.desc',
+      // V2.9 FIX: Use dovive_research as primary source (has complete data)
+      // dovive_products has missing columns and partial data - do NOT use as primary
+      products = await sbFetch('dovive_research', {
+        order: 'bsr.asc',
         limit: 1000
-      });
+      }) || [];
+
       renderResults();
-      renderProductsGrid(); // V2.6: Render product cards grid
-      renderProductsKeywordTabs(); // V2.6: Update keyword tabs
-      await loadFormatFocusData(); // Refresh format focus when products change
+      renderProductsGrid();
+      renderProductsKeywordTabs();
+      await loadFormatFocusData();
     } catch (err) {
-      console.error('Failed to load products:', err);
-      // Fallback to legacy dovive_research table
-      try {
-        products = await sbFetch('dovive_research', {
-          order: 'scraped_at.desc',
-          limit: 500
-        });
-        renderResults();
-        renderProductsGrid();
-        renderProductsKeywordTabs();
-      } catch (e) {
-        console.error('Failed to load legacy research:', e);
-      }
+      console.error('Failed to load products from dovive_research:', err);
+      products = []; // Ensure products is always an array
+      renderResults();
+      renderProductsGrid();
+      renderProductsKeywordTabs();
     }
   }
 
@@ -1477,25 +1472,29 @@
   function renderProductsGrid() {
     if (!productsGridContainer) return;
 
-    // Filter products by keyword
-    let filteredProducts = currentGridKeyword === 'ALL'
-      ? products
-      : products.filter(p => p.keyword === currentGridKeyword);
+    try {
+      // Ensure products is an array (null-safe)
+      const safeProducts = products || [];
 
-    // Sort by BSR (ascending)
-    filteredProducts = [...filteredProducts].sort((a, b) => {
-      const aBsr = a.bsr || Infinity;
-      const bBsr = b.bsr || Infinity;
-      return aBsr - bBsr;
-    });
+      // Filter products by keyword (null-safe)
+      let filteredProducts = currentGridKeyword === 'ALL'
+        ? safeProducts
+        : safeProducts.filter(p => p && p.keyword === currentGridKeyword);
 
-    // Deduplicate by ASIN
-    const seenAsins = new Set();
-    filteredProducts = filteredProducts.filter(p => {
-      if (seenAsins.has(p.asin)) return false;
-      seenAsins.add(p.asin);
-      return true;
-    });
+      // Sort by BSR (ascending) - null-safe
+      filteredProducts = [...filteredProducts].sort((a, b) => {
+        const aBsr = (a && a.bsr) || Infinity;
+        const bBsr = (b && b.bsr) || Infinity;
+        return aBsr - bBsr;
+      });
+
+      // Deduplicate by ASIN (null-safe)
+      const seenAsins = new Set();
+      filteredProducts = filteredProducts.filter(p => {
+        if (!p || !p.asin || seenAsins.has(p.asin)) return false;
+        seenAsins.add(p.asin);
+        return true;
+      });
 
     // Limit to 100
     filteredProducts = filteredProducts.slice(0, 100);
@@ -1529,17 +1528,33 @@
         ${filteredProducts.map(p => renderProductCard(p)).join('')}
       </div>
     `;
+    } catch (err) {
+      console.error('Error rendering products grid:', err);
+      productsGridContainer.innerHTML = `
+        <div class="products-empty-state">
+          <div class="products-empty-icon">⚠️</div>
+          <div class="products-empty-title">Error loading products</div>
+          <div class="products-empty-text">Please refresh the page.</div>
+        </div>
+      `;
+    }
   }
 
-  // Render a single product card
+  // Render a single product card (null-safe)
   function renderProductCard(p) {
-    const productType = p.product_type || 'Other';
-    const typeClass = productType.toLowerCase().replace(/[^a-z]/g, '-');
-    // V2.8: Use main_image from dovive_research, fallback to images array
-    const mainImage = p.main_image || (p.images && p.images.length > 0 ? (p.images[0].url || p.images[0]) : null);
-    const ratingStars = p.rating ? renderStarsCompact(p.rating) : '';
-    const source = p.source || (p.bsr && p.bsr < 10000 ? 'best_sellers' : 'keyword_search');
-    const isBestSeller = source === 'best_sellers';
+    // Guard against null/undefined product
+    if (!p || !p.asin) {
+      return '<div class="product-card product-card-error">Invalid product data</div>';
+    }
+
+    try {
+      const productType = p.product_type || 'Other';
+      const typeClass = productType.toLowerCase().replace(/[^a-z]/g, '-');
+      // V2.8: Use main_image from dovive_research, fallback to images array
+      const mainImage = p.main_image || (p.images && p.images.length > 0 ? (p.images[0].url || p.images[0]) : null);
+      const ratingStars = p.rating ? renderStarsCompact(p.rating) : '';
+      const source = p.source || (p.bsr && p.bsr < 10000 ? 'best_sellers' : 'keyword_search');
+      const isBestSeller = source === 'best_sellers';
 
     // V2.8: Certifications - show first 3 as small badges
     const certs = p.certifications || [];
@@ -1578,6 +1593,10 @@
         </div>
       </div>
     `;
+    } catch (err) {
+      console.error('Error rendering product card:', p?.asin, err);
+      return `<div class="product-card product-card-error">Error: ${escapeHtml(p?.asin || 'Unknown')}</div>`;
+    }
   }
 
   // Compact star rendering for cards
@@ -1631,6 +1650,11 @@
 
   // Open product modal
   window.openProductModal = async function(asin) {
+    if (!asin) {
+      showModal('<div class="modal-loading">Error: No product ASIN provided</div>');
+      return;
+    }
+
     currentModalAsin = asin;
     currentModalTab = 'overview';
     modalReviewsLoaded = 0;
@@ -1638,28 +1662,43 @@
     // Show modal with loading state
     showModal('<div class="modal-loading"><div class="spinner"></div> Loading product data...</div>');
 
-    // V2.8: Fetch from dovive_research first (has full data), fallback to other tables
-    const [researchArr, productArr, specsArr, reviewsArr, imagesArr] = await Promise.all([
-      sbFetchSimple('dovive_research?asin=eq.' + asin + '&limit=1'),
-      sbFetchSimple('dovive_products?asin=eq.' + asin + '&limit=1'),
-      sbFetchSimple('dovive_specs?asin=eq.' + asin + '&limit=1'),
-      sbFetchSimple('dovive_reviews?asin=eq.' + asin + '&order=scraped_at.desc&limit=50'),
-      sbFetchSimple('dovive_product_images?asin=eq.' + asin + '&order=image_index.asc')
-    ]);
+    try {
+      // V2.8: Fetch from dovive_research first (has full data), fallback to other tables
+      const [researchArr, productArr, specsArr, reviewsArr, imagesArr] = await Promise.all([
+        sbFetchSimple('dovive_research?asin=eq.' + asin + '&limit=1'),
+        sbFetchSimple('dovive_products?asin=eq.' + asin + '&limit=1'),
+        sbFetchSimple('dovive_specs?asin=eq.' + asin + '&limit=1'),
+        sbFetchSimple('dovive_reviews?asin=eq.' + asin + '&order=rating.asc&limit=50'),
+        sbFetchSimple('dovive_product_images?asin=eq.' + asin + '&order=image_index.asc')
+      ]);
 
-    // V2.8: Merge research data with product data
-    const research = researchArr[0] || {};
-    const product = productArr[0] || {};
+      // V2.8: Merge research data with product data
+      const research = (researchArr && researchArr[0]) || {};
+      const product = (productArr && productArr[0]) || {};
 
-    modalProductData = {
-      product: { ...product, ...research }, // Research data takes precedence
-      specs: specsArr[0] || {},
-      reviews: reviewsArr || [],
-      images: imagesArr || [],
-      research: research // Keep full research object for modal tabs
-    };
+      modalProductData = {
+        product: { ...product, ...research }, // Research data takes precedence
+        specs: (specsArr && specsArr[0]) || {},
+        reviews: reviewsArr || [],
+        images: imagesArr || [],
+        research: research // Keep full research object for modal tabs
+      };
 
-    renderProductModal();
+      renderProductModal();
+    } catch (err) {
+      console.error('Error opening product modal:', asin, err);
+      showModal(`
+        <div class="modal-header">
+          <span class="modal-title">Error</span>
+          <button class="modal-close" onclick="closeModal()">✕</button>
+        </div>
+        <div class="modal-body" style="text-align: center; padding: 40px;">
+          <div style="font-size: 32px; margin-bottom: 16px;">⚠️</div>
+          <div style="font-size: 14px;">Failed to load product data for ${escapeHtml(asin || 'Unknown')}</div>
+          <div style="font-size: 12px; color: #666; margin-top: 8px;">Please try again or check the console.</div>
+        </div>
+      `);
+    }
   };
 
   // Render product modal
@@ -2345,43 +2384,52 @@
     // Show loading
     container.innerHTML = '<div class="modal-loading">Loading keywords...</div>';
 
-    // Fetch keywords with stats
-    const keywordsWithStats = await Promise.all(
-      keywords.map(async (kw) => {
-        // Get products for this keyword
-        const kwProducts = products.filter(p => p.keyword === kw.keyword);
-        const productCount = kwProducts.length;
+    try {
+      // Ensure products array exists
+      const safeProducts = products || [];
 
-        // Calculate stats
-        const bsrs = kwProducts.filter(p => p.bsr).map(p => p.bsr);
-        const avgBsr = bsrs.length > 0 ? Math.round(bsrs.reduce((a, b) => a + b, 0) / bsrs.length) : null;
+      // Fetch keywords with stats
+      const keywordsWithStats = await Promise.all(
+        (keywords || []).map(async (kw) => {
+          try {
+            // Get products for this keyword
+            const kwProducts = safeProducts.filter(p => p && p.keyword === kw.keyword);
+            const productCount = kwProducts.length;
 
-        const prices = kwProducts.filter(p => p.price).map(p => p.price);
-        const priceMin = prices.length > 0 ? Math.min(...prices) : null;
-        const priceMax = prices.length > 0 ? Math.max(...prices) : null;
+            // Calculate stats (null-safe)
+            const bsrs = kwProducts.filter(p => p && p.bsr).map(p => p.bsr);
+            const avgBsr = bsrs.length > 0 ? Math.round(bsrs.reduce((a, b) => a + b, 0) / bsrs.length) : null;
 
-        const ratings = kwProducts.filter(p => p.rating).map(p => p.rating);
-        const avgRating = ratings.length > 0 ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1) : null;
+            const prices = kwProducts.filter(p => p && p.price).map(p => p.price);
+            const priceMin = prices.length > 0 ? Math.min(...prices) : null;
+            const priceMax = prices.length > 0 ? Math.max(...prices) : null;
 
-        // Get last scraped time
-        const scrapedDates = kwProducts.filter(p => p.scraped_at).map(p => new Date(p.scraped_at));
-        const lastScraped = scrapedDates.length > 0 ? new Date(Math.max(...scrapedDates)) : null;
+            const ratings = kwProducts.filter(p => p && p.rating).map(p => p.rating);
+            const avgRating = ratings.length > 0 ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1) : null;
 
-        // Check for AI report
-        const report = reports.find(r => r.keyword === kw.keyword);
+            // Get last scraped time
+            const scrapedDates = kwProducts.filter(p => p && p.scraped_at).map(p => new Date(p.scraped_at));
+            const lastScraped = scrapedDates.length > 0 ? new Date(Math.max(...scrapedDates)) : null;
 
-        return {
-          ...kw,
-          productCount,
-          avgBsr,
-          priceMin,
-          priceMax,
-          avgRating,
-          lastScraped,
-          hasReport: !!report
-        };
-      })
-    );
+            // Check for AI report
+            const report = (reports || []).find(r => r && r.keyword === kw.keyword);
+
+            return {
+              ...kw,
+              productCount,
+              avgBsr,
+              priceMin,
+              priceMax,
+              avgRating,
+              lastScraped,
+              hasReport: !!report
+            };
+          } catch (kwErr) {
+            console.error('Error processing keyword:', kw.keyword, kwErr);
+            return { ...kw, productCount: 0, avgBsr: null, priceMin: null, priceMax: null, avgRating: null, lastScraped: null, hasReport: false };
+          }
+        })
+      );
 
     // Render cards
     if (keywordsWithStats.length === 0) {
@@ -2408,6 +2456,16 @@
         showKeywordDetail(keyword);
       });
     });
+    } catch (err) {
+      console.error('Error rendering keywords page:', err);
+      container.innerHTML = `
+        <div class="keywords-empty">
+          <div class="keywords-empty-icon">⚠️</div>
+          <div class="keywords-empty-title">Error loading keywords</div>
+          <div class="keywords-empty-text">Please refresh the page or check console for details.</div>
+        </div>
+      `;
+    }
   }
 
   // Render a single keyword card
@@ -2484,19 +2542,23 @@
     // Show loading
     container.innerHTML = '<div class="modal-loading">Loading keyword data...</div>';
 
-    // Get keyword info
-    const kwInfo = keywords.find(k => k.keyword === keyword);
-    const productType = kwInfo?.product_type || detectProductType(keyword);
+    try {
+      // Ensure products array exists (null-safe)
+      const safeProducts = products || [];
 
-    // Get products for this keyword
-    let kwProducts = products.filter(p => p.keyword === keyword);
+      // Get keyword info
+      const kwInfo = (keywords || []).find(k => k && k.keyword === keyword);
+      const productType = kwInfo?.product_type || detectProductType(keyword);
 
-    // Get last scraped time
-    const scrapedDates = kwProducts.filter(p => p.scraped_at).map(p => new Date(p.scraped_at));
-    const lastScraped = scrapedDates.length > 0 ? new Date(Math.max(...scrapedDates)) : null;
+      // Get products for this keyword (null-safe filter)
+      let kwProducts = safeProducts.filter(p => p && p.keyword === keyword);
 
-    // Get AI report
-    const report = reports.find(r => r.keyword === keyword);
+      // Get last scraped time
+      const scrapedDates = kwProducts.filter(p => p && p.scraped_at).map(p => new Date(p.scraped_at));
+      const lastScraped = scrapedDates.length > 0 ? new Date(Math.max(...scrapedDates)) : null;
+
+      // Get AI report
+      const report = (reports || []).find(r => r && r.keyword === keyword);
 
     // Sort products
     kwProducts = sortProducts(kwProducts, keywordDetailSort);
@@ -2567,6 +2629,19 @@
         renderKeywordDetail(keyword);
       });
     });
+    } catch (err) {
+      console.error('Error rendering keyword detail:', err);
+      container.innerHTML = `
+        <button class="back-btn" id="back-to-keywords-err">← Keywords</button>
+        <div class="products-empty-state">
+          <div class="products-empty-icon">⚠️</div>
+          <div class="products-empty-title">Error loading keyword data</div>
+          <div class="products-empty-text">Please refresh the page or check console for details.</div>
+        </div>
+      `;
+      const backBtn = document.getElementById('back-to-keywords-err');
+      if (backBtn) backBtn.addEventListener('click', () => showKeywordsPage());
+    }
   }
 
   // Sort products by specified field
