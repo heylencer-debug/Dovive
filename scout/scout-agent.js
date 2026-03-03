@@ -309,30 +309,59 @@ function log(msg, level = 'info') {
 // AMAZON LOGIN (for authenticated scraping)
 // ============================================================
 async function loginToAmazon(page) {
-  const email = process.env.AMAZON_EMAIL;
-  const password = process.env.AMAZON_PASSWORD;
-  if (!email || !password) {
-    log('No Amazon credentials configured - scraping as guest', 'warn');
-    return false;
-  }
-
   try {
-    log('Logging in to Amazon...');
-    await page.goto('https://www.amazon.com/ap/signin?openid.pape.max_auth_age=0&openid.return_to=https%3A%2F%2Fwww.amazon.com%2F&openid.identity=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&openid.assoc_handle=usflex&openid.mode=checkid_setup&openid.claimed_id=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&openid.ns=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    // First check if already logged in via saved session (persistent browser profile)
+    log('Checking Amazon session...');
+    await page.goto('https://www.amazon.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(2000);
 
-    // Enter email
-    await page.waitForSelector('#ap_email', { timeout: 10000 });
+    const alreadyLoggedIn = await page.evaluate(() => {
+      const nav = document.querySelector('#nav-link-accountList-nav-line-1');
+      const greeting = nav ? nav.textContent.trim() : '';
+      return nav && !greeting.includes('Sign in') && greeting.length > 0;
+    });
+
+    if (alreadyLoggedIn) {
+      const name = await page.evaluate(() => {
+        const nav = document.querySelector('#nav-link-accountList-nav-line-1');
+        return nav ? nav.textContent.trim() : 'user';
+      });
+      log('Amazon session active — logged in as: ' + name, 'success');
+      return true;
+    }
+
+    // Not logged in — try with credentials
+    const email = process.env.AMAZON_EMAIL;
+    const password = process.env.AMAZON_PASSWORD;
+    if (!email || !password) {
+      log('No Amazon credentials configured - scraping as guest', 'warn');
+      return false;
+    }
+
+    log('Session expired, logging in to Amazon...');
+    await page.goto('https://www.amazon.com/ap/signin?openid.assoc_handle=usflex&openid.mode=checkid_setup&openid.ns=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(2000);
+
+    // Fill email
+    const emailField = await page.$('#ap_email');
+    if (!emailField) {
+      log('Amazon sign-in form not found - may have redirected to bot check', 'warn');
+      return false;
+    }
     await page.fill('#ap_email', email);
     await page.click('#continue');
     await page.waitForTimeout(2000);
 
-    // Enter password
-    await page.waitForSelector('#ap_password', { timeout: 10000 });
+    // Fill password
+    const pwField = await page.$('#ap_password');
+    if (!pwField) {
+      log('Password field not found - possible CAPTCHA, continuing as guest', 'warn');
+      return false;
+    }
     await page.fill('#ap_password', password);
     await page.click('#signInSubmit');
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(4000);
 
-    // Check if login succeeded (look for account nav or name)
     const loggedIn = await page.evaluate(() => {
       const nav = document.querySelector('#nav-link-accountList-nav-line-1');
       return nav && !nav.textContent.includes('Sign in');
@@ -342,13 +371,7 @@ async function loginToAmazon(page) {
       log('Amazon login successful', 'success');
       return true;
     } else {
-      // Check for OTP/captcha
-      const needsOtp = await page.evaluate(() => !!document.querySelector('#auth-mfa-otpcode, #cvf-input-code'));
-      if (needsOtp) {
-        log('Amazon requires OTP verification - continuing as guest', 'warn');
-      } else {
-        log('Amazon login may have failed - continuing anyway', 'warn');
-      }
+      log('Amazon login failed - continuing as guest', 'warn');
       return false;
     }
   } catch (err) {
