@@ -407,27 +407,35 @@ async function stopScout() {
 
 // ============ TIMEOUT HANDLING ============
 
-let scrapeTimeoutId = null;
-const SCRAPE_TIMEOUT_MS = 60000; // 60 seconds
+// Use chrome.alarms instead of setTimeout — service workers sleep and kill setTimeout
+const SCRAPE_TIMEOUT_ALARM = 'scrape-timeout';
+const SCRAPE_TIMEOUT_MIN = 1.5; // 1.5 minutes
 
 function setScrapeTimeout() {
-  clearScrapeTimeout();
-  scrapeTimeoutId = setTimeout(async () => {
-    const state = await getState();
-    if (state.running) {
-      await addLog('Page scrape timeout - moving to next keyword', 'error');
-      await setState({ errors: state.errors + 1 });
-      await moveToNextKeyword();
-    }
-  }, SCRAPE_TIMEOUT_MS);
+  chrome.alarms.create(SCRAPE_TIMEOUT_ALARM, { delayInMinutes: SCRAPE_TIMEOUT_MIN });
 }
 
 function clearScrapeTimeout() {
-  if (scrapeTimeoutId) {
-    clearTimeout(scrapeTimeoutId);
-    scrapeTimeoutId = null;
-  }
+  chrome.alarms.clear(SCRAPE_TIMEOUT_ALARM);
 }
+
+// Alarm fires even if service worker was sleeping
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === SCRAPE_TIMEOUT_ALARM) {
+    const state = await getState();
+    if (state.running) {
+      await addLog(`⏱ Timeout — page stuck, skipping to next keyword`, 'error');
+      await setState({ errors: state.errors + 1 });
+      await moveToNextKeyword();
+    }
+  }
+  if (alarm.name === 'job-poll') {
+    await pollJobQueue();
+  }
+});
+
+// Also use alarm for job polling (replaces setInterval which also dies with service worker)
+chrome.alarms.create('job-poll', { periodInMinutes: 1 });
 
 // ============ MESSAGE HANDLING ============
 
@@ -586,11 +594,9 @@ async function resetStaleState() {
   }
 }
 
-// Start polling on service worker boot
+// On boot: reset stale state + immediate poll (alarm handles recurring)
 resetStaleState().then(() => {
-  setInterval(pollJobQueue, 60000);
-  pollJobQueue(); // check immediately on startup
+  pollJobQueue();
 });
 
-// Log when service worker starts
-console.log('[Dovive Scout] Service worker started — polling for dashboard jobs every 60s');
+console.log('[Dovive Scout] Service worker started — using chrome.alarms for polling + timeouts');
