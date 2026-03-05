@@ -2002,11 +2002,101 @@
     }
   }
 
-  // TAB: Keepa
+  // TAB: Keepa - Enhanced Visual
   function renderKeepaTab(p) {
     const k = modalProductData.keepa;
     if (!k) return '<div style="padding:40px;text-align:center;color:#888;">No Keepa data yet. Run Phase 2.</div>';
-    return '<div style="padding:20px;"><h3>Keepa Data</h3><p>BSR: ' + (k.bsr_current || 'N/A') + '</p><p>Price: $' + (k.price_usd || 'N/A') + '</p><p>Sales: ~' + (k.monthly_sales_est || 0) + '/mo</p></div>';
+    
+    // Build sparklines
+    const bsrHistory = k.bsr_history_30d || [];
+    const bsrSparkline = bsrHistory.length > 1 
+      ? bsrHistory.map(r => '<span title="' + r.date + ': #' + r.rank.toLocaleString() + '" style="display:inline-block;width:3px;background:' + (r.rank < 5000 ? '#4ade80' : r.rank < 20000 ? '#facc15' : '#f87171') + ';height:' + Math.max(2, Math.min(24, Math.round(24 - (r.rank / 50000) * 22))) + 'px;margin:0 1px;vertical-align:bottom;border-radius:1px;"></span>').join('')
+      : '<span style="color:#666;font-size:12px;">No history</span>';
+    
+    const priceHistory = k.price_history_30d || [];
+    const priceSparkline = priceHistory.length > 1
+      ? priceHistory.map((r, i, arr) => {
+          const min = Math.min(...arr.map(x => x.price_usd));
+          const max = Math.max(...arr.map(x => x.price_usd));
+          const range = max - min || 1;
+          const h = Math.max(2, Math.round(((r.price_usd - min) / range) * 20) + 4);
+          return '<span title="' + r.date + ': $' + r.price_usd + '" style="display:inline-block;width:4px;background:#60a5fa;height:' + h + 'px;margin:0 1px;vertical-align:bottom;border-radius:2px;"></span>';
+        }).join('')
+      : '<span style="color:#666;font-size:12px;">No history</span>';
+    
+    // Sales bar (simple visualization)
+    const salesEst = k.monthly_sales_est || 0;
+    const salesBar = salesEst > 0 
+      ? '<div style="background:#1e1e3f;height:8px;border-radius:4px;overflow:hidden;margin-top:8px;"><div style="background:linear-gradient(90deg,#f59e0b,#fbbf24);width:' + Math.min(100, salesEst / 1000) + '%;height:100%;"></div></div>'
+      : '';
+    
+    return '<div style="padding:20px;max-height:70vh;overflow-y:auto;">' +
+      // Key Metrics Grid
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">' +
+        '<div style="background:linear-gradient(135deg,#1e293b,#0f172a);padding:16px;border-radius:12px;border:1px solid #334155;text-align:center;">' +
+          '<div style="font-size:28px;font-weight:800;color:#4ade80;">$' + (k.price_usd ? k.price_usd.toFixed(2) : 'N/A') + '</div>' +
+          '<div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;">Current Price</div>' +
+        '</div>' +
+        '<div style="background:linear-gradient(135deg,#1e293b,#0f172a);padding:16px;border-radius:12px;border:1px solid #334155;text-align:center;">' +
+          '<div style="font-size:28px;font-weight:800;color:#60a5fa;">#' + (k.bsr_current ? k.bsr_current.toLocaleString() : 'N/A') + '</div>' +
+          '<div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;">BSR Rank</div>' +
+        '</div>' +
+        '<div style="background:linear-gradient(135deg,#1e293b,#0f172a);padding:16px;border-radius:12px;border:1px solid #334155;text-align:center;">' +
+          '<div style="font-size:28px;font-weight:800;color:#f59e0b;">~' + salesEst.toLocaleString() + '</div>' +
+          '<div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;">Monthly Sales</div>' + salesBar +
+        '</div>' +
+        '<div style="background:linear-gradient(135deg,#1e293b,#0f172a);padding:16px;border-radius:12px;border:1px solid #334155;text-align:center;">' +
+          '<div style="font-size:28px;font-weight:800;color:#e879f9;">' + (k.rating || 'N/A') + ' ⭐</div>' +
+          '<div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;">Rating (' + (k.review_count || 0) + ' reviews)</div>' +
+        '</div>' +
+      '</div>' +
+      
+      // BSR Trend
+      '<div style="background:#0f172a;padding:16px;border-radius:12px;margin-bottom:16px;border:1px solid #1e293b;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
+          '<div style="font-weight:600;color:#e2e8f0;">📊 BSR Trend (30 days)</div>' +
+          '<div style="font-size:12px;color:' + ((k.bsr_drops_30d || 0) > 0 ? '#4ade80' : '#f87171') + ';">' +
+            '📉 ' + (k.bsr_drops_30d || 0) + ' rank improvement</div>' +
+        '</div>' +
+        '<div style="font-size:11px;color:#64748b;margin-bottom:8px;">Category: ' + (k.bsr_category || 'N/A') + '</div>' +
+        '<div style="overflow-x:auto;padding:8px 0;">' + bsrSparkline + '</div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:10px;color:#64748b;margin-top:4px;">' +
+          '<span>30 days ago</span><span>Today</span>' +
+        '</div>' +
+      '</div>' +
+      
+      // Price Trend
+      '<div style="background:#0f172a;padding:16px;border-radius:12px;margin-bottom:16px;border:1px solid #1e293b;">' +
+        '<div style="font-weight:600;color:#e2e8f0;margin-bottom:12px;">💰 Price Trend (30 days)</div>' +
+        '<div style="overflow-x:auto;padding:8px 0;">' + priceSparkline + '</div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:10px;color:#64748b;margin-top:4px;">' +
+          '<span>30 days ago</span><span>Today</span>' +
+        '</div>' +
+      '</div>' +
+      
+      // Additional Info Grid
+      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">' +
+        '<div style="background:#0f172a;padding:12px;border-radius:8px;border:1px solid #1e293b;">' +
+          '<div style="font-size:11px;color:#64748b;text-transform:uppercase;">Fulfillment</div>' +
+          '<div style="font-weight:600;color:#e2e8f0;">' + (k.fulfillment || 'N/A') + '</div>' +
+        '</div>' +
+        '<div style="background:#0f172a;padding:12px;border-radius:8px;border:1px solid #1e293b;">' +
+          '<div style="font-size:11px;color:#64748b;text-transform:uppercase;">Sellers</div>' +
+          '<div style="font-weight:600;color:#e2e8f0;">' + (k.total_offers || 0) + ' total</div>' +
+        '</div>' +
+        '<div style="background:#0f172a;padding:12px;border-radius:8px;border:1px solid #1e293b;">' +
+          '<div style="font-size:11px;color:#64748b;text-transform:uppercase;">Availability</div>' +
+          '<div style="font-weight:600;color:#e2e8f0;font-size:12px;">' + (k.availability || 'N/A') + '</div>' +
+        '</div>' +
+      '</div>' +
+      
+      // Brand/Category
+      '<div style="margin-top:16px;padding:12px;background:#1e293b;border-radius:8px;">' +
+        '<div style="font-size:11px;color:#64748b;">Brand: <span style="color:#e2e8f0;">' + (k.brand || 'N/A') + '</span> | ' +
+        'Category: <span style="color:#e2e8f0;">' + (k.category || 'N/A') + '</span> | ' +
+        'Listed: <span style="color:#e2e8f0;">' + (k.listed_since || 'N/A') + '</span></div>' +
+      '</div>' +
+    '</div>';
   }
 
   // TAB 1: Overview
