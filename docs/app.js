@@ -1835,12 +1835,13 @@
 
     try {
       // V2.8: Fetch from dovive_research first (has full data), fallback to other tables
-      const [researchArr, productArr, specsArr, reviewsArr, imagesArr] = await Promise.all([
+      const [researchArr, productArr, specsArr, reviewsArr, imagesArr, keepaArr] = await Promise.all([
         sbFetchSimple('dovive_research?asin=eq.' + asin + '&limit=1'),
         sbFetchSimple('dovive_products?asin=eq.' + asin + '&limit=1'),
         sbFetchSimple('dovive_specs?asin=eq.' + asin + '&limit=1'),
         sbFetchSimple('dovive_reviews?asin=eq.' + asin + '&order=rating.asc&limit=50'),
-        sbFetchSimple('dovive_product_images?asin=eq.' + asin + '&order=image_index.asc')
+        sbFetchSimple('dovive_product_images?asin=eq.' + asin + '&order=image_index.asc'),
+        sbFetchSimple('dovive_keepa?asin=eq.' + asin + '&limit=1')
       ]);
 
       // V2.8: Merge research data with product data
@@ -1852,7 +1853,8 @@
         specs: (specsArr && specsArr[0]) || {},
         reviews: reviewsArr || [],
         images: imagesArr || [],
-        research: research // Keep full research object for modal tabs
+        research: research,
+        keepa: (keepaArr && keepaArr[0]) || null
       };
 
       renderProductModal();
@@ -1896,6 +1898,7 @@
         <button class="modal-tab ${currentModalTab === 'specs' ? 'active' : ''}" data-tab="specs">Specs & Formula</button>
         <button class="modal-tab ${currentModalTab === 'reviews' ? 'active' : ''}" data-tab="reviews">Reviews (${reviewCount})</button>
         <button class="modal-tab ${currentModalTab === 'images' ? 'active' : ''}" data-tab="images">Images (${imageCount})</button>
+        <button class="modal-tab ${currentModalTab === 'keepa' ? 'active' : ''}" data-tab="keepa">Keepa</button>
       </div>
       <div class="modal-body">
         ${renderModalTabContent()}
@@ -1992,9 +1995,18 @@
         return renderReviewsTab(p, revs);
       case 'images':
         return renderImagesTab(p, imgs);
+      case 'keepa':
+        return renderKeepaTab(p);
       default:
         return renderOverviewTab(p, s, imgs);
     }
+  }
+
+  // TAB: Keepa
+  function renderKeepaTab(p) {
+    const k = modalProductData.keepa;
+    if (!k) return '<div style="padding:40px;text-align:center;color:#888;">No Keepa data yet. Run Phase 2.</div>';
+    return '<div style="padding:20px;"><h3>Keepa Data</h3><p>BSR: ' + (k.bsr_current || 'N/A') + '</p><p>Price: $' + (k.price_usd || 'N/A') + '</p><p>Sales: ~' + (k.monthly_sales_est || 0) + '/mo</p></div>';
   }
 
   // TAB 1: Overview
