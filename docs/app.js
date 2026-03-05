@@ -2002,33 +2002,128 @@
     }
   }
 
-  // TAB: Keepa - Enhanced Visual
+  // TAB: Keepa - Enhanced Visual (Amazon Analytics Style)
   function renderKeepaTab(p) {
     const k = modalProductData.keepa;
     if (!k) return '<div style="padding:40px;text-align:center;color:#888;">No Keepa data yet. Run Phase 2.</div>';
     
-    // Build sparklines
-    const bsrHistory = k.bsr_history_30d || [];
-    const bsrSparkline = bsrHistory.length > 1 
-      ? bsrHistory.map(r => '<span title="' + r.date + ': #' + r.rank.toLocaleString() + '" style="display:inline-block;width:3px;background:' + (r.rank < 5000 ? '#4ade80' : r.rank < 20000 ? '#facc15' : '#f87171') + ';height:' + Math.max(2, Math.min(24, Math.round(24 - (r.rank / 50000) * 22))) + 'px;margin:0 1px;vertical-align:bottom;border-radius:1px;"></span>').join('')
-      : '<span style="color:#666;font-size:12px;">No history</span>';
-    
-    const priceHistory = k.price_history_30d || [];
-    const priceSparkline = priceHistory.length > 1
-      ? priceHistory.map((r, i, arr) => {
-          const min = Math.min(...arr.map(x => x.price_usd));
-          const max = Math.max(...arr.map(x => x.price_usd));
-          const range = max - min || 1;
-          const h = Math.max(2, Math.round(((r.price_usd - min) / range) * 20) + 4);
-          return '<span title="' + r.date + ': $' + r.price_usd + '" style="display:inline-block;width:4px;background:#60a5fa;height:' + h + 'px;margin:0 1px;vertical-align:bottom;border-radius:2px;"></span>';
-        }).join('')
-      : '<span style="color:#666;font-size:12px;">No history</span>';
-    
-    // Sales bar (simple visualization)
+    // Calculate derived metrics
     const salesEst = k.monthly_sales_est || 0;
-    const salesBar = salesEst > 0 
-      ? '<div style="background:#1e1e3f;height:8px;border-radius:4px;overflow:hidden;margin-top:8px;"><div style="background:linear-gradient(90deg,#f59e0b,#fbbf24);width:' + Math.min(100, salesEst / 1000) + '%;height:100%;"></div></div>'
-      : '';
+    const price = k.price_usd || 0;
+    const monthlyRevenue = salesEst * price;
+    
+    // Calculate BSR averages
+    const bsr30d = k.bsr_history_30d || [];
+    const bsr90d = k.bsr_history_90d || [];
+    const avg30d = bsr30d.length > 0 ? Math.round(bsr30d.reduce((sum, r) => sum + r.rank, 0) / bsr30d.length) : null;
+    const avg90d = bsr90d.length > 0 ? Math.round(bsr90d.reduce((sum, r) => sum + r.rank, 0) / bsr90d.length) : null;
+    const currentBSR = k.bsr_current || 0;
+    
+    // Horizontal BSR bar calculation (max at 5000 for scale)
+    const maxBSR = 5000;
+    const currentBSRwidth = Math.min(100, (currentBSR / maxBSR) * 100);
+    const avg30dWidth = avg30d ? Math.min(100, (avg30d / maxBSR) * 100) : 0;
+    const avg90dWidth = avg90d ? Math.min(100, (avg90d / maxBSR) * 100) : 0;
+    
+    // Sales bar width (max at 100k for scale)
+    const salesBarWidth = Math.min(100, salesEst / 1000);
+    
+    // Revenue formatting
+    const formatRevenue = (rev) => {
+      if (rev >= 1000000) return '$' + (rev / 1000000).toFixed(2) + 'M';
+      if (rev >= 1000) return '$' + (rev / 1000).toFixed(0) + 'K';
+      return '$' + rev.toFixed(0);
+    };
+    
+    // Key metrics with revenue
+    const metricsHTML = 
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">' +
+        '<div style="background:linear-gradient(135deg,#1e293b,#0f172a);padding:16px;border-radius:12px;border:1px solid #334155;text-align:center;">' +
+          '<div style="font-size:24px;font-weight:800;color:#f59e0b;">' + formatRevenue(monthlyRevenue) + '</div>' +
+          '<div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;">Monthly Revenue</div>' +
+        '</div>' +
+        '<div style="background:linear-gradient(135deg,#1e293b,#0f172a);padding:16px;border-radius:12px;border:1px solid #334155;text-align:center;">' +
+          '<div style="font-size:24px;font-weight:800;color:#fbbf24;">~' + salesEst.toLocaleString() + '</div>' +
+          '<div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;">Monthly Sales</div>' +
+          '<div style="background:#1e1e3f;height:6px;border-radius:3px;margin-top:8px;overflow:hidden;"><div style="background:linear-gradient(90deg,#f59e0b,#fbbf24);width:' + salesBarWidth + '%;height:100%;"></div></div>' +
+        '</div>' +
+        '<div style="background:linear-gradient(135deg,#1e293b,#0f172a);padding:16px;border-radius:12px;border:1px solid #334155;text-align:center;">' +
+          '<div style="font-size:24px;font-weight:800;color:#4ade80;">$' + (price ? price.toFixed(2) : 'N/A') + '</div>' +
+          '<div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;">Current Price</div>' +
+        '</div>' +
+        '<div style="background:linear-gradient(135deg,#1e293b,#0f172a);padding:16px;border-radius:12px;border:1px solid #334155;text-align:center;">' +
+          '<div style="font-size:24px;font-weight:800;color:#e879f9;">' + (k.rating || 'N/A') + ' ⭐</div>' +
+          '<div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;">Rating (' + (k.review_count || 0) + ')</div>' +
+        '</div>' +
+      '</div>';
+    
+    // BSR Horizontal Bar Chart (like the image)
+    const bsrChartHTML = 
+      '<div style="background:#0f172a;padding:16px;border-radius:12px;margin-bottom:16px;border:1px solid #1e293b;">' +
+        '<div style="font-weight:600;color:#e2e8f0;margin-bottom:16px;">📊 Best Seller Rank (BSR)</div>' +
+        
+        // Current BSR
+        '<div style="margin-bottom:12px;">' +
+          '<div style="display:flex;justify-content:space-between;font-size:11px;color:#94a3b8;margin-bottom:4px;">' +
+            '<span>Current</span><span style="color:#e2e8f0;font-weight:600;">#' + currentBSR.toLocaleString() + '</span>' +
+          '</div>' +
+          '<div style="background:#1e293b;height:12px;border-radius:6px;overflow:hidden;">' +
+            '<div style="background:linear-gradient(90deg,#60a5fa,#3b82f6);width:' + currentBSRwidth + '%;height:100%;border-radius:6px;"></div>' +
+          '</div>' +
+        '</div>' +
+        
+        // 30-day avg BSR
+        (avg30d ? 
+        '<div style="margin-bottom:12px;">' +
+          '<div style="display:flex;justify-content:space-between;font-size:11px;color:#94a3b8;margin-bottom:4px;">' +
+            '<span>30-day avg</span><span style="color:#e2e8f0;font-weight:600;">#' + avg30d.toLocaleString() + '</span>' +
+          '</div>' +
+          '<div style="background:#1e293b;height:8px;border-radius:4px;overflow:hidden;">' +
+            '<div style="background:#64748b;width:' + avg30dWidth + '%;height:100%;"></div>' +
+          '</div>' +
+        '</div>' : '') +
+        
+        // 90-day avg BSR
+        (avg90d ? 
+        '<div style="margin-bottom:12px;">' +
+          '<div style="display:flex;justify-content:space-between;font-size:11px;color:#94a3b8;margin-bottom:4px;">' +
+            '<span>90-day avg</span><span style="color:#e2e8f0;font-weight:600;">#' + avg90d.toLocaleString() + '</span>' +
+          '</div>' +
+          '<div style="background:#1e293b;height:8px;border-radius:4px;overflow:hidden;">' +
+            '<div style="background:#475569;width:' + avg90dWidth + '%;height:100%;"></div>' +
+          '</div>' +
+        '</div>' : '') +
+        
+        '<div style="font-size:10px;color:#64748b;margin-top:8px;">Lower is better</div>' +
+      '</div>';
+    
+    // Seller/fulfillment info
+    const sellerInfoHTML = 
+      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">' +
+        '<div style="background:#0f172a;padding:12px;border-radius:8px;border:1px solid #1e293b;text-align:center;">' +
+          '<div style="font-size:10px;color:#64748b;text-transform:uppercase;">Fulfillment</div>' +
+          '<div style="font-weight:600;color:#e2e8f0;font-size:12px;">' + (k.fulfillment || 'N/A') + '</div>' +
+        '</div>' +
+        '<div style="background:#0f172a;padding:12px;border-radius:8px;border:1px solid #1e293b;text-align:center;">' +
+          '<div style="font-size:10px;color:#64748b;text-transform:uppercase;">Sellers</div>' +
+          '<div style="font-weight:600;color:#e2e8f0;font-size:12px;">' + (k.total_offers || 0) + ' total</div>' +
+        '</div>' +
+        '<div style="background:#0f172a;padding:12px;border-radius:8px;border:1px solid #1e293b;text-align:center;">' +
+          '<div style="font-size:10px;color:#64748b;text-transform:uppercase;">BSR Drops 30d</div>' +
+          '<div style="font-weight:600;color:' + ((k.bsr_drops_30d || 0) > 0 ? '#4ade80' : '#f87171') + ';font-size:12px;">' + 
+            ((k.bsr_drops_30d || 0) > 0 ? '📉 ' + k.bsr_drops_30d : '📈 ' + Math.abs(k.bsr_drops_30d || 0)) + 
+          '</div>' +
+        '</div>' +
+      '</div>';
+    
+    return '<div style="padding:20px;max-height:70vh;overflow-y:auto;">' +
+      metricsHTML + bsrChartHTML + sellerInfoHTML +
+      '<div style="padding:12px;background:#1e293b;border-radius:8px;font-size:11px;color:#64748b;">' +
+        'Brand: <span style="color:#e2e8f0;">' + (k.brand || 'N/A') + '</span> | ' +
+        'Category: <span style="color:#e2e8f0;">' + (k.category || 'N/A') + '</span> | ' +
+        'Listed: <span style="color:#e2e8f0;">' + (k.listed_since || 'N/A') + '</span>' +
+      '</div>' +
+    '</div>';
     
     return '<div style="padding:20px;max-height:70vh;overflow-y:auto;">' +
       // Key Metrics Grid
