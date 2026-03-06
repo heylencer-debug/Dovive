@@ -1,3 +1,5 @@
 scout/.env
 node_modules/
 scout/logs/
+
+scout/amazon-review-scraper
