@@ -168,36 +168,13 @@ async function navigateToProduct(asin) {
   const tabId = await getScoutTabId();
   if (!tabId) return;
 
-  // Human pause before clicking — like deciding to click
+  // Human pause before navigating
   await new Promise(resolve => setTimeout(resolve, 1500 + Math.random() * 1500));
 
-  // Click the product title link naturally
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      func: (asin) => {
-        const link = document.querySelector(`[data-asin="${asin}"] h2 a`);
-        if (link) {
-          // Scroll into view first
-          link.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          setTimeout(() => link.click(), 600 + Math.random() * 400);
-        } else {
-          const card = document.querySelector(`[data-asin="${asin}"]`);
-          const anyLink = card?.querySelector('a[href*="/dp/"]');
-          if (anyLink) {
-            anyLink.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            setTimeout(() => anyLink.click(), 600 + Math.random() * 400);
-          }
-        }
-      },
-      args: [asin]
-    });
-  } catch (e) {
-    console.error('Failed to click product link:', e);
-    await chrome.tabs.update(tabId, { url: `https://www.amazon.com/dp/${asin}` });
-  }
+  // Direct URL navigation — clicking can silently fail if DOM selectors don't match
+  const productUrl = `https://www.amazon.com/dp/${asin}`;
+  await chrome.tabs.update(tabId, { url: productUrl });
 
-  // Start timeout for content script response
   setScrapeTimeout();
 }
 
