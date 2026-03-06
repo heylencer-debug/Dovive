@@ -416,15 +416,24 @@ async function checkAndScrape() {
     return;
   }
 
-  // Check if scout is running
-  try {
-    const response = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
-    if (!response?.state?.running) {
-      return;
+  // Check if scout is running — retry once if service worker is sleeping (MV3)
+  let isRunning = false;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
+      if (response?.state?.running) {
+        isRunning = true;
+      }
+      break; // Got a response, no need to retry
+    } catch (e) {
+      if (attempt === 0) {
+        // Service worker may be waking up — wait and retry
+        await new Promise(r => setTimeout(r, 1000));
+      }
+      // If second attempt also fails, context is truly invalidated
     }
-  } catch (e) {
-    return; // Extension context invalidated
   }
+  if (!isRunning) return;
 
   hasScraped = true;
 

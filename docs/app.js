@@ -1835,18 +1835,22 @@
 
     try {
       // V2.8: Fetch from dovive_research first (has full data), fallback to other tables
-      const [researchArr, productArr, specsArr, reviewsArr, imagesArr, keepaArr] = await Promise.all([
+      const [researchArr, productArr, specsArr, reviewsArr, imagesArr, keepaArr, ocrArr] = await Promise.all([
         sbFetchSimple('dovive_research?asin=eq.' + asin + '&limit=1'),
         sbFetchSimple('dovive_products?asin=eq.' + asin + '&limit=1'),
         sbFetchSimple('dovive_specs?asin=eq.' + asin + '&limit=1'),
         sbFetchSimple('dovive_reviews?asin=eq.' + asin + '&order=rating.asc&limit=50'),
         sbFetchSimple('dovive_product_images?asin=eq.' + asin + '&order=image_index.asc'),
-        sbFetchSimple('dovive_keepa?asin=eq.' + asin + '&limit=1')
+        sbFetchSimple('dovive_keepa?asin=eq.' + asin + '&limit=1'),
+        sbFetchSimple('dovive_ocr?asin=eq.' + asin + '&supplement_facts=not.is.null&order=image_index.asc&limit=10')
       ]);
 
       // V2.8: Merge research data with product data
       const research = (researchArr && researchArr[0]) || {};
       const product = (productArr && productArr[0]) || {};
+
+      // Find best OCR record (prefer one with supplement_facts)
+      const ocrBest = (ocrArr || []).find(o => o.supplement_facts && o.supplement_facts.length) || (ocrArr && ocrArr[0]) || null;
 
       modalProductData = {
         product: { ...product, ...research }, // Research data takes precedence
@@ -1854,7 +1858,9 @@
         reviews: reviewsArr || [],
         images: imagesArr || [],
         research: research,
-        keepa: (keepaArr && keepaArr[0]) || null
+        keepa: (keepaArr && keepaArr[0]) || null,
+        ocr: ocrBest,
+        ocrAll: ocrArr || []
       };
 
       renderProductModal();
@@ -1899,6 +1905,7 @@
         <button class="modal-tab ${currentModalTab === 'reviews' ? 'active' : ''}" data-tab="reviews">Reviews (${reviewCount})</button>
         <button class="modal-tab ${currentModalTab === 'images' ? 'active' : ''}" data-tab="images">Images (${imageCount})</button>
         <button class="modal-tab ${currentModalTab === 'keepa' ? 'active' : ''}" data-tab="keepa">Keepa</button>
+        <button class="modal-tab ${currentModalTab === 'ocr' ? 'active' : ''}" data-tab="ocr">🔬 Formula</button>
       </div>
       <div class="modal-body">
         ${renderModalTabContent()}
@@ -1997,9 +2004,104 @@
         return renderImagesTab(p, imgs);
       case 'keepa':
         return renderKeepaTab(p);
+      case 'ocr':
+        return renderOCRTab();
       default:
         return renderOverviewTab(p, s, imgs);
     }
+  }
+
+  // TAB: OCR - Supplement Facts & Formula
+  function renderOCRTab() {
+    const ocr = modalProductData.ocr;
+    const ocrAll = modalProductData.ocrAll || [];
+
+    if (!ocr && !ocrAll.length) {
+      return `<div style="padding:40px;text-align:center;color:#888;">
+        <div style="font-size:32px;margin-bottom:16px;">🔬</div>
+        <div>No OCR data yet. Run Phase 4 (ocr-phase4.js) for this keyword.</div>
+      </div>`;
+    }
+
+    const facts = ocr?.supplement_facts || [];
+    const claims = ocr?.health_claims || [];
+    const certs = ocr?.certifications || [];
+    const otherIngredients = ocr?.other_ingredients || '';
+    const servingSize = ocr?.serving_size || 'N/A';
+    const servingsPerContainer = ocr?.servings_per_container || 'N/A';
+
+    return `
+      <div style="padding:20px;font-family:inherit;">
+
+        <!-- Serving Info -->
+        <div style="display:flex;gap:16px;margin-bottom:20px;">
+          <div style="flex:1;background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:16px;text-align:center;">
+            <div style="font-size:11px;color:#888;text-transform:uppercase;margin-bottom:6px;">Serving Size</div>
+            <div style="font-size:16px;color:#e0e0ff;font-weight:600;">${escapeHtml(servingSize)}</div>
+          </div>
+          <div style="flex:1;background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:16px;text-align:center;">
+            <div style="font-size:11px;color:#888;text-transform:uppercase;margin-bottom:6px;">Servings / Container</div>
+            <div style="font-size:16px;color:#e0e0ff;font-weight:600;">${escapeHtml(servingsPerContainer)}</div>
+          </div>
+          <div style="flex:1;background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:16px;text-align:center;">
+            <div style="font-size:11px;color:#888;text-transform:uppercase;margin-bottom:6px;">Images Analyzed</div>
+            <div style="font-size:16px;color:#e0e0ff;font-weight:600;">${ocrAll.length}</div>
+          </div>
+        </div>
+
+        <!-- Supplement Facts Table -->
+        ${facts.length ? `
+        <div style="background:#0f0f1a;border:1px solid #333;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+          <div style="padding:12px 16px;background:#1a1a2e;border-bottom:1px solid #333;font-size:13px;font-weight:600;color:#a0a0ff;text-transform:uppercase;letter-spacing:1px;">
+            📊 Supplement Facts
+          </div>
+          <table style="width:100%;border-collapse:collapse;">
+            <thead>
+              <tr style="background:#12122a;">
+                <th style="padding:10px 16px;text-align:left;font-size:11px;color:#666;text-transform:uppercase;border-bottom:1px solid #222;">Ingredient</th>
+                <th style="padding:10px 16px;text-align:right;font-size:11px;color:#666;text-transform:uppercase;border-bottom:1px solid #222;">Amount</th>
+                <th style="padding:10px 16px;text-align:right;font-size:11px;color:#666;text-transform:uppercase;border-bottom:1px solid #222;">% DV</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${facts.map((f, i) => `
+                <tr style="border-bottom:1px solid #1a1a2e;background:${i % 2 === 0 ? '#0c0c18' : '#0f0f1a'};">
+                  <td style="padding:10px 16px;font-size:13px;color:#d0d0e8;">${escapeHtml(f.name || '')}</td>
+                  <td style="padding:10px 16px;font-size:13px;color:#a0ffa0;text-align:right;">${escapeHtml(f.amount || '—')}</td>
+                  <td style="padding:10px 16px;font-size:12px;color:#888;text-align:right;">${escapeHtml(f.dv_percent || '—')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>` : ''}
+
+        <!-- Other Ingredients -->
+        ${otherIngredients ? `
+        <div style="background:#0f0f1a;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:20px;">
+          <div style="font-size:11px;color:#666;text-transform:uppercase;margin-bottom:8px;letter-spacing:1px;">Other Ingredients</div>
+          <div style="font-size:13px;color:#aaa;line-height:1.6;">${escapeHtml(otherIngredients)}</div>
+        </div>` : ''}
+
+        <!-- Health Claims -->
+        ${claims.length ? `
+        <div style="background:#0f0f1a;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:20px;">
+          <div style="font-size:11px;color:#666;text-transform:uppercase;margin-bottom:12px;letter-spacing:1px;">💬 Health Claims</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            ${claims.map(c => `<span style="background:#1a2a1a;border:1px solid #2a4a2a;color:#80e080;padding:4px 10px;border-radius:4px;font-size:12px;">${escapeHtml(c)}</span>`).join('')}
+          </div>
+        </div>` : ''}
+
+        <!-- Certifications -->
+        ${certs.length ? `
+        <div style="background:#0f0f1a;border:1px solid #333;border-radius:8px;padding:16px;">
+          <div style="font-size:11px;color:#666;text-transform:uppercase;margin-bottom:12px;letter-spacing:1px;">✅ Certifications</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            ${certs.map(c => `<span style="background:#1a1a2a;border:1px solid #3a3a6a;color:#8080ff;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;">${escapeHtml(c)}</span>`).join('')}
+          </div>
+        </div>` : ''}
+
+      </div>
+    `;
   }
 
   // TAB: Keepa - Enhanced Visual (Amazon Analytics Style)
