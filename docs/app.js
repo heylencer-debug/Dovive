@@ -3040,6 +3040,9 @@
         <!-- Section 2: Brand Ranking Table -->
         ${renderMABrandRanking(products, keepaMap)}
 
+        <!-- Section 2b: Brand BSR Bar Chart -->
+        ${renderMABrandBSRChart(products)}
+
         <!-- Section 3: Price vs BSR Scatter -->
         ${renderMAPriceScatter(products)}
 
@@ -3203,51 +3206,146 @@
     </div>`;
   }
 
-  // ── Section 3: Price vs BSR Scatter ─────────────────────────
+  // ── Section 3: Price vs BSR Scatter (Chart.js) ──────────────
   function renderMAPriceScatter(products) {
     const data = products.filter(p => p.price && p.bsr && p.bsr < 50000).slice(0, 100);
     if (!data.length) return '<div class="ma-section"><div class="ma-empty">No price/BSR data available</div></div>';
 
-    const maxBsr = Math.max(...data.map(p => p.bsr));
-    const maxPrice = Math.max(...data.map(p => p.price));
-    const W = 600, H = 300, PAD = 40;
+    const canvasId = 'ma-scatter-canvas-' + Date.now();
 
-    const dots = data.map(p => {
-      const x = PAD + ((p.price / maxPrice) * (W - PAD * 2));
-      const y = H - PAD - ((1 - p.bsr / maxBsr) * (H - PAD * 2));
-      const isTop = p.bsr < 5000;
-      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${isTop ? 6 : 4}"
-        fill="${isTop ? '#a78bfa' : '#6366f1'}" opacity="${isTop ? 0.9 : 0.5}"
-        title="${escapeHtml(p.brand || p.title || p.asin)} | $${p.price} | BSR #${p.bsr}">
-        <title>${escapeHtml((p.brand || p.title || '').substring(0, 40))} | $${p.price} | BSR #${p.bsr.toLocaleString()}</title>
-      </circle>`;
-    }).join('');
+    setTimeout(() => {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas || !window.Chart) return;
+      const topData = data.filter(p => p.bsr < 5000).map(p => ({ x: p.price, y: p.bsr, label: (p.brand || p.asin || '').substring(0, 30) }));
+      const otherData = data.filter(p => p.bsr >= 5000).map(p => ({ x: p.price, y: p.bsr, label: (p.brand || p.asin || '').substring(0, 30) }));
+      new window.Chart(canvas, {
+        type: 'scatter',
+        data: {
+          datasets: [
+            {
+              label: 'Top Seller (BSR < 5K)',
+              data: topData,
+              backgroundColor: 'rgba(0,255,136,0.85)',
+              pointRadius: 7,
+              pointHoverRadius: 9
+            },
+            {
+              label: 'Other Products',
+              data: otherData,
+              backgroundColor: 'rgba(0,212,255,0.4)',
+              pointRadius: 4,
+              pointHoverRadius: 6
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { labels: { color: '#8888aa', font: { size: 11 } } },
+            tooltip: {
+              callbacks: {
+                label: ctx => {
+                  const d = ctx.raw;
+                  return ` ${d.label} | $${d.x} | BSR #${d.y.toLocaleString()}`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              title: { display: true, text: 'Price ($)', color: '#8888aa' },
+              grid: { color: 'rgba(255,255,255,0.05)' },
+              ticks: { color: '#8888aa' }
+            },
+            y: {
+              title: { display: true, text: 'BSR (lower = better)', color: '#8888aa' },
+              grid: { color: 'rgba(255,255,255,0.05)' },
+              ticks: { color: '#8888aa' },
+              reverse: false
+            }
+          }
+        }
+      });
+    }, 50);
 
     return `
     <div class="ma-section">
       <div class="ma-section-header">
         <span class="ma-section-icon">🎯</span>
         <h2 class="ma-section-title">Price vs BSR Map</h2>
-        <span class="ma-section-sub">Sweet spot: low price + low BSR (purple = top seller)</span>
+        <span class="ma-section-sub">Sweet spot: low price + low BSR (green = top seller)</span>
       </div>
-      <div class="ma-scatter-wrap">
-        <svg viewBox="0 0 ${W} ${H}" class="ma-scatter-svg">
-          <!-- Grid lines -->
-          <line x1="${PAD}" y1="${PAD}" x2="${PAD}" y2="${H-PAD}" stroke="#333" stroke-width="1"/>
-          <line x1="${PAD}" y1="${H-PAD}" x2="${W-PAD}" y2="${H-PAD}" stroke="#333" stroke-width="1"/>
-          <!-- Labels -->
-          <text x="${W/2}" y="${H-5}" fill="#666" font-size="11" text-anchor="middle">Price ($)</text>
-          <text x="10" y="${H/2}" fill="#666" font-size="11" text-anchor="middle" transform="rotate(-90,10,${H/2})">Popularity (BSR ↑)</text>
-          <!-- Sweet spot zone -->
-          <rect x="${PAD}" y="${PAD}" width="${(W-PAD*2)*0.4}" height="${(H-PAD*2)*0.5}"
-            fill="rgba(167,139,250,0.06)" stroke="rgba(167,139,250,0.2)" stroke-dasharray="4"/>
-          <text x="${PAD + 8}" y="${PAD + 16}" fill="#a78bfa" font-size="10">sweet spot</text>
-          ${dots}
-        </svg>
-        <div class="ma-scatter-legend">
+      <div class="ma-chart-canvas-wrap">
+        <canvas id="${canvasId}" height="300"></canvas>
+        <div class="ma-scatter-legend" style="margin-top:8px;">
           <span class="ma-legend-dot ma-legend-top"></span> Top seller (BSR &lt; 5K)
           <span class="ma-legend-dot ma-legend-normal" style="margin-left:16px;"></span> Other products
         </div>
+      </div>
+    </div>`;
+  }
+
+  // ── Section 2b: Brand BSR Bar Chart (Chart.js) ───────────────
+  function renderMABrandBSRChart(products) {
+    const brandMap = {};
+    products.forEach(p => {
+      if (!p.brand || !p.bsr) return;
+      if (!brandMap[p.brand]) brandMap[p.brand] = [];
+      brandMap[p.brand].push(p.bsr);
+    });
+    const brands = Object.entries(brandMap)
+      .map(([brand, bsrs]) => ({ brand, bestBsr: Math.min(...bsrs) }))
+      .sort((a, b) => a.bestBsr - b.bestBsr)
+      .slice(0, 15);
+
+    if (!brands.length) return '';
+
+    const canvasId = 'ma-brand-bsr-chart-' + Date.now();
+
+    setTimeout(() => {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas || !window.Chart) return;
+      new window.Chart(canvas, {
+        type: 'bar',
+        data: {
+          labels: brands.map(b => b.brand.length > 18 ? b.brand.substring(0, 18) + '…' : b.brand),
+          datasets: [{
+            label: 'Best BSR',
+            data: brands.map(b => b.bestBsr),
+            backgroundColor: brands.map((_, i) => i < 3 ? 'rgba(0,255,136,0.7)' : 'rgba(0,212,255,0.45)'),
+            borderColor: brands.map((_, i) => i < 3 ? '#00ff88' : '#00d4ff'),
+            borderWidth: 1,
+            borderRadius: 4
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: { label: ctx => ` BSR #${ctx.raw.toLocaleString()}` } }
+          },
+          scales: {
+            x: {
+              title: { display: true, text: 'Best BSR Rank', color: '#8888aa' },
+              grid: { color: 'rgba(255,255,255,0.05)' },
+              ticks: { color: '#8888aa' }
+            },
+            y: { grid: { display: false }, ticks: { color: '#8888aa', font: { size: 11 } } }
+          }
+        }
+      });
+    }, 50);
+
+    return `
+    <div class="ma-section">
+      <div class="ma-section-header">
+        <span class="ma-section-icon">📊</span>
+        <h2 class="ma-section-title">Top Brands by BSR</h2>
+        <span class="ma-section-sub">Best BSR rank per brand (top 15)</span>
+      </div>
+      <div class="ma-chart-canvas-wrap">
+        <canvas id="${canvasId}" height="340"></canvas>
       </div>
     </div>`;
   }
