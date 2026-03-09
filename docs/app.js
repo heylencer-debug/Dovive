@@ -1,4 +1,4 @@
-// Dovive Scout Dashboard V3.1 - Main Application
+// Dovive Scout Dashboard V3.2 - Main Application
 // Features: Product type filters, reviews panel, specs panel, live progress tracking, Scout Settings panel
 // V2.6: Product grid view + full detail modal with tabs
 // V2.7: Keywords page with drill-down, AI report, per-keyword product grid
@@ -6,6 +6,7 @@
 // V2.9: Phase 5 badge — deep research indicator for top 10 BSR products per keyword
 // V3.0: Phase 5 detail panel — live Supabase data from dovive_phase5_research, dynamic badge from DB
 // V3.1: OCR fix — remove supplement_facts filter, show raw_text fallback, add re-extraction script
+// V3.2: Phase Coverage bars on keyword cards — P1→P5 progress per keyword, live from Supabase
 
 (function() {
   'use strict';
@@ -87,6 +88,7 @@
     await loadReports();
     await loadProducts();
     await loadPhase5ASINs(); // V3.0: load Phase 5 researched ASINs from Supabase
+    await loadPhaseCoverage(); // V3.2: load P1-P5 coverage counts per keyword
     await loadFormatFocusData();
     await loadScoutSettings();
     await checkScoutStatus();
@@ -662,6 +664,48 @@
       renderSummary();
     } catch (err) {
       console.error('Failed to load reports:', err);
+    }
+  }
+
+  // V3.2: Phase Coverage — stores P1-P5 product counts per keyword
+  let phaseCoverage = {}; // { "ashwagandha gummies": { p1: 159, p2: 159, p3: 65, p4: 144, p5: 10 }, ... }
+
+  async function loadPhaseCoverage() {
+    try {
+      const [research, keepa, reviews, ocr, p5] = await Promise.all([
+        sbFetch('dovive_research', { select: 'keyword,asin', limit: 1000 }),
+        sbFetch('dovive_keepa', { select: 'asin', limit: 1000 }),
+        sbFetch('dovive_reviews', { select: 'keyword,asin', limit: 1000 }),
+        sbFetch('dovive_ocr', { select: 'keyword,asin', limit: 2000 }),
+        sbFetch('dovive_phase5_research', { select: 'keyword,asin', limit: 500 })
+      ]);
+
+      const keepaAsins = new Set((keepa || []).map(r => r.asin));
+      const byKw = {};
+
+      (research || []).forEach(r => {
+        if (!r.keyword || r.keyword === 'test') return;
+        if (!byKw[r.keyword]) byKw[r.keyword] = { p1Asins: new Set(), p3Asins: new Set(), p4Asins: new Set(), p5Asins: new Set() };
+        byKw[r.keyword].p1Asins.add(r.asin);
+      });
+      (reviews || []).forEach(r => { if (byKw[r.keyword]) byKw[r.keyword].p3Asins.add(r.asin); });
+      (ocr || []).forEach(r => { if (byKw[r.keyword]) byKw[r.keyword].p4Asins.add(r.asin); });
+      (p5 || []).forEach(r => { if (byKw[r.keyword]) byKw[r.keyword].p5Asins.add(r.asin); });
+
+      phaseCoverage = {};
+      Object.entries(byKw).forEach(([kw, sets]) => {
+        const total = sets.p1Asins.size;
+        phaseCoverage[kw] = {
+          p1: total,
+          p2: [...sets.p1Asins].filter(a => keepaAsins.has(a)).length,
+          p3: sets.p3Asins.size,
+          p4: sets.p4Asins.size,
+          p5: sets.p5Asins.size,
+          total
+        };
+      });
+    } catch (e) {
+      console.warn('Phase coverage load failed:', e.message);
     }
   }
 
@@ -3112,6 +3156,32 @@
         </div>
 
         <div class="kw-last-scraped">${lastScrapedText}</div>
+
+        <!-- V3.2: Phase Coverage Bar -->
+        ${(() => {
+          const cov = phaseCoverage[kw.keyword];
+          if (!cov || !cov.total) return '';
+          const phases = [
+            { label: 'P1', key: 'p1', color: '#6366f1', title: 'Scrape' },
+            { label: 'P2', key: 'p2', color: '#8b5cf6', title: 'Keepa' },
+            { label: 'P3', key: 'p3', color: '#ec4899', title: 'Reviews' },
+            { label: 'P4', key: 'p4', color: '#f59e0b', title: 'OCR' },
+            { label: 'P5', key: 'p5', color: '#a78bfa', title: 'Research' }
+          ];
+          const bars = phases.map(p => {
+            const count = cov[p.key] || 0;
+            const pct = Math.round((count / cov.total) * 100);
+            const done = pct >= 100;
+            return `<div class="phase-bar-item" title="${p.title}: ${count}/${cov.total} (${pct}%)">
+              <div class="phase-bar-label" style="color:${p.color}">${p.label}</div>
+              <div class="phase-bar-track">
+                <div class="phase-bar-fill" style="width:${Math.min(pct,100)}%;background:${p.color};opacity:${done?1:0.6}"></div>
+              </div>
+              <div class="phase-bar-pct" style="color:${done?p.color:'#666'}">${pct}%</div>
+            </div>`;
+          }).join('');
+          return `<div class="phase-coverage">${bars}</div>`;
+        })()}
 
         <div class="kw-report-chip ${kw.hasReport ? 'ready' : 'pending'}">
           ${kw.hasReport ? '✓ AI Report ready' : 'No report yet'}
