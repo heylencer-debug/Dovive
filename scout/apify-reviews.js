@@ -134,7 +134,6 @@ async function saveReviews(asin, keyword, reviews) {
   const rows = actualReviews.map(r => ({
     asin: r.productAsin || asin,
     keyword: keyword || null,
-    review_id: r.reviewId,
     reviewer_name: r.profileName || null,
     rating: r.rating || null,
     title: r.reviewTitle || null,
@@ -145,14 +144,14 @@ async function saveReviews(asin, keyword, reviews) {
     scraped_at: new Date().toISOString(),
   }));
 
-  // Use upsert with review_id as the conflict key to avoid duplicates
+  // Insert reviews (no review_id column in schema — use plain insert)
   const res = await fetch(`${SUPABASE_URL}/rest/v1/dovive_reviews`, {
     method: 'POST',
     headers: {
       apikey: SUPABASE_KEY,
       Authorization: `Bearer ${SUPABASE_KEY}`,
       'Content-Type': 'application/json',
-      Prefer: 'return=minimal,resolution=merge-duplicates',
+      Prefer: 'return=minimal',
     },
     body: JSON.stringify(rows),
   });
