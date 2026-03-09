@@ -432,10 +432,10 @@
     toast.textContent = message;
     toast.style.cssText = `
       position: fixed; bottom: 24px; right: 24px; z-index: 9999;
-      background: ${type === 'success' ? '#0A0A0A' : type === 'error' ? '#CC0000' : '#444'};
+      background: ${type === 'success' ? '#4D7C0F' : type === 'error' ? '#DC2626' : '#1E40AF'};
       color: #fff; padding: 12px 20px; border-radius: 8px;
       font-size: 13px; font-weight: 600; letter-spacing: 0.03em;
-      box-shadow: 4px 4px 0 rgba(0,0,0,0.2);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
       animation: fadeInUp 0.2s ease;
     `;
     document.body.appendChild(toast);
@@ -2055,7 +2055,7 @@
         <div class="modal-body" style="text-align: center; padding: 40px;">
           <div style="font-size: 32px; margin-bottom: 16px;">⚠️</div>
           <div style="font-size: 14px;">Failed to load product data for ${escapeHtml(asin || 'Unknown')}</div>
-          <div style="font-size: 12px; color: #666; margin-top: 8px;">Please try again or check the console.</div>
+          <div style="font-size: 12px; color: #64748B; margin-top: 8px;">Please try again or check the console.</div>
         </div>
       `);
     }
@@ -2198,7 +2198,7 @@
     const ocrAll = modalProductData.ocrAll || [];
 
     if (!ocr && !ocrAll.length) {
-      return `<div style="padding:40px;text-align:center;color:#888;">
+      return `<div style="padding:40px;text-align:center;color:#64748B;">
         <div style="font-size:32px;margin-bottom:16px;">🔬</div>
         <div>No OCR data yet. Run Phase 4 (ocr-phase4.js) for this keyword.</div>
       </div>`;
@@ -2223,44 +2223,44 @@
 
         <!-- Serving Info -->
         <div style="display:flex;gap:16px;margin-bottom:20px;">
-          <div style="flex:1;background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:16px;text-align:center;">
-            <div style="font-size:11px;color:#888;text-transform:uppercase;margin-bottom:6px;">Serving Size</div>
-            <div style="font-size:16px;color:#e0e0ff;font-weight:600;">${escapeHtml(servingSize)}</div>
+          <div style="flex:1;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:16px;text-align:center;">
+            <div style="font-size:11px;color:#64748B;text-transform:uppercase;margin-bottom:6px;">Serving Size</div>
+            <div style="font-size:16px;color:#0F172A;font-weight:600;">${escapeHtml(servingSize)}</div>
           </div>
-          <div style="flex:1;background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:16px;text-align:center;">
-            <div style="font-size:11px;color:#888;text-transform:uppercase;margin-bottom:6px;">Servings / Container</div>
-            <div style="font-size:16px;color:#e0e0ff;font-weight:600;">${escapeHtml(servingsPerContainer)}</div>
+          <div style="flex:1;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:16px;text-align:center;">
+            <div style="font-size:11px;color:#64748B;text-transform:uppercase;margin-bottom:6px;">Servings / Container</div>
+            <div style="font-size:16px;color:#0F172A;font-weight:600;">${escapeHtml(servingsPerContainer)}</div>
           </div>
-          <div style="flex:1;background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:16px;text-align:center;">
-            <div style="font-size:11px;color:#888;text-transform:uppercase;margin-bottom:6px;">Images Analyzed</div>
-            <div style="font-size:16px;color:#e0e0ff;font-weight:600;">${ocrAll.length}</div>
+          <div style="flex:1;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:16px;text-align:center;">
+            <div style="font-size:11px;color:#64748B;text-transform:uppercase;margin-bottom:6px;">Images Analyzed</div>
+            <div style="font-size:16px;color:#0F172A;font-weight:600;">${ocrAll.length}</div>
           </div>
-          <div style="flex:1;background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:16px;text-align:center;">
-            <div style="font-size:11px;color:#888;text-transform:uppercase;margin-bottom:6px;">Structured Parsed</div>
-            <div style="font-size:16px;color:${parsedCount > 0 ? '#4ade80' : '#fbbf24'};font-weight:600;">${parsedCount}</div>
+          <div style="flex:1;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:16px;text-align:center;">
+            <div style="font-size:11px;color:#64748B;text-transform:uppercase;margin-bottom:6px;">Structured Parsed</div>
+            <div style="font-size:16px;color:${parsedCount > 0 ? '#4D7C0F' : '#D97706'};font-weight:600;">${parsedCount}</div>
           </div>
         </div>
 
         <!-- Supplement Facts Table -->
         ${facts.length ? `
-        <div style="background:#0f0f1a;border:1px solid #333;border-radius:8px;overflow:hidden;margin-bottom:20px;">
-          <div style="padding:12px 16px;background:#1a1a2e;border-bottom:1px solid #333;font-size:13px;font-weight:600;color:#a0a0ff;text-transform:uppercase;letter-spacing:1px;">
+        <div style="background:#fff;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+          <div style="padding:12px 16px;background:#F8FAFC;border-bottom:1px solid #E2E8F0;font-size:13px;font-weight:600;color:#2563EB;text-transform:uppercase;letter-spacing:1px;">
             📊 Supplement Facts
           </div>
           <table style="width:100%;border-collapse:collapse;">
             <thead>
-              <tr style="background:#12122a;">
-                <th style="padding:10px 16px;text-align:left;font-size:11px;color:#666;text-transform:uppercase;border-bottom:1px solid #222;">Ingredient</th>
-                <th style="padding:10px 16px;text-align:right;font-size:11px;color:#666;text-transform:uppercase;border-bottom:1px solid #222;">Amount</th>
-                <th style="padding:10px 16px;text-align:right;font-size:11px;color:#666;text-transform:uppercase;border-bottom:1px solid #222;">% DV</th>
+              <tr style="background:#F8FAFC;">
+                <th style="padding:10px 16px;text-align:left;font-size:11px;color:#64748B;text-transform:uppercase;border-bottom:1px solid #E2E8F0;">Ingredient</th>
+                <th style="padding:10px 16px;text-align:right;font-size:11px;color:#64748B;text-transform:uppercase;border-bottom:1px solid #E2E8F0;">Amount</th>
+                <th style="padding:10px 16px;text-align:right;font-size:11px;color:#64748B;text-transform:uppercase;border-bottom:1px solid #E2E8F0;">% DV</th>
               </tr>
             </thead>
             <tbody>
               ${facts.map((f, i) => `
-                <tr style="border-bottom:1px solid #1a1a2e;background:${i % 2 === 0 ? '#0c0c18' : '#0f0f1a'};">
-                  <td style="padding:10px 16px;font-size:13px;color:#d0d0e8;">${escapeHtml(f.name || '')}</td>
-                  <td style="padding:10px 16px;font-size:13px;color:#a0ffa0;text-align:right;">${escapeHtml(f.amount || '—')}</td>
-                  <td style="padding:10px 16px;font-size:12px;color:#888;text-align:right;">${escapeHtml(f.dv_percent || '—')}</td>
+                <tr style="border-bottom:1px solid #F1F5F9;background:${i % 2 === 0 ? '#fff' : '#F8FAFC'};">
+                  <td style="padding:10px 16px;font-size:13px;color:#0F172A;">${escapeHtml(f.name || '')}</td>
+                  <td style="padding:10px 16px;font-size:13px;color:#4D7C0F;text-align:right;">${escapeHtml(f.amount || '—')}</td>
+                  <td style="padding:10px 16px;font-size:12px;color:#64748B;text-align:right;">${escapeHtml(f.dv_percent || '—')}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -2269,42 +2269,42 @@
 
         <!-- Other Ingredients -->
         ${otherIngredients ? `
-        <div style="background:#0f0f1a;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:20px;">
-          <div style="font-size:11px;color:#666;text-transform:uppercase;margin-bottom:8px;letter-spacing:1px;">Other Ingredients</div>
-          <div style="font-size:13px;color:#aaa;line-height:1.6;">${escapeHtml(otherIngredients)}</div>
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:16px;margin-bottom:20px;">
+          <div style="font-size:11px;color:#64748B;text-transform:uppercase;margin-bottom:8px;letter-spacing:1px;">Other Ingredients</div>
+          <div style="font-size:13px;color:#475569;line-height:1.6;">${escapeHtml(otherIngredients)}</div>
         </div>` : ''}
 
         <!-- Health Claims -->
         ${claims.length ? `
-        <div style="background:#0f0f1a;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:20px;">
-          <div style="font-size:11px;color:#666;text-transform:uppercase;margin-bottom:12px;letter-spacing:1px;">💬 Health Claims</div>
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:16px;margin-bottom:20px;">
+          <div style="font-size:11px;color:#64748B;text-transform:uppercase;margin-bottom:12px;letter-spacing:1px;">💬 Health Claims</div>
           <div style="display:flex;flex-wrap:wrap;gap:8px;">
-            ${claims.map(c => `<span style="background:#1a2a1a;border:1px solid #2a4a2a;color:#80e080;padding:4px 10px;border-radius:4px;font-size:12px;">${escapeHtml(c)}</span>`).join('')}
+            ${claims.map(c => `<span style="background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.3);color:#4D7C0F;padding:4px 10px;border-radius:4px;font-size:12px;">${escapeHtml(c)}</span>`).join('')}
           </div>
         </div>` : ''}
 
         <!-- Certifications -->
         ${certs.length ? `
-        <div style="background:#0f0f1a;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:20px;">
-          <div style="font-size:11px;color:#666;text-transform:uppercase;margin-bottom:12px;letter-spacing:1px;">✅ Certifications</div>
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:16px;margin-bottom:20px;">
+          <div style="font-size:11px;color:#64748B;text-transform:uppercase;margin-bottom:12px;letter-spacing:1px;">✅ Certifications</div>
           <div style="display:flex;flex-wrap:wrap;gap:8px;">
-            ${certs.map(c => `<span style="background:#1a1a2a;border:1px solid #3a3a6a;color:#8080ff;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;">${escapeHtml(c)}</span>`).join('')}
+            ${certs.map(c => `<span style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);color:#2563EB;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;">${escapeHtml(c)}</span>`).join('')}
           </div>
         </div>` : ''}
 
         <!-- V3.1: Raw OCR Text Fallback — shown when supplement_facts not yet extracted -->
         ${rawTextRecords.length > 0 ? `
-        <div style="background:#0f0f1a;border:1px solid #2a2a1a;border-radius:8px;padding:16px;margin-bottom:20px;">
+        <div style="background:#FFFBEB;border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:16px;margin-bottom:20px;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-            <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;">📄 Raw OCR Text <span style="color:#fbbf24;margin-left:6px;">(${rawTextRecords.length} image${rawTextRecords.length > 1 ? 's' : ''} — structured extraction pending)</span></div>
+            <div style="font-size:11px;color:#92400E;text-transform:uppercase;letter-spacing:1px;">📄 Raw OCR Text <span style="color:#D97706;margin-left:6px;">(${rawTextRecords.length} image${rawTextRecords.length > 1 ? 's' : ''} — structured extraction pending)</span></div>
           </div>
           ${rawTextRecords.slice(0, 5).map((r, i) => `
-            <div style="margin-bottom:${i < rawTextRecords.length - 1 ? '12px' : '0'};padding-bottom:${i < rawTextRecords.length - 1 ? '12px' : '0'};border-bottom:${i < rawTextRecords.length - 1 ? '1px solid #222' : 'none'};">
-              <div style="font-size:10px;color:#555;margin-bottom:6px;">Image ${r.image_index !== null ? r.image_index + 1 : i + 1}</div>
-              <pre style="font-size:11px;color:#aaa;white-space:pre-wrap;word-break:break-word;margin:0;line-height:1.6;font-family:inherit;">${escapeHtml(r.raw_text)}</pre>
+            <div style="margin-bottom:${i < rawTextRecords.length - 1 ? '12px' : '0'};padding-bottom:${i < rawTextRecords.length - 1 ? '12px' : '0'};border-bottom:${i < rawTextRecords.length - 1 ? '1px solid #FDE68A' : 'none'};">
+              <div style="font-size:10px;color:#92400E;margin-bottom:6px;">Image ${r.image_index !== null ? r.image_index + 1 : i + 1}</div>
+              <pre style="font-size:11px;color:#475569;white-space:pre-wrap;word-break:break-word;margin:0;line-height:1.6;font-family:inherit;">${escapeHtml(r.raw_text)}</pre>
             </div>
           `).join('')}
-          ${rawTextRecords.length > 5 ? `<div style="font-size:11px;color:#555;margin-top:8px;">+ ${rawTextRecords.length - 5} more images. Run phase4-reprocess.js to extract structured data.</div>` : ''}
+          ${rawTextRecords.length > 5 ? `<div style="font-size:11px;color:#92400E;margin-top:8px;">+ ${rawTextRecords.length - 5} more images. Run phase4-reprocess.js to extract structured data.</div>` : ''}
         </div>` : ''}
 
       </div>
@@ -2314,7 +2314,7 @@
   // TAB: Keepa - Enhanced Visual (Amazon Analytics Style)
   function renderKeepaTab(p) {
     const k = modalProductData.keepa;
-    if (!k) return '<div style="padding:40px;text-align:center;color:#888;">No Keepa data yet. Run Phase 2.</div>';
+    if (!k) return '<div style="padding:40px;text-align:center;color:#64748B;">No Keepa data yet. Run Phase 2.</div>';
     
     // Calculate derived metrics
     const salesEst = k.monthly_sales_est || 0;
@@ -2345,92 +2345,92 @@
     };
     
     // Key metrics with revenue
-    const metricsHTML = 
+    const metricsHTML =
       '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">' +
-        '<div style="background:linear-gradient(135deg,#1e293b,#0f172a);padding:16px;border-radius:12px;border:1px solid #334155;text-align:center;">' +
-          '<div style="font-size:24px;font-weight:800;color:#f59e0b;">' + formatRevenue(monthlyRevenue) + '</div>' +
-          '<div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;">Monthly Revenue</div>' +
+        '<div style="background:#fff;padding:16px;border-radius:12px;border:1px solid #E2E8F0;text-align:center;">' +
+          '<div style="font-size:24px;font-weight:800;color:#F59E0B;">' + formatRevenue(monthlyRevenue) + '</div>' +
+          '<div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;">Monthly Revenue</div>' +
         '</div>' +
-        '<div style="background:linear-gradient(135deg,#1e293b,#0f172a);padding:16px;border-radius:12px;border:1px solid #334155;text-align:center;">' +
-          '<div style="font-size:24px;font-weight:800;color:#fbbf24;">~' + salesEst.toLocaleString() + '</div>' +
-          '<div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;">Monthly Sales</div>' +
-          '<div style="background:#1e1e3f;height:6px;border-radius:3px;margin-top:8px;overflow:hidden;"><div style="background:linear-gradient(90deg,#f59e0b,#fbbf24);width:' + salesBarWidth + '%;height:100%;"></div></div>' +
+        '<div style="background:#fff;padding:16px;border-radius:12px;border:1px solid #E2E8F0;text-align:center;">' +
+          '<div style="font-size:24px;font-weight:800;color:#F59E0B;">~' + salesEst.toLocaleString() + '</div>' +
+          '<div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;">Monthly Sales</div>' +
+          '<div style="background:#E2E8F0;height:6px;border-radius:3px;margin-top:8px;overflow:hidden;"><div style="background:linear-gradient(90deg,#F59E0B,#FBBF24);width:' + salesBarWidth + '%;height:100%;"></div></div>' +
         '</div>' +
-        '<div style="background:linear-gradient(135deg,#1e293b,#0f172a);padding:16px;border-radius:12px;border:1px solid #334155;text-align:center;">' +
-          '<div style="font-size:24px;font-weight:800;color:#4ade80;">$' + (price ? price.toFixed(2) : 'N/A') + '</div>' +
-          '<div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;">Current Price</div>' +
+        '<div style="background:#fff;padding:16px;border-radius:12px;border:1px solid #E2E8F0;text-align:center;">' +
+          '<div style="font-size:24px;font-weight:800;color:#4D7C0F;">$' + (price ? price.toFixed(2) : 'N/A') + '</div>' +
+          '<div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;">Current Price</div>' +
         '</div>' +
-        '<div style="background:linear-gradient(135deg,#1e293b,#0f172a);padding:16px;border-radius:12px;border:1px solid #334155;text-align:center;">' +
-          '<div style="font-size:24px;font-weight:800;color:#e879f9;">' + (k.rating || 'N/A') + ' ⭐</div>' +
-          '<div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;">Rating (' + (k.review_count || 0) + ')</div>' +
+        '<div style="background:#fff;padding:16px;border-radius:12px;border:1px solid #E2E8F0;text-align:center;">' +
+          '<div style="font-size:24px;font-weight:800;color:#7C3AED;">' + (k.rating || 'N/A') + ' ⭐</div>' +
+          '<div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;">Rating (' + (k.review_count || 0) + ')</div>' +
         '</div>' +
       '</div>';
     
     // BSR Horizontal Bar Chart (like the image)
-    const bsrChartHTML = 
-      '<div style="background:#0f172a;padding:16px;border-radius:12px;margin-bottom:16px;border:1px solid #1e293b;">' +
-        '<div style="font-weight:600;color:#e2e8f0;margin-bottom:16px;">📊 Best Seller Rank (BSR)</div>' +
-        
+    const bsrChartHTML =
+      '<div style="background:#F8FAFC;padding:16px;border-radius:12px;margin-bottom:16px;border:1px solid #E2E8F0;">' +
+        '<div style="font-weight:600;color:#0F172A;margin-bottom:16px;">📊 Best Seller Rank (BSR)</div>' +
+
         // Current BSR
         '<div style="margin-bottom:12px;">' +
-          '<div style="display:flex;justify-content:space-between;font-size:11px;color:#94a3b8;margin-bottom:4px;">' +
-            '<span>Current</span><span style="color:#e2e8f0;font-weight:600;">#' + currentBSR.toLocaleString() + '</span>' +
+          '<div style="display:flex;justify-content:space-between;font-size:11px;color:#64748B;margin-bottom:4px;">' +
+            '<span>Current</span><span style="color:#0F172A;font-weight:600;">#' + currentBSR.toLocaleString() + '</span>' +
           '</div>' +
-          '<div style="background:#1e293b;height:12px;border-radius:6px;overflow:hidden;">' +
-            '<div style="background:linear-gradient(90deg,#60a5fa,#3b82f6);width:' + currentBSRwidth + '%;height:100%;border-radius:6px;"></div>' +
+          '<div style="background:#E2E8F0;height:12px;border-radius:6px;overflow:hidden;">' +
+            '<div style="background:linear-gradient(90deg,#3B82F6,#2563EB);width:' + currentBSRwidth + '%;height:100%;border-radius:6px;"></div>' +
           '</div>' +
         '</div>' +
-        
+
         // 30-day avg BSR
-        (avg30d ? 
+        (avg30d ?
         '<div style="margin-bottom:12px;">' +
-          '<div style="display:flex;justify-content:space-between;font-size:11px;color:#94a3b8;margin-bottom:4px;">' +
-            '<span>30-day avg</span><span style="color:#e2e8f0;font-weight:600;">#' + avg30d.toLocaleString() + '</span>' +
+          '<div style="display:flex;justify-content:space-between;font-size:11px;color:#64748B;margin-bottom:4px;">' +
+            '<span>30-day avg</span><span style="color:#0F172A;font-weight:600;">#' + avg30d.toLocaleString() + '</span>' +
           '</div>' +
-          '<div style="background:#1e293b;height:8px;border-radius:4px;overflow:hidden;">' +
-            '<div style="background:#64748b;width:' + avg30dWidth + '%;height:100%;"></div>' +
+          '<div style="background:#E2E8F0;height:8px;border-radius:4px;overflow:hidden;">' +
+            '<div style="background:#94A3B8;width:' + avg30dWidth + '%;height:100%;"></div>' +
           '</div>' +
         '</div>' : '') +
-        
+
         // 90-day avg BSR
-        (avg90d ? 
+        (avg90d ?
         '<div style="margin-bottom:12px;">' +
-          '<div style="display:flex;justify-content:space-between;font-size:11px;color:#94a3b8;margin-bottom:4px;">' +
-            '<span>90-day avg</span><span style="color:#e2e8f0;font-weight:600;">#' + avg90d.toLocaleString() + '</span>' +
+          '<div style="display:flex;justify-content:space-between;font-size:11px;color:#64748B;margin-bottom:4px;">' +
+            '<span>90-day avg</span><span style="color:#0F172A;font-weight:600;">#' + avg90d.toLocaleString() + '</span>' +
           '</div>' +
-          '<div style="background:#1e293b;height:8px;border-radius:4px;overflow:hidden;">' +
-            '<div style="background:#475569;width:' + avg90dWidth + '%;height:100%;"></div>' +
+          '<div style="background:#E2E8F0;height:8px;border-radius:4px;overflow:hidden;">' +
+            '<div style="background:#CBD5E1;width:' + avg90dWidth + '%;height:100%;"></div>' +
           '</div>' +
         '</div>' : '') +
-        
-        '<div style="font-size:10px;color:#64748b;margin-top:8px;">Lower is better</div>' +
+
+        '<div style="font-size:10px;color:#94A3B8;margin-top:8px;">Lower is better</div>' +
       '</div>';
     
     // Seller/fulfillment info
-    const sellerInfoHTML = 
+    const sellerInfoHTML =
       '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">' +
-        '<div style="background:#0f172a;padding:12px;border-radius:8px;border:1px solid #1e293b;text-align:center;">' +
-          '<div style="font-size:10px;color:#64748b;text-transform:uppercase;">Fulfillment</div>' +
-          '<div style="font-weight:600;color:#e2e8f0;font-size:12px;">' + (k.fulfillment || 'N/A') + '</div>' +
+        '<div style="background:#fff;padding:12px;border-radius:8px;border:1px solid #E2E8F0;text-align:center;">' +
+          '<div style="font-size:10px;color:#64748B;text-transform:uppercase;">Fulfillment</div>' +
+          '<div style="font-weight:600;color:#0F172A;font-size:12px;">' + (k.fulfillment || 'N/A') + '</div>' +
         '</div>' +
-        '<div style="background:#0f172a;padding:12px;border-radius:8px;border:1px solid #1e293b;text-align:center;">' +
-          '<div style="font-size:10px;color:#64748b;text-transform:uppercase;">Sellers</div>' +
-          '<div style="font-weight:600;color:#e2e8f0;font-size:12px;">' + (k.total_offers || 0) + ' total</div>' +
+        '<div style="background:#fff;padding:12px;border-radius:8px;border:1px solid #E2E8F0;text-align:center;">' +
+          '<div style="font-size:10px;color:#64748B;text-transform:uppercase;">Sellers</div>' +
+          '<div style="font-weight:600;color:#0F172A;font-size:12px;">' + (k.total_offers || 0) + ' total</div>' +
         '</div>' +
-        '<div style="background:#0f172a;padding:12px;border-radius:8px;border:1px solid #1e293b;text-align:center;">' +
-          '<div style="font-size:10px;color:#64748b;text-transform:uppercase;">BSR Drops 30d</div>' +
-          '<div style="font-weight:600;color:' + ((k.bsr_drops_30d || 0) > 0 ? '#4ade80' : '#f87171') + ';font-size:12px;">' + 
-            ((k.bsr_drops_30d || 0) > 0 ? '📉 ' + k.bsr_drops_30d : '📈 ' + Math.abs(k.bsr_drops_30d || 0)) + 
+        '<div style="background:#fff;padding:12px;border-radius:8px;border:1px solid #E2E8F0;text-align:center;">' +
+          '<div style="font-size:10px;color:#64748B;text-transform:uppercase;">BSR Drops 30d</div>' +
+          '<div style="font-weight:600;color:' + ((k.bsr_drops_30d || 0) > 0 ? '#4D7C0F' : '#EF4444') + ';font-size:12px;">' +
+            ((k.bsr_drops_30d || 0) > 0 ? '📉 ' + k.bsr_drops_30d : '📈 ' + Math.abs(k.bsr_drops_30d || 0)) +
           '</div>' +
         '</div>' +
       '</div>';
     
     return '<div style="padding:20px;max-height:70vh;overflow-y:auto;">' +
       metricsHTML + bsrChartHTML + sellerInfoHTML +
-      '<div style="padding:12px;background:#1e293b;border-radius:8px;font-size:11px;color:#64748b;">' +
-        'Brand: <span style="color:#e2e8f0;">' + (k.brand || 'N/A') + '</span> | ' +
-        'Category: <span style="color:#e2e8f0;">' + (k.category || 'N/A') + '</span> | ' +
-        'Listed: <span style="color:#e2e8f0;">' + (k.listed_since || 'N/A') + '</span>' +
+      '<div style="padding:12px;background:#F8FAFC;border-radius:8px;font-size:11px;color:#64748B;border:1px solid #E2E8F0;">' +
+        'Brand: <span style="color:#0F172A;font-weight:600;">' + (k.brand || 'N/A') + '</span> | ' +
+        'Category: <span style="color:#0F172A;font-weight:600;">' + (k.category || 'N/A') + '</span> | ' +
+        'Listed: <span style="color:#0F172A;font-weight:600;">' + (k.listed_since || 'N/A') + '</span>' +
       '</div>' +
     '</div>';
     
@@ -3225,14 +3225,14 @@
             {
               label: 'Top Seller (BSR < 5K)',
               data: topData,
-              backgroundColor: 'rgba(0,255,136,0.85)',
+              backgroundColor: 'rgba(132,204,22,0.85)',
               pointRadius: 7,
               pointHoverRadius: 9
             },
             {
               label: 'Other Products',
               data: otherData,
-              backgroundColor: 'rgba(0,212,255,0.4)',
+              backgroundColor: 'rgba(59,130,246,0.4)',
               pointRadius: 4,
               pointHoverRadius: 6
             }
@@ -3241,7 +3241,7 @@
         options: {
           responsive: true,
           plugins: {
-            legend: { labels: { color: '#8888aa', font: { size: 11 } } },
+            legend: { labels: { color: '#475569', font: { size: 11 } } },
             tooltip: {
               callbacks: {
                 label: ctx => {
@@ -3253,14 +3253,14 @@
           },
           scales: {
             x: {
-              title: { display: true, text: 'Price ($)', color: '#8888aa' },
-              grid: { color: 'rgba(255,255,255,0.05)' },
-              ticks: { color: '#8888aa' }
+              title: { display: true, text: 'Price ($)', color: '#475569' },
+              grid: { color: 'rgba(0,0,0,0.05)' },
+              ticks: { color: '#475569' }
             },
             y: {
-              title: { display: true, text: 'BSR (lower = better)', color: '#8888aa' },
-              grid: { color: 'rgba(255,255,255,0.05)' },
-              ticks: { color: '#8888aa' },
+              title: { display: true, text: 'BSR (lower = better)', color: '#475569' },
+              grid: { color: 'rgba(0,0,0,0.05)' },
+              ticks: { color: '#475569' },
               reverse: false
             }
           }
@@ -3312,8 +3312,8 @@
           datasets: [{
             label: 'Best BSR',
             data: brands.map(b => b.bestBsr),
-            backgroundColor: brands.map((_, i) => i < 3 ? 'rgba(0,255,136,0.7)' : 'rgba(0,212,255,0.45)'),
-            borderColor: brands.map((_, i) => i < 3 ? '#00ff88' : '#00d4ff'),
+            backgroundColor: brands.map((_, i) => i < 3 ? 'rgba(132,204,22,0.75)' : 'rgba(59,130,246,0.45)'),
+            borderColor: brands.map((_, i) => i < 3 ? '#84CC16' : '#3B82F6'),
             borderWidth: 1,
             borderRadius: 4
           }]
@@ -3327,11 +3327,11 @@
           },
           scales: {
             x: {
-              title: { display: true, text: 'Best BSR Rank', color: '#8888aa' },
-              grid: { color: 'rgba(255,255,255,0.05)' },
-              ticks: { color: '#8888aa' }
+              title: { display: true, text: 'Best BSR Rank', color: '#475569' },
+              grid: { color: 'rgba(0,0,0,0.05)' },
+              ticks: { color: '#475569' }
             },
-            y: { grid: { display: false }, ticks: { color: '#8888aa', font: { size: 11 } } }
+            y: { grid: { display: false }, ticks: { color: '#475569', font: { size: 11 } } }
           }
         }
       });

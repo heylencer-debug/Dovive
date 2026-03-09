@@ -6,43 +6,62 @@
   <title>Dovive | Scout V2.8 Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&family=Cutive+Mono&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#2563EB',
+            bright: '#3B82F6',
+            lime: { DEFAULT: '#84CC16', 500: '#84CC16' }
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif']
+          }
+        }
+      }
+    }
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
-  <div class="layout">
+<body class="bg-slate-50 font-sans text-slate-900 antialiased">
+  <div class="flex min-h-screen">
+
     <!-- Sidebar -->
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <div class="logo">DOVIVE</div>
-        <div class="logo-sub">Product Intelligence</div>
+    <aside class="w-60 bg-white border-r border-slate-200 flex flex-col fixed h-screen z-50 shrink-0">
+      <div class="px-5 py-6 border-b border-slate-200">
+        <div class="text-xl font-extrabold tracking-widest text-blue-600">DOVIVE</div>
+        <div class="text-[10px] font-medium uppercase tracking-widest text-slate-400 mt-1">Product Intelligence</div>
       </div>
-      <nav class="sidebar-nav">
-        <a href="#" class="nav-item" data-view="overview">
-          <span class="nav-icon">🏠</span>
-          <span class="nav-label">Overview</span>
+      <nav class="flex-1 p-3 space-y-0.5">
+        <a href="#" class="nav-item flex items-center gap-3 px-3 py-2.5 text-slate-500 text-sm font-medium rounded-lg hover:bg-slate-100 transition-colors" data-view="overview">
+          <span class="text-base leading-none">🏠</span>
+          <span>Overview</span>
         </a>
-        <a href="#" class="nav-item active" data-view="keywords">
-          <span class="nav-icon">🔍</span>
-          <span class="nav-label">Keywords</span>
+        <a href="#" class="nav-item active flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors" data-view="keywords">
+          <span class="text-base leading-none">🔍</span>
+          <span>Keywords</span>
         </a>
-        <a href="#" class="nav-item" data-view="settings">
-          <span class="nav-icon">⚙️</span>
-          <span class="nav-label">Scout Settings</span>
+        <a href="#" class="nav-item flex items-center gap-3 px-3 py-2.5 text-slate-500 text-sm font-medium rounded-lg hover:bg-slate-100 transition-colors" data-view="settings">
+          <span class="text-base leading-none">⚙️</span>
+          <span>Scout Settings</span>
         </a>
       </nav>
-      <div class="sidebar-footer">
-        <div class="powered-by">Powered by Scout V2.8</div>
+      <div class="px-5 py-4 border-t border-slate-200">
+        <div class="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Powered by Scout V2.8</div>
       </div>
     </aside>
 
     <!-- Main Content -->
-    <main class="main">
+    <main class="flex-1 ml-60 p-8 bg-slate-50 min-h-screen">
+
       <!-- Dynamic Header -->
-      <header class="main-header" id="main-header">
-        <h1 id="page-title">Keywords</h1>
-        <p class="subtitle" id="page-subtitle">Track and analyze your target keywords</p>
+      <header class="mb-8" id="main-header">
+        <h1 class="text-2xl font-bold text-slate-900 mb-1" id="page-title">Keywords</h1>
+        <p class="text-sm text-slate-500" id="page-subtitle">Track and analyze your target keywords</p>
       </header>
 
       <!-- Keywords View (default) -->
@@ -54,7 +73,6 @@
       <div class="view-container" id="view-keyword-detail" style="display:none;">
         <div id="keyword-detail-container"></div>
       </div>
-
 
       <!-- Market Analysis View (Phase 6) -->
       <div class="view-container" id="view-market-analysis" style="display:none;">
@@ -135,13 +153,13 @@
         <section class="card format-focus full-width">
           <div class="card-header">
             <span class="label">FORMAT FOCUS</span>
-            <span class="summary-time">Gummies & Powder Intelligence</span>
+            <span class="summary-time">Gummies &amp; Powder Intelligence</span>
           </div>
           <div id="format-focus-container">
             <div class="empty-state">
               <div class="empty-icon">🍬</div>
               <div class="empty-title">No format data yet</div>
-              <div class="empty-text">Run Scout to collect gummies & powder market data.</div>
+              <div class="empty-text">Run Scout to collect gummies &amp; powder market data.</div>
             </div>
           </div>
         </section>
