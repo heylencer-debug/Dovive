@@ -472,6 +472,13 @@ body {
   color: var(--success);
 }
 
+.flag-badge.phase5 {
+  background: rgba(139, 92, 246, 0.18);
+  color: #a78bfa;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  font-size: 9px;
+}
+
 /* Sponsored row styling */
 .sponsored-row {
   opacity: 0.7;

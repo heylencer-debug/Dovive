@@ -1,11 +1,27 @@
-// Dovive Scout Dashboard V2.8 - Main Application
+// Dovive Scout Dashboard V2.9 - Main Application
 // Features: Product type filters, reviews panel, specs panel, live progress tracking, Scout Settings panel
 // V2.6: Product grid view + full detail modal with tabs
 // V2.7: Keywords page with drill-down, AI report, per-keyword product grid
 // V2.8: Full product data from dovive_research (images, bullets, reviews, specs, certifications), Product Explorer removed
+// V2.9: Phase 5 badge — deep research indicator for top 10 BSR products per keyword
 
 (function() {
   'use strict';
+
+  // Phase 5 Deep Research — ASINs that have been fully researched (top 10 BSR per keyword)
+  // Updated: 2026-03-09 | Keyword: ashwagandha gummies
+  const PHASE5_RESEARCHED_ASINS = new Set([
+    'B092H5DCJM', // Goli Ashwagandha + Vit D (BSR 445)
+    'B094T2BZCK', // Goli Ashwagandha & Vitamin D Gummy (BSR 445)
+    'B01M1HYRNJ', // OLLY Goodbye Stress Gummy (BSR 1,174)
+    'B086KHBY2J', // ZzzQuil PURE Zzzs Triple Action (BSR 1,227)
+    'B0CYZZ55BH', // Adndale 15-in-1 Magnesium + Ashwagandha (BSR 1,447)
+    'B0C415SWFX', // Adndale Magnesium Glycinate + Ashwagandha (BSR 1,447)
+    'B0BG94RWYN', // Clean Nutraceuticals Sea Moss + Ashwagandha (BSR 1,482)
+    'B087QR7D1H', // TruHeight Growth Gummies (BSR 1,721)
+    'B0DPMDWMKC', // VivoNu Himalayan Shilajit + Ashwagandha (BSR 1,848)
+    'B0DYHWRY27', // VivoNu Himalayan Shilajit + Ashwagandha v2 (BSR 1,848)
+  ]);
 
   // Product type filter options
   const PRODUCT_TYPE_FILTERS = [
@@ -943,6 +959,7 @@
           ${r.images && r.images.length > 0 ? `<span class="image-count-badge" title="${r.images.length} images">📸${r.images.length}</span>` : ''}
           ${r.is_sponsored ? '<span class="flag-badge sponsored">AD</span>' : ''}
           ${r.bsr && r.bsr < 10000 ? '<span class="flag-badge top-seller">TOP</span>' : ''}
+          ${PHASE5_RESEARCHED_ASINS.has(r.asin) ? '<span class="flag-badge phase5" title="Phase 5: Deep Research Complete">P5 🔬</span>' : ''}
         </td>
       </tr>
     `;
