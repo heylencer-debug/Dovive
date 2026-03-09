@@ -1,10 +1,11 @@
-// Dovive Scout Dashboard V3.0 - Main Application
+// Dovive Scout Dashboard V3.1 - Main Application
 // Features: Product type filters, reviews panel, specs panel, live progress tracking, Scout Settings panel
 // V2.6: Product grid view + full detail modal with tabs
 // V2.7: Keywords page with drill-down, AI report, per-keyword product grid
 // V2.8: Full product data from dovive_research (images, bullets, reviews, specs, certifications), Product Explorer removed
 // V2.9: Phase 5 badge — deep research indicator for top 10 BSR products per keyword
 // V3.0: Phase 5 detail panel — live Supabase data from dovive_phase5_research, dynamic badge from DB
+// V3.1: OCR fix — remove supplement_facts filter, show raw_text fallback, add re-extraction script
 
 (function() {
   'use strict';
@@ -1965,7 +1966,7 @@
         sbFetchSimple('dovive_reviews?asin=eq.' + asin + '&order=rating.asc&limit=50'),
         sbFetchSimple('dovive_product_images?asin=eq.' + asin + '&order=image_index.asc'),
         sbFetchSimple('dovive_keepa?asin=eq.' + asin + '&limit=1'),
-        sbFetchSimple('dovive_ocr?asin=eq.' + asin + '&supplement_facts=not.is.null&order=image_index.asc&limit=10')
+        sbFetchSimple('dovive_ocr?asin=eq.' + asin + '&raw_text=not.is.null&order=image_index.asc&limit=20')
       ]);
 
       // V2.8: Merge research data with product data
@@ -2146,12 +2147,19 @@
       </div>`;
     }
 
-    const facts = ocr?.supplement_facts || [];
-    const claims = ocr?.health_claims || [];
-    const certs = ocr?.certifications || [];
-    const otherIngredients = ocr?.other_ingredients || '';
-    const servingSize = ocr?.serving_size || 'N/A';
-    const servingsPerContainer = ocr?.servings_per_container || 'N/A';
+    // V3.1: Use best record that has supplement_facts, fallback to first record with raw_text
+    const ocrBestParsed = ocrAll.find(o => o.supplement_facts && o.supplement_facts.length);
+    const ocrBestRaw = ocrAll.find(o => o.raw_text);
+    const ocrDisplay = ocrBestParsed || ocrBestRaw || ocr;
+
+    const facts = ocrDisplay?.supplement_facts || [];
+    const claims = ocrAll.flatMap(o => o.health_claims || []).filter((v, i, a) => v && a.indexOf(v) === i); // dedupe across all images
+    const certs = ocrDisplay?.certifications || [];
+    const otherIngredients = ocrDisplay?.other_ingredients || '';
+    const servingSize = ocrDisplay?.serving_size || 'N/A';
+    const servingsPerContainer = ocrDisplay?.servings_per_container || 'N/A';
+    const rawTextRecords = ocrAll.filter(o => o.raw_text && (!o.supplement_facts || !o.supplement_facts.length));
+    const parsedCount = ocrAll.filter(o => o.supplement_facts && o.supplement_facts.length).length;
 
     return `
       <div style="padding:20px;font-family:inherit;">
@@ -2169,6 +2177,10 @@
           <div style="flex:1;background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:16px;text-align:center;">
             <div style="font-size:11px;color:#888;text-transform:uppercase;margin-bottom:6px;">Images Analyzed</div>
             <div style="font-size:16px;color:#e0e0ff;font-weight:600;">${ocrAll.length}</div>
+          </div>
+          <div style="flex:1;background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:16px;text-align:center;">
+            <div style="font-size:11px;color:#888;text-transform:uppercase;margin-bottom:6px;">Structured Parsed</div>
+            <div style="font-size:16px;color:${parsedCount > 0 ? '#4ade80' : '#fbbf24'};font-weight:600;">${parsedCount}</div>
           </div>
         </div>
 
@@ -2216,11 +2228,26 @@
 
         <!-- Certifications -->
         ${certs.length ? `
-        <div style="background:#0f0f1a;border:1px solid #333;border-radius:8px;padding:16px;">
+        <div style="background:#0f0f1a;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:20px;">
           <div style="font-size:11px;color:#666;text-transform:uppercase;margin-bottom:12px;letter-spacing:1px;">✅ Certifications</div>
           <div style="display:flex;flex-wrap:wrap;gap:8px;">
             ${certs.map(c => `<span style="background:#1a1a2a;border:1px solid #3a3a6a;color:#8080ff;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;">${escapeHtml(c)}</span>`).join('')}
           </div>
+        </div>` : ''}
+
+        <!-- V3.1: Raw OCR Text Fallback — shown when supplement_facts not yet extracted -->
+        ${rawTextRecords.length > 0 ? `
+        <div style="background:#0f0f1a;border:1px solid #2a2a1a;border-radius:8px;padding:16px;margin-bottom:20px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+            <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;">📄 Raw OCR Text <span style="color:#fbbf24;margin-left:6px;">(${rawTextRecords.length} image${rawTextRecords.length > 1 ? 's' : ''} — structured extraction pending)</span></div>
+          </div>
+          ${rawTextRecords.slice(0, 5).map((r, i) => `
+            <div style="margin-bottom:${i < rawTextRecords.length - 1 ? '12px' : '0'};padding-bottom:${i < rawTextRecords.length - 1 ? '12px' : '0'};border-bottom:${i < rawTextRecords.length - 1 ? '1px solid #222' : 'none'};">
+              <div style="font-size:10px;color:#555;margin-bottom:6px;">Image ${r.image_index !== null ? r.image_index + 1 : i + 1}</div>
+              <pre style="font-size:11px;color:#aaa;white-space:pre-wrap;word-break:break-word;margin:0;line-height:1.6;font-family:inherit;">${escapeHtml(r.raw_text)}</pre>
+            </div>
+          `).join('')}
+          ${rawTextRecords.length > 5 ? `<div style="font-size:11px;color:#555;margin-top:8px;">+ ${rawTextRecords.length - 5} more images. Run phase4-reprocess.js to extract structured data.</div>` : ''}
         </div>` : ''}
 
       </div>
