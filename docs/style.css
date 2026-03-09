@@ -479,6 +479,144 @@ body {
   font-size: 9px;
 }
 
+/* ── Phase 5 Deep Research Panel ─────────────────────────────── */
+.phase5-panel {
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  background: rgba(139, 92, 246, 0.05);
+  border-radius: 8px;
+  padding: 16px;
+  grid-column: 1 / -1;
+  margin-bottom: 4px;
+}
+
+.phase5-panel h4 {
+  color: #a78bfa;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 14px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.p5-block {
+  margin-bottom: 14px;
+}
+
+.p5-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.p5-half {
+  flex: 1;
+  min-width: 0;
+}
+
+.p5-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.p5-text {
+  font-size: 12px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.p5-small {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.p5-list {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 12px;
+  color: var(--text-primary);
+  line-height: 1.7;
+}
+
+.p5-certs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cert-green {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--success);
+}
+
+/* Sentiment colors */
+.p5-sentiment {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  border-radius: 4px;
+  display: inline-block;
+  margin-bottom: 6px;
+}
+.p5-positive  { background: rgba(34, 197, 94, 0.15);  color: #4ade80; }
+.p5-mixed     { background: rgba(251, 191, 36, 0.15);  color: #fbbf24; }
+.p5-negative  { background: rgba(239, 68, 68, 0.15);   color: #f87171; }
+.p5-none      { background: rgba(156, 163, 175, 0.15); color: var(--text-secondary); }
+
+/* External review item */
+.p5-review-item {
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.p5-review-item:last-child { border-bottom: none; margin-bottom: 0; }
+
+.p5-review-source {
+  font-size: 11px;
+  font-weight: 700;
+  color: #a78bfa;
+  margin-right: 6px;
+}
+.p5-review-rating {
+  font-size: 10px;
+  color: var(--success);
+  margin-right: 4px;
+}
+
+/* Strengths / Weaknesses blocks */
+.p5-strengths {
+  border-left: 3px solid rgba(34, 197, 94, 0.4);
+  padding-left: 10px;
+}
+.p5-weaknesses {
+  border-left: 3px solid rgba(251, 191, 36, 0.4);
+  padding-left: 10px;
+}
+
+/* Competitor angle */
+.p5-competitor {
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.p5-meta {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+
 /* Sponsored row styling */
 .sponsored-row {
   opacity: 0.7;

@@ -1,27 +1,17 @@
-// Dovive Scout Dashboard V2.9 - Main Application
+// Dovive Scout Dashboard V3.0 - Main Application
 // Features: Product type filters, reviews panel, specs panel, live progress tracking, Scout Settings panel
 // V2.6: Product grid view + full detail modal with tabs
 // V2.7: Keywords page with drill-down, AI report, per-keyword product grid
 // V2.8: Full product data from dovive_research (images, bullets, reviews, specs, certifications), Product Explorer removed
 // V2.9: Phase 5 badge — deep research indicator for top 10 BSR products per keyword
+// V3.0: Phase 5 detail panel — live Supabase data from dovive_phase5_research, dynamic badge from DB
 
 (function() {
   'use strict';
 
-  // Phase 5 Deep Research — ASINs that have been fully researched (top 10 BSR per keyword)
-  // Updated: 2026-03-09 | Keyword: ashwagandha gummies
-  const PHASE5_RESEARCHED_ASINS = new Set([
-    'B092H5DCJM', // Goli Ashwagandha + Vit D (BSR 445)
-    'B094T2BZCK', // Goli Ashwagandha & Vitamin D Gummy (BSR 445)
-    'B01M1HYRNJ', // OLLY Goodbye Stress Gummy (BSR 1,174)
-    'B086KHBY2J', // ZzzQuil PURE Zzzs Triple Action (BSR 1,227)
-    'B0CYZZ55BH', // Adndale 15-in-1 Magnesium + Ashwagandha (BSR 1,447)
-    'B0C415SWFX', // Adndale Magnesium Glycinate + Ashwagandha (BSR 1,447)
-    'B0BG94RWYN', // Clean Nutraceuticals Sea Moss + Ashwagandha (BSR 1,482)
-    'B087QR7D1H', // TruHeight Growth Gummies (BSR 1,721)
-    'B0DPMDWMKC', // VivoNu Himalayan Shilajit + Ashwagandha (BSR 1,848)
-    'B0DYHWRY27', // VivoNu Himalayan Shilajit + Ashwagandha v2 (BSR 1,848)
-  ]);
+  // Phase 5 Deep Research — populated dynamically from dovive_phase5_research (Supabase)
+  // V3.0: No longer hardcoded — loaded at init from DB
+  let PHASE5_RESEARCHED_ASINS = new Set();
 
   // Product type filter options
   const PRODUCT_TYPE_FILTERS = [
@@ -95,6 +85,7 @@
     await loadKeywords();
     await loadReports();
     await loadProducts();
+    await loadPhase5ASINs(); // V3.0: load Phase 5 researched ASINs from Supabase
     await loadFormatFocusData();
     await loadScoutSettings();
     await checkScoutStatus();
@@ -673,6 +664,33 @@
     }
   }
 
+  // V3.0: Load Phase 5 researched ASINs from Supabase into the dynamic Set
+  async function loadPhase5ASINs() {
+    try {
+      const data = await sbFetch('dovive_phase5_research', {
+        select: 'asin',
+        limit: 500
+      }) || [];
+      PHASE5_RESEARCHED_ASINS = new Set(data.map(r => r.asin));
+    } catch (e) {
+      console.warn('Phase 5 ASIN load failed:', e.message);
+    }
+  }
+
+  // V3.0: Fetch full Phase 5 research record for a single ASIN
+  async function loadPhase5Data(asin) {
+    try {
+      const data = await sbFetch('dovive_phase5_research', {
+        filter: `asin=eq.${asin}`,
+        limit: 1
+      });
+      return data && data.length > 0 ? data[0] : null;
+    } catch (e) {
+      console.warn('Phase 5 data load failed for', asin, e.message);
+      return null;
+    }
+  }
+
   // Load products from dovive_research (main product table)
   async function loadProducts() {
     try {
@@ -989,11 +1007,12 @@
     const product = products.find(p => p.asin === asin);
     if (!product) return;
 
-    // Load reviews, specs, and images in parallel
-    const [productReviews, productSpecs, productImages] = await Promise.all([
+    // Load reviews, specs, images, and Phase 5 data in parallel
+    const [productReviews, productSpecs, productImages, phase5Data] = await Promise.all([
       loadReviewsForProduct(asin),
       loadSpecsForProduct(asin),
-      loadImagesForProduct(asin)
+      loadImagesForProduct(asin),
+      PHASE5_RESEARCHED_ASINS.has(asin) ? loadPhase5Data(asin) : Promise.resolve(null)
     ]);
 
     // Group images by type
@@ -1064,9 +1083,96 @@
       return html;
     };
 
+    // V3.0: Render Phase 5 deep research panel
+    const renderPhase5Panel = () => {
+      if (!phase5Data) return '';
+      const sentimentIcon = { positive: '🟢', mixed: '🟡', negative: '🔴', none: '⚪' }[phase5Data.reddit_sentiment] || '⚪';
+      const transparencyIcon = phase5Data.transparency_flag ? '✅' : '⚠️';
+
+      return `
+        <div class="details-section phase5-panel">
+          <h4>🔬 Phase 5 Deep Research <span class="flag-badge phase5">P5</span></h4>
+
+          ${phase5Data.benefits && phase5Data.benefits.length > 0 ? `
+            <div class="p5-block">
+              <div class="p5-label">Key Benefits</div>
+              <ul class="p5-list">
+                ${phase5Data.benefits.map(b => `<li>${escapeHtml(b)}</li>`).join('')}
+              </ul>
+            </div>
+          ` : ''}
+
+          ${phase5Data.formula_notes ? `
+            <div class="p5-block">
+              <div class="p5-label">Formula Notes</div>
+              <p class="p5-text">${escapeHtml(phase5Data.formula_notes)}</p>
+            </div>
+          ` : ''}
+
+          ${phase5Data.certifications && phase5Data.certifications.length > 0 ? `
+            <div class="p5-block">
+              <div class="p5-label">Certifications ${transparencyIcon}</div>
+              <div class="p5-certs">
+                ${phase5Data.certifications.map(c => `<span class="cert-badge">${escapeHtml(c)}</span>`).join('')}
+                ${phase5Data.third_party_tested ? '<span class="cert-badge cert-green">3rd Party Tested</span>' : ''}
+              </div>
+            </div>
+          ` : ''}
+
+          <div class="p5-row">
+            <div class="p5-block p5-half">
+              <div class="p5-label">${sentimentIcon} Reddit Sentiment</div>
+              <div class="p5-sentiment p5-${phase5Data.reddit_sentiment || 'none'}">${(phase5Data.reddit_sentiment || 'None').toUpperCase()}</div>
+              ${phase5Data.reddit_notes ? `<p class="p5-text p5-small">${escapeHtml(phase5Data.reddit_notes)}</p>` : ''}
+            </div>
+
+            ${phase5Data.external_reviews && phase5Data.external_reviews.length > 0 ? `
+              <div class="p5-block p5-half">
+                <div class="p5-label">External Reviews</div>
+                ${phase5Data.external_reviews.map(r => `
+                  <div class="p5-review-item">
+                    <span class="p5-review-source">${escapeHtml(r.source)}</span>
+                    ${r.rating ? `<span class="p5-review-rating">${escapeHtml(r.rating)}</span>` : ''}
+                    <p class="p5-text p5-small">${escapeHtml(truncate(r.summary, 120))}</p>
+                  </div>
+                `).join('')}
+              </div>
+            ` : ''}
+          </div>
+
+          <div class="p5-row">
+            ${phase5Data.key_strengths ? `
+              <div class="p5-block p5-half p5-strengths">
+                <div class="p5-label">💪 Key Strengths</div>
+                <p class="p5-text">${escapeHtml(phase5Data.key_strengths)}</p>
+              </div>
+            ` : ''}
+            ${phase5Data.key_weaknesses ? `
+              <div class="p5-block p5-half p5-weaknesses">
+                <div class="p5-label">⚠️ Key Weaknesses</div>
+                <p class="p5-text">${escapeHtml(phase5Data.key_weaknesses)}</p>
+              </div>
+            ` : ''}
+          </div>
+
+          ${phase5Data.competitor_angle ? `
+            <div class="p5-block p5-competitor">
+              <div class="p5-label">🎯 Dovive Competitor Angle</div>
+              <p class="p5-text">${escapeHtml(phase5Data.competitor_angle)}</p>
+            </div>
+          ` : ''}
+
+          <div class="p5-meta">Researched by Scout · ${phase5Data.researched_at ? new Date(phase5Data.researched_at).toLocaleDateString() : ''}</div>
+        </div>
+      `;
+    };
+
     // Render the details panel
     panel.innerHTML = `
       <div class="details-grid">
+        <!-- Phase 5 Deep Research Panel (if available) -->
+        ${renderPhase5Panel()}
+
         <!-- Images Section -->
         ${renderImageGallery()}
 
