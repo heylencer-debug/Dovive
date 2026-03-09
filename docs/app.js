@@ -6,6 +6,7 @@
 // V2.9: Phase 5 badge — deep research indicator for top 10 BSR products per keyword
 // V3.0: Phase 5 detail panel — live Supabase data from dovive_phase5_research, dynamic badge from DB
 // V3.1: OCR fix — remove supplement_facts filter, show raw_text fallback, add re-extraction script
+// V3.2: Phase coverage bars on keyword cards, fix duplicate loadPhaseCoverage, dovive_keepa.keyword backfill
 // V3.2: Phase Coverage bars on keyword cards — P1→P5 progress per keyword, live from Supabase
 
 (function() {
@@ -14,6 +15,9 @@
   // Phase 5 Deep Research — populated dynamically from dovive_phase5_research (Supabase)
   // V3.0: No longer hardcoded — loaded at init from DB
   let PHASE5_RESEARCHED_ASINS = new Set();
+
+  // V3.2: Phase coverage data — { keyword: { total, p1, p2, p3, p4, p5 } }
+  let phaseCoverage = {};
 
   // Product type filter options
   const PRODUCT_TYPE_FILTERS = [
@@ -668,8 +672,7 @@
   }
 
   // V3.2: Phase Coverage — stores P1-P5 product counts per keyword
-  let phaseCoverage = {}; // { "ashwagandha gummies": { p1: 159, p2: 159, p3: 65, p4: 144, p5: 10 }, ... }
-
+  // V3.2: Load phase coverage counts per keyword from all 5 phase tables
   async function loadPhaseCoverage() {
     try {
       const [research, keepa, reviews, ocr, p5] = await Promise.all([
@@ -681,27 +684,37 @@
       ]);
 
       const keepaAsins = new Set((keepa || []).map(r => r.asin));
-      const byKw = {};
+      const reviewsByKw = {}, ocrByKw = {}, p5ByKw = {}, researchByKw = {};
 
       (research || []).forEach(r => {
-        if (!r.keyword || r.keyword === 'test') return;
-        if (!byKw[r.keyword]) byKw[r.keyword] = { p1Asins: new Set(), p3Asins: new Set(), p4Asins: new Set(), p5Asins: new Set() };
-        byKw[r.keyword].p1Asins.add(r.asin);
+        if (!researchByKw[r.keyword]) researchByKw[r.keyword] = new Set();
+        researchByKw[r.keyword].add(r.asin);
       });
-      (reviews || []).forEach(r => { if (byKw[r.keyword]) byKw[r.keyword].p3Asins.add(r.asin); });
-      (ocr || []).forEach(r => { if (byKw[r.keyword]) byKw[r.keyword].p4Asins.add(r.asin); });
-      (p5 || []).forEach(r => { if (byKw[r.keyword]) byKw[r.keyword].p5Asins.add(r.asin); });
+      (reviews || []).forEach(r => {
+        if (!reviewsByKw[r.keyword]) reviewsByKw[r.keyword] = new Set();
+        reviewsByKw[r.keyword].add(r.asin);
+      });
+      (ocr || []).forEach(r => {
+        if (!ocrByKw[r.keyword]) ocrByKw[r.keyword] = new Set();
+        ocrByKw[r.keyword].add(r.asin);
+      });
+      (p5 || []).forEach(r => {
+        if (!p5ByKw[r.keyword]) p5ByKw[r.keyword] = new Set();
+        p5ByKw[r.keyword].add(r.asin);
+      });
 
       phaseCoverage = {};
-      Object.entries(byKw).forEach(([kw, sets]) => {
-        const total = sets.p1Asins.size;
+      Object.entries(researchByKw).forEach(([kw, asins]) => {
+        if (kw === 'test') return;
+        const total = asins.size;
+        const asinArr = [...asins];
         phaseCoverage[kw] = {
+          total,
           p1: total,
-          p2: [...sets.p1Asins].filter(a => keepaAsins.has(a)).length,
-          p3: sets.p3Asins.size,
-          p4: sets.p4Asins.size,
-          p5: sets.p5Asins.size,
-          total
+          p2: asinArr.filter(a => keepaAsins.has(a)).length,
+          p3: (reviewsByKw[kw] || new Set()).size,
+          p4: (ocrByKw[kw] || new Set()).size,
+          p5: (p5ByKw[kw] || new Set()).size
         };
       });
     } catch (e) {
