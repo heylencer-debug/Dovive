@@ -2964,9 +2964,550 @@
         pageSubtitle.textContent = 'Dashboard overview with Scout controls';
         renderOverviewSummary();
         break;
+      case 'market-analysis':
+        pageTitle.textContent = 'Market Analysis';
+        pageSubtitle.textContent = 'Competitive intelligence across all keywords — Phase 6';
+        renderMarketAnalysisPage();
+        break;
     }
 
     currentView = view;
+  }
+
+  // ============================================================
+  // PHASE 6: MARKET COMPETITIVE ANALYSIS
+  // ============================================================
+
+  let marketAnalysisKeyword = 'ashwagandha gummies'; // default
+
+  async function renderMarketAnalysisPage() {
+    const container = document.getElementById('market-analysis-container');
+    if (!container) return;
+    container.innerHTML = '<div class="ma-loading">⏳ Loading market intelligence...</div>';
+
+    try {
+      // Keyword selector
+      const kwList = (keywords || []).map(k => k.keyword).filter(Boolean);
+      if (!kwList.includes(marketAnalysisKeyword)) marketAnalysisKeyword = kwList[0] || 'ashwagandha gummies';
+
+      // Load all data in parallel
+      const [researchData, keepaData, reviewsData, ocrData, p5Data] = await Promise.all([
+        sbFetch('dovive_research', { filter: `keyword=eq.${encodeURIComponent(marketAnalysisKeyword)}`, limit: 500 }),
+        sbFetch('dovive_keepa', { filter: `keyword=eq.${encodeURIComponent(marketAnalysisKeyword)}`, limit: 500 }),
+        sbFetch('dovive_reviews', { filter: `keyword=eq.${encodeURIComponent(marketAnalysisKeyword)}`, limit: 1000 }),
+        sbFetch('dovive_ocr', { filter: `keyword=eq.${encodeURIComponent(marketAnalysisKeyword)}&raw_text=not.is.null`, limit: 1000 }),
+        sbFetch('dovive_phase5_research', { filter: `keyword=eq.${encodeURIComponent(marketAnalysisKeyword)}`, limit: 20 })
+      ]);
+
+      const products = researchData || [];
+      const keepa = keepaData || [];
+      const reviews = reviewsData || [];
+      const ocr = ocrData || [];
+      const p5 = p5Data || [];
+
+      // Build keepa map
+      const keepaMap = {};
+      keepa.forEach(k => { keepaMap[k.asin] = k; });
+
+      container.innerHTML = `
+        <!-- Keyword Selector -->
+        <div class="ma-keyword-bar">
+          <span class="ma-keyword-label">Analyzing:</span>
+          <select class="ma-keyword-select" id="ma-keyword-select">
+            ${kwList.map(kw => `<option value="${escapeHtml(kw)}" ${kw === marketAnalysisKeyword ? 'selected' : ''}>${escapeHtml(kw)}</option>`).join('')}
+          </select>
+          <span class="ma-product-count">${products.length} products</span>
+        </div>
+
+        <!-- Section 1: Market Overview -->
+        ${renderMAOverview(products, keepa)}
+
+        <!-- Section 2: Brand Ranking Table -->
+        ${renderMABrandRanking(products, keepaMap)}
+
+        <!-- Section 3: Price vs BSR Scatter -->
+        ${renderMAPriceScatter(products)}
+
+        <!-- Section 4: Formula Intelligence -->
+        ${renderMAFormulaIntel(ocr, products)}
+
+        <!-- Section 5: Review Sentiment -->
+        ${renderMAReviewSentiment(products, reviews)}
+
+        <!-- Section 6: Opportunity Gap Matrix -->
+        ${renderMAOpportunityGap(products, ocr, p5)}
+
+        <!-- Section 7: Competitive Comparison Table (P5) -->
+        ${renderMACompetitiveTable(p5)}
+
+        <!-- Section 8: Launch Readiness Score -->
+        ${renderMALaunchScore(products, keepa, reviews, ocr, p5, marketAnalysisKeyword)}
+      `;
+
+      // Keyword change handler
+      document.getElementById('ma-keyword-select')?.addEventListener('change', (e) => {
+        marketAnalysisKeyword = e.target.value;
+        renderMarketAnalysisPage();
+      });
+
+    } catch (err) {
+      console.error('Market analysis error:', err);
+      container.innerHTML = `<div class="ma-error">⚠️ Error loading market analysis: ${err.message}</div>`;
+    }
+  }
+
+  // ── Section 1: Market Overview ──────────────────────────────
+  function renderMAOverview(products, keepa) {
+    const prices = products.filter(p => p.price).map(p => p.price);
+    const bsrs = products.filter(p => p.bsr).map(p => p.bsr);
+    const ratings = products.filter(p => p.rating).map(p => p.rating);
+    const reviewCounts = products.filter(p => p.review_count).map(p => p.review_count);
+    const monthlySales = keepa.filter(k => k.monthly_sales_est).map(k => k.monthly_sales_est);
+    const monthlyRevenue = keepa.filter(k => k.monthly_sales_est && k.price_usd).map(k => k.monthly_sales_est * k.price_usd);
+
+    const avgPrice = prices.length ? (prices.reduce((a,b) => a+b, 0) / prices.length).toFixed(2) : 'N/A';
+    const minPrice = prices.length ? Math.min(...prices).toFixed(2) : 'N/A';
+    const maxPrice = prices.length ? Math.max(...prices).toFixed(2) : 'N/A';
+    const avgBsr = bsrs.length ? Math.round(bsrs.reduce((a,b) => a+b, 0) / bsrs.length).toLocaleString() : 'N/A';
+    const topBsr = bsrs.length ? Math.min(...bsrs).toLocaleString() : 'N/A';
+    const avgRating = ratings.length ? (ratings.reduce((a,b) => a+b, 0) / ratings.length).toFixed(1) : 'N/A';
+    const totalReviews = reviewCounts.reduce((a,b) => a+b, 0).toLocaleString();
+    const totalRevenue = monthlyRevenue.reduce((a,b) => a+b, 0);
+    const revenueStr = totalRevenue >= 1000000 ? '$' + (totalRevenue/1000000).toFixed(1) + 'M' : totalRevenue >= 1000 ? '$' + (totalRevenue/1000).toFixed(0) + 'K' : '$' + totalRevenue.toFixed(0);
+
+    const brands = [...new Set(products.filter(p => p.brand).map(p => p.brand))];
+
+    return `
+    <div class="ma-section">
+      <div class="ma-section-header">
+        <span class="ma-section-icon">📊</span>
+        <h2 class="ma-section-title">Market Overview</h2>
+        <span class="ma-section-sub">Category-level intelligence</span>
+      </div>
+      <div class="ma-overview-grid">
+        <div class="ma-stat-card ma-stat-primary">
+          <div class="ma-stat-value">${products.length}</div>
+          <div class="ma-stat-label">Total Products</div>
+        </div>
+        <div class="ma-stat-card">
+          <div class="ma-stat-value">${brands.length}</div>
+          <div class="ma-stat-label">Unique Brands</div>
+        </div>
+        <div class="ma-stat-card ma-stat-revenue">
+          <div class="ma-stat-value">${revenueStr}</div>
+          <div class="ma-stat-label">Est. Monthly Revenue</div>
+        </div>
+        <div class="ma-stat-card">
+          <div class="ma-stat-value">$${avgPrice}</div>
+          <div class="ma-stat-label">Avg Price</div>
+          <div class="ma-stat-sub">$${minPrice} – $${maxPrice}</div>
+        </div>
+        <div class="ma-stat-card">
+          <div class="ma-stat-value">#${avgBsr}</div>
+          <div class="ma-stat-label">Avg BSR</div>
+          <div class="ma-stat-sub">Best: #${topBsr}</div>
+        </div>
+        <div class="ma-stat-card">
+          <div class="ma-stat-value">★ ${avgRating}</div>
+          <div class="ma-stat-label">Avg Rating</div>
+        </div>
+        <div class="ma-stat-card">
+          <div class="ma-stat-value">${totalReviews}</div>
+          <div class="ma-stat-label">Total Reviews</div>
+        </div>
+        <div class="ma-stat-card">
+          <div class="ma-stat-value">${keepa.length}</div>
+          <div class="ma-stat-label">Keepa Enriched</div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── Section 2: Brand Ranking Table ──────────────────────────
+  function renderMABrandRanking(products, keepaMap) {
+    const brandMap = {};
+    products.forEach(p => {
+      if (!p.brand) return;
+      if (!brandMap[p.brand]) brandMap[p.brand] = { brand: p.brand, products: 0, bsrs: [], prices: [], ratings: [], reviewCounts: [], monthlySales: [] };
+      const b = brandMap[p.brand];
+      b.products++;
+      if (p.bsr) b.bsrs.push(p.bsr);
+      if (p.price) b.prices.push(p.price);
+      if (p.rating) b.ratings.push(p.rating);
+      if (p.review_count) b.reviewCounts.push(p.review_count);
+      const k = keepaMap[p.asin];
+      if (k?.monthly_sales_est) b.monthlySales.push(k.monthly_sales_est);
+    });
+
+    const brands = Object.values(brandMap).map(b => ({
+      ...b,
+      bestBsr: b.bsrs.length ? Math.min(...b.bsrs) : 999999,
+      avgPrice: b.prices.length ? (b.prices.reduce((a,c) => a+c, 0) / b.prices.length) : 0,
+      avgRating: b.ratings.length ? (b.ratings.reduce((a,c) => a+c, 0) / b.ratings.length) : 0,
+      totalReviews: b.reviewCounts.reduce((a,c) => a+c, 0),
+      totalSales: b.monthlySales.reduce((a,c) => a+c, 0)
+    })).sort((a, b) => a.bestBsr - b.bestBsr).slice(0, 20);
+
+    return `
+    <div class="ma-section">
+      <div class="ma-section-header">
+        <span class="ma-section-icon">🏆</span>
+        <h2 class="ma-section-title">Brand Ranking</h2>
+        <span class="ma-section-sub">Top 20 brands by BSR</span>
+      </div>
+      <div class="ma-table-wrap">
+        <table class="ma-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Brand</th>
+              <th>Products</th>
+              <th>Best BSR</th>
+              <th>Avg Price</th>
+              <th>Avg Rating</th>
+              <th>Total Reviews</th>
+              <th>Est. Monthly Sales</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${brands.map((b, i) => `
+              <tr class="${i < 3 ? 'ma-row-top' : ''}">
+                <td><span class="ma-rank">${i + 1}</span></td>
+                <td class="ma-brand-name">${escapeHtml(b.brand)}</td>
+                <td>${b.products}</td>
+                <td>#${b.bestBsr.toLocaleString()}</td>
+                <td>${b.avgPrice ? '$' + b.avgPrice.toFixed(2) : '-'}</td>
+                <td>${b.avgRating ? '★ ' + b.avgRating.toFixed(1) : '-'}</td>
+                <td>${b.totalReviews.toLocaleString()}</td>
+                <td>${b.totalSales ? '~' + b.totalSales.toLocaleString() + '/mo' : '-'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  }
+
+  // ── Section 3: Price vs BSR Scatter ─────────────────────────
+  function renderMAPriceScatter(products) {
+    const data = products.filter(p => p.price && p.bsr && p.bsr < 50000).slice(0, 100);
+    if (!data.length) return '<div class="ma-section"><div class="ma-empty">No price/BSR data available</div></div>';
+
+    const maxBsr = Math.max(...data.map(p => p.bsr));
+    const maxPrice = Math.max(...data.map(p => p.price));
+    const W = 600, H = 300, PAD = 40;
+
+    const dots = data.map(p => {
+      const x = PAD + ((p.price / maxPrice) * (W - PAD * 2));
+      const y = H - PAD - ((1 - p.bsr / maxBsr) * (H - PAD * 2));
+      const isTop = p.bsr < 5000;
+      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${isTop ? 6 : 4}"
+        fill="${isTop ? '#a78bfa' : '#6366f1'}" opacity="${isTop ? 0.9 : 0.5}"
+        title="${escapeHtml(p.brand || p.title || p.asin)} | $${p.price} | BSR #${p.bsr}">
+        <title>${escapeHtml((p.brand || p.title || '').substring(0, 40))} | $${p.price} | BSR #${p.bsr.toLocaleString()}</title>
+      </circle>`;
+    }).join('');
+
+    return `
+    <div class="ma-section">
+      <div class="ma-section-header">
+        <span class="ma-section-icon">🎯</span>
+        <h2 class="ma-section-title">Price vs BSR Map</h2>
+        <span class="ma-section-sub">Sweet spot: low price + low BSR (purple = top seller)</span>
+      </div>
+      <div class="ma-scatter-wrap">
+        <svg viewBox="0 0 ${W} ${H}" class="ma-scatter-svg">
+          <!-- Grid lines -->
+          <line x1="${PAD}" y1="${PAD}" x2="${PAD}" y2="${H-PAD}" stroke="#333" stroke-width="1"/>
+          <line x1="${PAD}" y1="${H-PAD}" x2="${W-PAD}" y2="${H-PAD}" stroke="#333" stroke-width="1"/>
+          <!-- Labels -->
+          <text x="${W/2}" y="${H-5}" fill="#666" font-size="11" text-anchor="middle">Price ($)</text>
+          <text x="10" y="${H/2}" fill="#666" font-size="11" text-anchor="middle" transform="rotate(-90,10,${H/2})">Popularity (BSR ↑)</text>
+          <!-- Sweet spot zone -->
+          <rect x="${PAD}" y="${PAD}" width="${(W-PAD*2)*0.4}" height="${(H-PAD*2)*0.5}"
+            fill="rgba(167,139,250,0.06)" stroke="rgba(167,139,250,0.2)" stroke-dasharray="4"/>
+          <text x="${PAD + 8}" y="${PAD + 16}" fill="#a78bfa" font-size="10">sweet spot</text>
+          ${dots}
+        </svg>
+        <div class="ma-scatter-legend">
+          <span class="ma-legend-dot ma-legend-top"></span> Top seller (BSR &lt; 5K)
+          <span class="ma-legend-dot ma-legend-normal" style="margin-left:16px;"></span> Other products
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── Section 4: Formula Intelligence ─────────────────────────
+  function renderMAFormulaIntel(ocr, products) {
+    const ingredientFreq = {};
+    const certFreq = {};
+    const claimFreq = {};
+
+    ocr.forEach(r => {
+      (r.supplement_facts || []).forEach(f => {
+        if (f.name) {
+          const name = f.name.toLowerCase().trim();
+          ingredientFreq[name] = (ingredientFreq[name] || 0) + 1;
+        }
+      });
+      (r.certifications || []).forEach(c => {
+        certFreq[c] = (certFreq[c] || 0) + 1;
+      });
+      (r.health_claims || []).forEach(cl => {
+        if (cl && cl.length < 60) claimFreq[cl] = (claimFreq[cl] || 0) + 1;
+      });
+    });
+
+    const topIngredients = Object.entries(ingredientFreq).sort((a,b) => b[1]-a[1]).slice(0, 15);
+    const topCerts = Object.entries(certFreq).sort((a,b) => b[1]-a[1]).slice(0, 10);
+    const topClaims = Object.entries(claimFreq).sort((a,b) => b[1]-a[1]).slice(0, 10);
+    const maxIngCount = topIngredients[0]?.[1] || 1;
+
+    return `
+    <div class="ma-section">
+      <div class="ma-section-header">
+        <span class="ma-section-icon">🧪</span>
+        <h2 class="ma-section-title">Formula Intelligence</h2>
+        <span class="ma-section-sub">Most common ingredients, certifications & health claims across ${ocr.length} OCR records</span>
+      </div>
+      <div class="ma-formula-grid">
+        <div class="ma-formula-col">
+          <div class="ma-formula-title">Top Ingredients</div>
+          ${topIngredients.length ? topIngredients.map(([name, count]) => `
+            <div class="ma-ingredient-row">
+              <span class="ma-ingredient-name">${escapeHtml(name)}</span>
+              <div class="ma-ingredient-bar-wrap">
+                <div class="ma-ingredient-bar" style="width:${Math.round((count/maxIngCount)*100)}%"></div>
+              </div>
+              <span class="ma-ingredient-count">${count}</span>
+            </div>
+          `).join('') : '<div class="ma-empty-small">No ingredient data yet</div>'}
+        </div>
+        <div class="ma-formula-col">
+          <div class="ma-formula-title">Certifications</div>
+          <div class="ma-cert-chips">
+            ${topCerts.length ? topCerts.map(([cert, count]) => `
+              <div class="ma-cert-chip"><span>${escapeHtml(cert)}</span><span class="ma-cert-count">${count}</span></div>
+            `).join('') : '<div class="ma-empty-small">No cert data yet</div>'}
+          </div>
+          <div class="ma-formula-title" style="margin-top:20px;">Top Health Claims</div>
+          <div class="ma-claims-list">
+            ${topClaims.length ? topClaims.map(([claim, count]) => `
+              <div class="ma-claim-row"><span class="ma-claim-text">${escapeHtml(claim)}</span><span class="ma-claim-count">${count}×</span></div>
+            `).join('') : '<div class="ma-empty-small">No claims data yet</div>'}
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── Section 5: Review Sentiment ──────────────────────────────
+  function renderMAReviewSentiment(products, reviews) {
+    const brandRatings = {};
+    products.filter(p => p.brand && p.rating).forEach(p => {
+      if (!brandRatings[p.brand]) brandRatings[p.brand] = { ratings: [], reviewCounts: [] };
+      brandRatings[p.brand].ratings.push(p.rating);
+      if (p.review_count) brandRatings[p.brand].reviewCounts.push(p.review_count);
+    });
+
+    const brandSentiment = Object.entries(brandRatings).map(([brand, d]) => ({
+      brand,
+      avgRating: d.ratings.reduce((a,b) => a+b, 0) / d.ratings.length,
+      totalReviews: d.reviewCounts.reduce((a,b) => a+b, 0)
+    })).sort((a,b) => b.totalReviews - a.totalReviews).slice(0, 15);
+
+    const dist = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+    reviews.forEach(r => { if (r.rating && dist[Math.floor(r.rating)] !== undefined) dist[Math.floor(r.rating)]++; });
+    const totalRev = reviews.length || 1;
+
+    return `
+    <div class="ma-section">
+      <div class="ma-section-header">
+        <span class="ma-section-icon">💬</span>
+        <h2 class="ma-section-title">Review Sentiment</h2>
+        <span class="ma-section-sub">${reviews.length.toLocaleString()} reviews analyzed</span>
+      </div>
+      <div class="ma-sentiment-grid">
+        <div class="ma-sentiment-dist">
+          <div class="ma-formula-title">Rating Distribution</div>
+          ${[5,4,3,2,1].map(star => `
+            <div class="ma-rating-row">
+              <span class="ma-star-label">${star}★</span>
+              <div class="ma-rating-bar-wrap">
+                <div class="ma-rating-bar ma-rating-${star}" style="width:${Math.round((dist[star]/totalRev)*100)}%"></div>
+              </div>
+              <span class="ma-rating-pct">${Math.round((dist[star]/totalRev)*100)}%</span>
+            </div>
+          `).join('')}
+        </div>
+        <div class="ma-brand-sentiment">
+          <div class="ma-formula-title">Brand Sentiment (by review volume)</div>
+          ${brandSentiment.map(b => {
+            const pct = Math.round(((b.avgRating - 1) / 4) * 100);
+            const color = b.avgRating >= 4.5 ? '#4ade80' : b.avgRating >= 4 ? '#a3e635' : b.avgRating >= 3.5 ? '#fbbf24' : '#f87171';
+            return `
+            <div class="ma-brand-sent-row">
+              <span class="ma-brand-sent-name">${escapeHtml(b.brand.substring(0,20))}</span>
+              <div class="ma-brand-sent-bar-wrap">
+                <div class="ma-brand-sent-bar" style="width:${pct}%;background:${color};"></div>
+              </div>
+              <span class="ma-brand-sent-score" style="color:${color}">★${b.avgRating.toFixed(1)}</span>
+              <span class="ma-brand-sent-reviews">${b.totalReviews.toLocaleString()}</span>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── Section 6: Opportunity Gap Matrix ───────────────────────
+  function renderMAOpportunityGap(products, ocr, p5) {
+    const allCerts = ['Vegan', 'Non-GMO', 'Organic', 'Gluten-Free', 'GMP', 'NSF', 'Sugar-Free', 'Keto', 'Third-Party Tested', 'B Corp'];
+    const certPresence = {};
+    allCerts.forEach(c => { certPresence[c] = 0; });
+
+    ocr.forEach(r => {
+      (r.certifications || []).forEach(c => {
+        const match = allCerts.find(ac => ac.toLowerCase() === c.toLowerCase() || c.toLowerCase().includes(ac.toLowerCase()));
+        if (match) certPresence[match]++;
+      });
+    });
+    p5.forEach(r => {
+      (r.certifications || []).forEach(c => {
+        const match = allCerts.find(ac => ac.toLowerCase() === c.toLowerCase() || c.toLowerCase().includes(ac.toLowerCase()));
+        if (match) certPresence[match] += 2;
+      });
+    });
+
+    const totalProducts = products.length || 1;
+    const gaps = allCerts.map(c => ({
+      cert: c,
+      count: certPresence[c],
+      pct: Math.round((certPresence[c] / totalProducts) * 100)
+    })).sort((a,b) => a.pct - b.pct);
+
+    return `
+    <div class="ma-section">
+      <div class="ma-section-header">
+        <span class="ma-section-icon">🎪</span>
+        <h2 class="ma-section-title">Opportunity Gap Matrix</h2>
+        <span class="ma-section-sub">Low % = fewer competitors have it = bigger opportunity for Dovive</span>
+      </div>
+      <div class="ma-gap-grid">
+        ${gaps.map(g => {
+          const isGap = g.pct < 20;
+          const isSaturated = g.pct > 60;
+          return `
+          <div class="ma-gap-card ${isGap ? 'ma-gap-opportunity' : isSaturated ? 'ma-gap-saturated' : ''}">
+            <div class="ma-gap-cert">${escapeHtml(g.cert)}</div>
+            <div class="ma-gap-pct" style="color:${isGap ? '#4ade80' : isSaturated ? '#f87171' : '#fbbf24'}">${g.pct}%</div>
+            <div class="ma-gap-label">${isGap ? '🟢 Gap' : isSaturated ? '🔴 Saturated' : '🟡 Moderate'}</div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="ma-gap-legend">
+        🟢 Gap = few competitors have it — <strong>Dovive can differentiate here</strong> &nbsp;|&nbsp;
+        🔴 Saturated = everyone has it — table stakes
+      </div>
+    </div>`;
+  }
+
+  // ── Section 7: Competitive Comparison Table (P5) ────────────
+  function renderMACompetitiveTable(p5) {
+    if (!p5.length) return `
+    <div class="ma-section">
+      <div class="ma-section-header"><span class="ma-section-icon">🔬</span><h2 class="ma-section-title">Competitive Comparison</h2></div>
+      <div class="ma-empty">No Phase 5 research yet for this keyword. Run Phase 5 first.</div>
+    </div>`;
+
+    const sorted = [...p5].sort((a,b) => (a.bsr_rank||9999) - (b.bsr_rank||9999));
+    const sentimentIcon = { positive: '🟢', mixed: '🟡', negative: '🔴', none: '⚪' };
+
+    return `
+    <div class="ma-section">
+      <div class="ma-section-header">
+        <span class="ma-section-icon">🔬</span>
+        <h2 class="ma-section-title">Competitive Deep-Dive</h2>
+        <span class="ma-section-sub">Phase 5 research on top ${sorted.length} BSR products</span>
+      </div>
+      <div class="ma-table-wrap">
+        <table class="ma-table ma-comp-table">
+          <thead>
+            <tr>
+              <th>Brand</th>
+              <th>BSR</th>
+              <th>Reddit</th>
+              <th>Key Strength</th>
+              <th>Key Weakness</th>
+              <th>Dovive Angle</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sorted.map(p => `
+              <tr>
+                <td class="ma-brand-name">${escapeHtml(p.brand || '-')}</td>
+                <td>#${(p.bsr_rank||'').toLocaleString()}</td>
+                <td>${sentimentIcon[p.reddit_sentiment] || '⚪'} ${escapeHtml(p.reddit_sentiment || 'none')}</td>
+                <td class="ma-comp-cell">${escapeHtml(truncate(p.key_strengths||'-', 80))}</td>
+                <td class="ma-comp-cell ma-weakness">${escapeHtml(truncate(p.key_weaknesses||'-', 80))}</td>
+                <td class="ma-comp-cell ma-angle">${escapeHtml(truncate(p.competitor_angle||'-', 80))}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  }
+
+  // ── Section 8: Launch Readiness Score ───────────────────────
+  function renderMALaunchScore(products, keepa, reviews, ocr, p5, keyword) {
+    // Score components (each out of 20, total 100)
+    const marketSize = Math.min(20, Math.round((products.length / 200) * 20));
+    const keepaCoverage = Math.min(20, Math.round((keepa.length / (products.length || 1)) * 20));
+    const reviewVolume = Math.min(20, Math.round((reviews.length / 500) * 20));
+    const formulaData = Math.min(20, Math.round((ocr.filter(r => r.supplement_facts).length / (products.length || 1)) * 20));
+    const p5Research = Math.min(20, Math.round((p5.length / 10) * 20));
+
+    const total = marketSize + keepaCoverage + reviewVolume + formulaData + p5Research;
+    const grade = total >= 80 ? 'A' : total >= 60 ? 'B' : total >= 40 ? 'C' : 'D';
+    const gradeColor = total >= 80 ? '#4ade80' : total >= 60 ? '#a3e635' : total >= 40 ? '#fbbf24' : '#f87171';
+    const recommendation = total >= 80 ? 'Ready to Launch' : total >= 60 ? 'Nearly Ready — fill data gaps' : total >= 40 ? 'More research needed' : 'Early stage — run more phases';
+
+    const components = [
+      { label: 'Market Size', desc: `${products.length} products tracked`, score: marketSize, max: 20 },
+      { label: 'Keepa Enrichment', desc: `${keepa.length}/${products.length} enriched`, score: keepaCoverage, max: 20 },
+      { label: 'Review Coverage', desc: `${reviews.length} reviews analyzed`, score: reviewVolume, max: 20 },
+      { label: 'Formula Intel', desc: `${ocr.filter(r => r.supplement_facts).length} formulas parsed`, score: formulaData, max: 20 },
+      { label: 'Deep Research', desc: `${p5.length}/10 Phase 5 done`, score: p5Research, max: 20 },
+    ];
+
+    return `
+    <div class="ma-section">
+      <div class="ma-section-header">
+        <span class="ma-section-icon">🚀</span>
+        <h2 class="ma-section-title">Launch Readiness Score</h2>
+        <span class="ma-section-sub">${escapeHtml(keyword)}</span>
+      </div>
+      <div class="ma-launch-grid">
+        <div class="ma-launch-score-card">
+          <div class="ma-launch-grade" style="color:${gradeColor}">${grade}</div>
+          <div class="ma-launch-total" style="color:${gradeColor}">${total}/100</div>
+          <div class="ma-launch-rec">${recommendation}</div>
+        </div>
+        <div class="ma-launch-components">
+          ${components.map(c => `
+            <div class="ma-launch-row">
+              <span class="ma-launch-label">${c.label}</span>
+              <div class="ma-launch-bar-wrap">
+                <div class="ma-launch-bar" style="width:${Math.round((c.score/c.max)*100)}%;background:${c.score >= 16 ? '#4ade80' : c.score >= 10 ? '#fbbf24' : '#f87171'}"></div>
+              </div>
+              <span class="ma-launch-score">${c.score}/${c.max}</span>
+              <span class="ma-launch-desc">${c.desc}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>`;
   }
 
   // ============================================================
