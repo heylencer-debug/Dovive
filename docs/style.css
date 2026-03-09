@@ -3857,3 +3857,30 @@ body {
 .ma-launch-bar { height: 8px; border-radius: 3px; }
 .ma-launch-score { font-size: 11px; font-weight: 700; color: var(--text-secondary); min-width: 36px; }
 .ma-launch-desc { font-size: 11px; color: var(--text-secondary); }
+
+/* -- Keyword Detail Tabs --------------------------- */
+.kw-detail-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0;
+}
+.kw-tab {
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-bottom: -1px;
+}
+.kw-tab:hover { color: var(--text-primary); }
+.kw-tab.active {
+  color: #a78bfa;
+  border-bottom-color: #a78bfa;
+}
+.kw-tab-content { }

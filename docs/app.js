@@ -2980,15 +2980,29 @@
 
   let marketAnalysisKeyword = 'ashwagandha gummies'; // default
 
+  // Render market analysis inside keyword detail tab
+  async function renderKeywordMarketAnalysis(keyword) {
+    const container = document.getElementById('kw-market-analysis-container');
+    if (!container) return;
+    marketAnalysisKeyword = keyword;
+    await renderMarketAnalysisInContainer(container, keyword);
+  }
+
   async function renderMarketAnalysisPage() {
     const container = document.getElementById('market-analysis-container');
+    if (!container) return;
+    await renderMarketAnalysisInContainer(container, marketAnalysisKeyword, true);
+  }
+
+  async function renderMarketAnalysisInContainer(container, keyword, showKeywordSelector = false) {
     if (!container) return;
     container.innerHTML = '<div class="ma-loading">⏳ Loading market intelligence...</div>';
 
     try {
-      // Keyword selector
+      // Keyword selector (only for standalone page)
       const kwList = (keywords || []).map(k => k.keyword).filter(Boolean);
-      if (!kwList.includes(marketAnalysisKeyword)) marketAnalysisKeyword = kwList[0] || 'ashwagandha gummies';
+      if (!kwList.includes(keyword)) keyword = kwList[0] || 'ashwagandha gummies';
+      marketAnalysisKeyword = keyword;
 
       // Load all data in parallel
       const [researchData, keepaData, reviewsData, ocrData, p5Data] = await Promise.all([
@@ -3010,14 +3024,15 @@
       keepa.forEach(k => { keepaMap[k.asin] = k; });
 
       container.innerHTML = `
-        <!-- Keyword Selector -->
+        <!-- Keyword Selector (standalone page only) -->
+        ${showKeywordSelector ? `
         <div class="ma-keyword-bar">
           <span class="ma-keyword-label">Analyzing:</span>
           <select class="ma-keyword-select" id="ma-keyword-select">
-            ${kwList.map(kw => `<option value="${escapeHtml(kw)}" ${kw === marketAnalysisKeyword ? 'selected' : ''}>${escapeHtml(kw)}</option>`).join('')}
+            ${kwList.map(kw => `<option value="${escapeHtml(kw)}" ${kw === keyword ? 'selected' : ''}>${escapeHtml(kw)}</option>`).join('')}
           </select>
           <span class="ma-product-count">${products.length} products</span>
-        </div>
+        </div>` : ''}
 
         <!-- Section 1: Market Overview -->
         ${renderMAOverview(products, keepa)}
@@ -3041,10 +3056,10 @@
         ${renderMACompetitiveTable(p5)}
 
         <!-- Section 8: Launch Readiness Score -->
-        ${renderMALaunchScore(products, keepa, reviews, ocr, p5, marketAnalysisKeyword)}
+        ${renderMALaunchScore(products, keepa, reviews, ocr, p5, keyword)}
       `;
 
-      // Keyword change handler
+      // Keyword change handler (standalone page only)
       document.getElementById('ma-keyword-select')?.addEventListener('change', (e) => {
         marketAnalysisKeyword = e.target.value;
         renderMarketAnalysisPage();
@@ -3835,6 +3850,15 @@
 
       ${renderAIReportSection(report)}
 
+      <!-- Phase 6: Market Analysis Tabs -->
+      <div class="kw-detail-tabs">
+        <button class="kw-tab active" data-tab="products">📦 Products</button>
+        <button class="kw-tab" data-tab="market">📈 Market Analysis</button>
+      </div>
+
+      <!-- Products Tab -->
+      <div class="kw-tab-content" id="kw-tab-products">
+
       <div class="products-section-header">
         <div>
           <span class="products-section-title">Products</span>
@@ -3859,6 +3883,15 @@
           <div class="products-empty-text">Run Scout to collect products for this keyword.</div>
         </div>
       `}
+
+      </div> <!-- end kw-tab-products -->
+
+      <!-- Market Analysis Tab -->
+      <div class="kw-tab-content" id="kw-tab-market" style="display:none;">
+        <div id="kw-market-analysis-container">
+          <div class="ma-loading">⏳ Click Market Analysis tab to load...</div>
+        </div>
+      </div>
     `;
 
     // Setup back button
@@ -3873,6 +3906,22 @@
         renderKeywordDetail(keyword);
       });
     });
+
+    // Setup keyword detail tabs
+    container.querySelectorAll('.kw-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        container.querySelectorAll('.kw-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const tabName = tab.dataset.tab;
+        document.getElementById('kw-tab-products').style.display = tabName === 'products' ? 'block' : 'none';
+        document.getElementById('kw-tab-market').style.display = tabName === 'market' ? 'block' : 'none';
+        if (tabName === 'market') {
+          marketAnalysisKeyword = keyword;
+          renderKeywordMarketAnalysis(keyword);
+        }
+      });
+    });
+
     } catch (err) {
       console.error('Error rendering keyword detail:', err);
       container.innerHTML = `
