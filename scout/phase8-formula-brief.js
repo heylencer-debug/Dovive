@@ -26,7 +26,26 @@ const FORCE = process.argv.includes('--force');
 
 // ─── API Key ──────────────────────────────────────────────────────────────────
 
+// Priority order: xAI Grok (from sterling/.env) → Anthropic → OpenRouter
+function getXaiKey() {
+  // Load from sterling/.env directly since that's where it lives
+  const fs = require('fs');
+  const path = require('path');
+  const sterlingEnv = path.join(__dirname, '../../sterling/.env');
+  if (fs.existsSync(sterlingEnv)) {
+    const content = fs.readFileSync(sterlingEnv, 'utf8');
+    const match = content.match(/XAI_API_KEY\s*=\s*(.+)/);
+    if (match) return match[1].trim();
+  }
+  return process.env.XAI_API_KEY || null;
+}
+
 async function getApiKey() {
+  // 1. Try xAI Grok first (from sterling/.env)
+  const xaiKey = getXaiKey();
+  if (xaiKey) return { provider: 'xai', key: xaiKey };
+
+  // 2. Try Supabase app_settings (Anthropic or OpenRouter)
   const { data } = await DOVIVE
     .from('app_settings')
     .select('key, value')
@@ -39,13 +58,31 @@ async function getApiKey() {
   return null;
 }
 
-async function callClaude(prompt) {
+async function callAI(prompt) {
   const apiKey = await getApiKey();
-  if (!apiKey) throw new Error('No API key found. Add anthropic_api_key to app_settings table.');
+  if (!apiKey) throw new Error('No API key found. Add XAI_API_KEY to sterling/.env or anthropic_api_key to app_settings.');
 
-  console.log(`  Using: ${apiKey.provider}`);
+  console.log(`  Provider: ${apiKey.provider}`);
 
-  if (apiKey.provider === 'anthropic') {
+  if (apiKey.provider === 'xai') {
+    // xAI Grok — OpenAI-compatible API
+    const res = await fetch('https://api.x.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey.key}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'grok-3',
+        max_tokens: 8192,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    const j = await res.json();
+    if (j.error) throw new Error(`xAI error: ${j.error.message}`);
+    return j.choices?.[0]?.message?.content || null;
+
+  } else if (apiKey.provider === 'anthropic') {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -62,7 +99,9 @@ async function callClaude(prompt) {
     const j = await res.json();
     if (j.error) throw new Error(`Anthropic error: ${j.error.message}`);
     return j.content?.[0]?.text || null;
+
   } else {
+    // OpenRouter fallback
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -679,13 +718,31 @@ async function run() {
   console.log(`🧪 PHASE 8: FORMULA BRIEF — "${KEYWORD}"`);
   console.log(`${'═'.repeat(60)}\n`);
 
-  // Get category
-  const { data: cats } = await DASH.from('categories')
+  // Get category — match full keyword first, fall back to first word
+  let cats = null;
+  const { data: exact } = await DASH.from('categories')
     .select('id, name')
-    .ilike('name', `%${KEYWORD.split(' ')[0]}%`)
+    .ilike('name', `%${KEYWORD}%`)
     .limit(5);
+  if (exact?.length) {
+    cats = exact;
+  } else {
+    const { data: partial } = await DASH.from('categories')
+      .select('id, name')
+      .ilike('name', `%${KEYWORD.split(' ')[0]}%`)
+      .limit(10);
+    cats = partial;
+  }
   if (!cats?.length) { console.log('ERROR: Category not found'); process.exit(1); }
-  const cat = cats[0];
+  // Pick the one with the most products if multiple matches
+  let cat = cats[0];
+  if (cats.length > 1) {
+    const counts = await Promise.all(cats.map(async c => {
+      const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
+      return { ...c, count };
+    }));
+    cat = counts.sort((a, b) => b.count - a.count)[0];
+  }
   console.log(`Category: ${cat.name} (${cat.id})\n`);
 
   // Check if brief already exists
@@ -716,7 +773,7 @@ async function run() {
   // 3. Call Claude
   process.stdout.write('Calling Claude API... ');
   const startTime = Date.now();
-  const aiOutput = await callClaude(prompt);
+  const aiOutput = await callAI(prompt);
   const elapsed = Math.round((Date.now() - startTime) / 1000);
   if (!aiOutput) throw new Error('No output from AI');
   console.log(`Done (${elapsed}s, ${Math.round(aiOutput.length / 1000)}k chars output)\n`);
