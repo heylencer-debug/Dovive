@@ -132,18 +132,22 @@ async function compileMarketData(categoryId) {
     .limit(1)
     .maybeSingle();
 
-  // Fallback: check formula_briefs for market_analysis type
+  // Fallback: check formula_briefs for market_analysis type (saved by phase6-market-analysis.js)
   let marketIntelDoc = marketIntelDocs;
   if (!marketIntelDoc) {
     const { data: fbDoc } = await DASH.from('formula_briefs')
-      .select('ingredients, generated_at')
+      .select('ingredients, generated_at, brief_type')
       .eq('category_id', categoryId)
+      .eq('brief_type', 'market_analysis')
+      .order('created_at', { ascending: false })
+      .limit(1)
       .maybeSingle();
-    if (fbDoc?.ingredients?.type === 'market_analysis') {
+    if (fbDoc?.ingredients?.ai_generated_brief) {
       marketIntelDoc = {
         ai_market_analysis: fbDoc.ingredients.ai_generated_brief,
-        aggregated_data: fbDoc.ingredients.aggregated_data,
+        aggregated_data: fbDoc.ingredients.data_sources,
         generated_at: fbDoc.generated_at,
+        source: 'formula_briefs.market_analysis',
       };
     }
   }
@@ -335,13 +339,16 @@ function buildPrompt(marketData) {
   const mi = marketData.market_intelligence;
   const top20 = marketData.top20_competitors || [];
 
-  // P6 market intelligence section
+  // P6 market intelligence section — full report from phase6-market-analysis.js
   const marketIntelSection = mi?.has_data
-    ? `## P6 MARKET INTELLIGENCE REPORT (AI-Generated, All ${cs.total_products} Products)
-${mi.report?.substring(0, 4000) || 'Not available'}
-[... full report truncated for context window ...]`
+    ? `## P6 MARKET INTELLIGENCE REPORT
+*AI-generated single market analysis across all ${cs.total_products} products. Source: phase6-market-analysis.js*
+
+${mi.report?.substring(0, 6000) || 'Not available'}
+${(mi.report?.length || 0) > 6000 ? '\n[... report continues — using first 6k chars for context ...]\n' : ''}`
     : `## P6 MARKET INTELLIGENCE
-Not yet generated. Run: node phase6-market-analysis.js`;
+⚠️ Not yet generated. Run: node phase6-market-analysis.js --keyword "${KEYWORD}"
+P8 will still run but with reduced market context.`;
 
   // Top 20 competitor formula table
   const top20FormulasSection = top20.slice(0, 20).map(c => `
