@@ -109,7 +109,7 @@ function computePriceTier(price, medianPrice) {
   else                    return 'budget';         // <60%
 }
 
-const TIER_LABELS: Record<string, string> = {
+const TIER_LABELS = {
   premium:       '💎 Premium',
   above_average: '🔵 Above Avg',
   mid_market:    '🟢 Mid-Market',
@@ -349,7 +349,7 @@ async function run() {
   const categoryMedianPrice = prices.length ? prices[Math.floor(prices.length / 2)] : null;
   console.log(`Category median price: $${categoryMedianPrice?.toFixed(2) || 'N/A'}\n`);
 
-  const marketMetricsMap: Record<string, any> = {};
+  const marketMetricsMap = {};
   for (const p of toProcess) {
     const bsrVelocity = computeBSRVelocity(p.bsr_current, p.bsr_30_days_avg, p.bsr_90_days_avg);
     const price = parseFloat(p.price || 0);
@@ -375,20 +375,20 @@ async function run() {
 
   // ── Process in batches ──────────────────────────────────────────────────
   let saved = 0, errors = 0, aiCount = 0, ruleCount = 0;
-  const batches: any[][] = [];
+  const batches = [];
   for (let i = 0; i < toProcess.length; i += BATCH_SIZE) batches.push(toProcess.slice(i, i + BATCH_SIZE));
 
   for (let bi = 0; bi < batches.length; bi++) {
     const batch = batches[bi];
     process.stdout.write(`Batch ${bi + 1}/${batches.length} (${batch.length} products)... `);
 
-    let analyses: { product: any; intel: any }[] = [];
+    let analyses = [];
 
     if (xaiKey) {
       try {
         const grokResults = await analyzeWithGrok(batch, marketMetricsMap, categoryMedianPrice);
         for (let i = 0; i < batch.length; i++) {
-          const gr = grokResults.find((r: any) => r.asin === batch[i].asin) || grokResults[i];
+          const gr = grokResults.find((r) => r.asin === batch[i].asin) || grokResults[i];
           if (gr) {
             const mm = marketMetricsMap[batch[i].asin];
             const ashwagandhaAmt = gr.ashwagandha_amount_mg;
@@ -408,7 +408,7 @@ async function run() {
           }
         }
         process.stdout.write(`✅ Grok AI (${batch.length})`);
-      } catch (e: any) {
+      } catch (e) {
         process.stdout.write(`⚠️  Grok failed → rule-based | ${e.message.substring(0, 60)}`);
         analyses = batch.map(p => ({ product: p, intel: ruleBasedAnalysis(p, marketMetricsMap[p.asin]) }));
         ruleCount += batch.length;
@@ -441,3 +441,4 @@ async function run() {
 }
 
 run().catch(e => { console.error('\n❌ FAILED:', e.message); process.exit(1); });
+
