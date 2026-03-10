@@ -124,20 +124,47 @@ async function callAI(prompt) {
 // ─── Data Compilation ─────────────────────────────────────────────────────────
 
 async function compileMarketData(categoryId) {
-  // Top 5 all-time performers by BSR
-  const { data: top5 } = await DASH.from('products')
+  // Pull P6 market intelligence doc (new single-doc market analysis)
+  const { data: marketIntelDocs } = await DASH.from('market_intelligence')
+    .select('ai_market_analysis, aggregated_data, generated_at')
+    .eq('category_id', categoryId)
+    .order('generated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  // Fallback: check formula_briefs for market_analysis type
+  let marketIntelDoc = marketIntelDocs;
+  if (!marketIntelDoc) {
+    const { data: fbDoc } = await DASH.from('formula_briefs')
+      .select('ingredients, generated_at')
+      .eq('category_id', categoryId)
+      .maybeSingle();
+    if (fbDoc?.ingredients?.type === 'market_analysis') {
+      marketIntelDoc = {
+        ai_market_analysis: fbDoc.ingredients.ai_generated_brief,
+        aggregated_data: fbDoc.ingredients.aggregated_data,
+        generated_at: fbDoc.generated_at,
+      };
+    }
+  }
+
+  // Top 20 all-time performers by BSR (expanded from 5 for richer formula comparison)
+  const { data: top20 } = await DASH.from('products')
     .select(`
-      asin, brand, title, bsr_current, price, monthly_revenue, monthly_sales,
-      rating_value, rating_count, packaging_type, serving_size, servings_per_container,
+      asin, brand, title, bsr_current, bsr_30_days_avg, bsr_90_days_avg,
+      price, monthly_revenue, monthly_sales, rating_value, rating_count,
+      packaging_type, serving_size, servings_per_container,
       claims_on_label, supplement_facts_raw, all_nutrients, other_ingredients,
       proprietary_blends, feature_bullets_text, marketing_analysis
     `)
     .eq('category_id', categoryId)
     .not('bsr_current', 'is', null)
     .order('bsr_current', { ascending: true })
-    .limit(5);
+    .limit(20);
 
-  // New winners: high revenue, low review count (< 2 years implied by few reviews), BSR < 30k
+  const top5 = top20?.slice(0, 5) || [];
+
+  // New winners: high revenue, low review count, BSR < 30k
   const { data: newWinners } = await DASH.from('products')
     .select(`
       asin, brand, title, bsr_current, price, monthly_revenue, monthly_sales,
@@ -252,19 +279,84 @@ async function compileMarketData(categoryId) {
       .filter(p => !top5?.some(t => t.asin === p.asin))
       .map(p => ({
         ...p,
-        age_months: Math.round((p.rating_count || 0) / 30), // rough proxy
+        age_months: Math.round((p.rating_count || 0) / 30),
         nutrients: p.all_nutrients,
         ingredients: p.supplement_facts_raw,
       })),
+    // NEW: P6 market intelligence (single holistic analysis)
+    market_intelligence: marketIntelDoc ? {
+      report: marketIntelDoc.ai_market_analysis,
+      generated_at: marketIntelDoc.generated_at,
+      has_data: true,
+    } : { has_data: false },
+    // NEW: Top 20 competitor formulas with full detail
+    top20_competitors: (top20 || []).map((p, idx) => {
+      const pi = p.marketing_analysis?.product_intelligence || {};
+      return {
+        rank: idx + 1,
+        brand: p.brand,
+        title: (p.title || '').substring(0, 70),
+        asin: p.asin,
+        bsr: p.bsr_current,
+        monthly_revenue: p.monthly_revenue,
+        price: p.price,
+        rating: p.rating_value,
+        reviews: p.rating_count,
+        // Extracted formula data
+        ashwagandha_mg: pi.ashwagandha_amount_mg,
+        extract_type: pi.ashwagandha_extract_type,
+        withanolides: pi.withanolide_percentage,
+        bonus_ingredients: pi.bonus_ingredients || [],
+        certifications: pi.certifications || [],
+        is_sugar_free: pi.is_sugar_free,
+        is_vegan: pi.is_vegan,
+        is_third_party_tested: pi.is_third_party_tested,
+        formula_score: pi.formula_quality_score,
+        threat_level: pi.competitor_threat_level,
+        bsr_trend: pi.bsr_trend_label,
+        price_tier: pi.price_positioning_label,
+        market_opportunity_gap: pi.market_opportunity_gap,
+        key_strengths: pi.key_strengths || [],
+        key_weaknesses: pi.key_weaknesses || [],
+        // Raw OCR for accurate formula reconstruction
+        supplement_facts_raw: (p.supplement_facts_raw || '').substring(0, 800),
+        other_ingredients: p.other_ingredients,
+      };
+    }),
   };
 }
 
-// ─── Build Prompt (Carlo's exact template) ───────────────────────────────────
+// ─── Build Prompt (Carlo's exact template + P6 market intel + top20 formulas) ──
 
 function buildPrompt(marketData) {
   const cs = marketData.category_summary;
   const leader = cs.top_performers[0];
   const refs = marketData.formula_references;
+  const mi = marketData.market_intelligence;
+  const top20 = marketData.top20_competitors || [];
+
+  // P6 market intelligence section
+  const marketIntelSection = mi?.has_data
+    ? `## P6 MARKET INTELLIGENCE REPORT (AI-Generated, All ${cs.total_products} Products)
+${mi.report?.substring(0, 4000) || 'Not available'}
+[... full report truncated for context window ...]`
+    : `## P6 MARKET INTELLIGENCE
+Not yet generated. Run: node phase6-market-analysis.js`;
+
+  // Top 20 competitor formula table
+  const top20FormulasSection = top20.slice(0, 20).map(c => `
+### #${c.rank} ${c.brand} — BSR ${c.bsr?.toLocaleString()} | $${c.monthly_revenue?.toLocaleString()}/mo | $${c.price} | ${c.rating}⭐ (${c.reviews?.toLocaleString()} reviews)
+**Formula:** ${c.ashwagandha_mg || '?'}mg ${c.extract_type || 'Unknown'} ${c.withanolides ? `(${c.withanolides} withanolides)` : ''}
+**Bonus ingredients:** ${c.bonus_ingredients.join(', ') || 'None'}
+**Certifications:** ${c.certifications.join(', ') || 'None'} | Sugar-Free: ${c.is_sugar_free} | Vegan: ${c.is_vegan} | 3rd Party Tested: ${c.is_third_party_tested}
+**Formula Score:** ${c.formula_score}/10 | **Threat:** ${c.threat_level} | **BSR Trend:** ${c.bsr_trend}
+**Price Tier:** ${c.price_tier} | **Revenue/Review:** $${c.revenue_per_review}/review
+**Key Strengths:** ${c.key_strengths.join('; ') || 'N/A'}
+**Key Weaknesses:** ${c.key_weaknesses.join('; ') || 'N/A'}
+**Market Gap:** ${c.market_opportunity_gap || 'N/A'}
+**OCR Supplement Facts:** ${c.supplement_facts_raw || 'Not available'}
+${c.other_ingredients ? `**Other Ingredients:** ${c.other_ingredients}` : ''}
+`).join('\n---\n');
 
   const leaderSection = leader ? `
 #1 BESTSELLER: ${leader.brand}
@@ -333,9 +425,28 @@ ${p.other_ingredients || 'Not specified'}
     `${i + 1}. ${c.claim}: ${c.count} products`
   ).join('\n') || 'Claims data not available';
 
-  return `You are a senior supplement formulation specialist creating a FORMULA SPECIFICATION to BEAT the #1 market leader.
+  return `You are a senior supplement formulation specialist and CMO consultant creating a FORMULA SPECIFICATION to BEAT the #1 market leader for DOVIVE brand.
 
-# MISSION: CREATE A FORMULA THAT CAN COMPETE WITH THE #1 BESTSELLER BY LEVERAGING INNOVATIONS FROM NEW HIGH-GROWTH WINNERS
+# MISSION: DECONSTRUCT TOP COMPETITORS' FORMULAS → IDENTIFY MARKET DEMAND → BUILD A BETTER FORMULA
+
+Your job:
+1. Study the exact formulas of the top 20 competitors (OCR-extracted supplement facts below)
+2. Understand what the market wants (P6 market intelligence report below)
+3. Reconstruct what's working in top competitors' formulas
+4. Improve on it based on consumer pain points, market gaps, and emerging ingredient trends
+5. Output a complete, production-ready CMO formula specification
+
+---
+
+${marketIntelSection}
+
+---
+
+## 🏆 TOP 20 COMPETITOR FORMULA DECONSTRUCTION
+
+These are the formulas you must analyze, reconstruct, and BEAT. Full OCR supplement facts included.
+
+${top20FormulasSection}
 
 ---
 
