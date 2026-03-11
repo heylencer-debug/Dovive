@@ -1,4 +1,4 @@
-/**
+﻿/**
  * migrate-reviews-to-dash.js
  * Builds review_analysis JSON from raw dovive_reviews and pushes to supplement-scope-dash products
  * Scope: ashwagandha gummies (category 820537da-3994-4a11-a2e0-a636d751b26f)
@@ -25,7 +25,7 @@ const { createClient } = require('@supabase/supabase-js');
 const DOVIVE = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const DASH = createClient(
   'https://jwkitkfufigldpldqtbq.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3a2l0a2Z1ZmlnbGRwbGRxdGJxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEwNDU2NDUsImV4cCI6MjA3NjYyMTY0NX0.VziSAuTdqcteRERIPCdrMy4vqQuHjeC3tvazE0E8nMM'
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3a2l0a2Z1ZmlnbGRwbGRxdGJxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTA0NTY0NSwiZXhwIjoyMDc2NjIxNjQ1fQ.FjLFaMPE4VO5vVwFEAAvLiub3Xc1hhjsv9fd2jWFIAc'
 );
 
 const DASH_CAT_ID = '820537da-3994-4a11-a2e0-a636d751b26f';
