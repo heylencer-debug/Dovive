@@ -28,8 +28,36 @@ const DASH = createClient(
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3a2l0a2Z1ZmlnbGRwbGRxdGJxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTA0NTY0NSwiZXhwIjoyMDc2NjIxNjQ1fQ.FjLFaMPE4VO5vVwFEAAvLiub3Xc1hhjsv9fd2jWFIAc'
 );
 
-const DASH_CAT_ID = '820537da-3994-4a11-a2e0-a636d751b26f';
-const KEYWORD = 'ashwagandha gummies';
+// ── Dynamic keyword + category resolution ─────────────────────
+const _kwIdx = process.argv.indexOf('--keyword');
+const KEYWORD = _kwIdx >= 0
+  ? process.argv[_kwIdx + 1]
+  : (process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : 'ashwagandha gummies');
+
+async function lookupCategoryId(keyword) {
+  const words = keyword.toLowerCase().split(' ');
+  const { data: cats } = await DASH.from('categories').select('id,name').ilike('name', `%${words[0]}%`).limit(30);
+  if (!cats?.length) throw new Error(`No category found for keyword "${keyword}"`);
+  const scored = cats.map(c => {
+    const lower = c.name.toLowerCase();
+    const score = words.filter(w => lower.includes(w)).length;
+    return { ...c, score };
+  }).filter(c => c.score >= words.length).sort((a, b) => b.score - a.score);
+  if (!scored.length) throw new Error(`No category found for keyword "${keyword}"`);
+  const topScore = scored[0].score;
+  const tied = scored.filter(c => c.score === topScore);
+  if (tied.length === 1) {
+    console.log(`  → Resolved category: "${tied[0].name}" (${tied[0].id})`);
+    return tied[0].id;
+  }
+  const counts = await Promise.all(tied.map(async c => {
+    const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
+    return { ...c, count: count || 0 };
+  }));
+  counts.sort((a, b) => b.count - a.count);
+  console.log(`  → Resolved category (largest): "${counts[0].name}" (${counts[0].id}) — ${counts[0].count} products`);
+  return counts[0].id;
+}
 
 function buildReviewAnalysis(reviews) {
   const total = reviews.length;
@@ -71,7 +99,10 @@ function buildReviewAnalysis(reviews) {
 }
 
 async function run() {
-  console.log('=== Reviews Migration: dovive → supplement-scope-dash ===\n');
+  console.log(`=== Reviews Migration: dovive → supplement-scope-dash ===`);
+  console.log(`Keyword: "${KEYWORD}"\n`);
+
+  const DASH_CAT_ID = await lookupCategoryId(KEYWORD);
 
   // 1. Get dash product ASINs for this category
   const { data: dashProducts, error: dashErr } = await DASH

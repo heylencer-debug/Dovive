@@ -77,11 +77,37 @@ function runScript(scriptPath, args = []) {
 // ─── Phase Status Checks ──────────────────────────────────────────────────────
 
 async function getCategoryId() {
-  const { data } = await DASH.from('categories').select('id, name').ilike('name', `%${KEYWORD.split(' ')[0]}%`).limit(5);
-  if (!data?.length) return null;
-  // Find best match
-  const exact = data.find(c => c.name.toLowerCase().includes(KEYWORD.toLowerCase()));
-  return (exact || data[0]).id;
+  const words = KEYWORD.toLowerCase().split(' ');
+  // Get all candidate categories
+  const { data: cats } = await DASH.from('categories').select('id, name').ilike('name', `%${words[0]}%`).limit(30);
+  if (!cats?.length) return null;
+
+  // Score by word match count
+  const scored = cats.map(c => {
+    const lower = c.name.toLowerCase();
+    const score = words.filter(w => lower.includes(w)).length;
+    return { ...c, score };
+  }).filter(c => c.score >= words.length) // must match ALL words
+    .sort((a, b) => b.score - a.score);
+
+  if (!scored.length) return null;
+
+  // If multiple exact-word matches, pick the one with the most products
+  const topScore = scored[0].score;
+  const tied = scored.filter(c => c.score === topScore);
+  if (tied.length === 1) {
+    console.log(`  → Category resolved: "${tied[0].name}" (${tied[0].id})`);
+    return tied[0].id;
+  }
+
+  // Tie-break: pick category with most products
+  const counts = await Promise.all(tied.map(async c => {
+    const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
+    return { ...c, count: count || 0 };
+  }));
+  counts.sort((a, b) => b.count - a.count);
+  console.log(`  → Category resolved (largest): "${counts[0].name}" (${counts[0].id}) — ${counts[0].count} products`);
+  return counts[0].id;
 }
 
 async function checkPhaseStatus(phaseNum, categoryId) {
@@ -140,11 +166,16 @@ async function checkPhaseStatus(phaseNum, categoryId) {
 const PHASES = [
   {
     num: 1, name: 'Amazon Scrape', description: 'Scrape Amazon search results for keyword',
-    run: async () => runScript('human-bsr.js', ['--keyword', KEYWORD])
+    // human-bsr.js reads process.argv[2] as the keyword (positional, not --keyword)
+    run: async () => runScript('human-bsr.js', [KEYWORD])
   },
   {
     num: 2, name: 'Keepa Enrichment', description: 'Fetch BSR history, sales & revenue from Keepa',
-    run: async () => runScript('keepa-phase2.js', [KEYWORD])
+    run: async () => {
+      await runScript('keepa-phase2.js', [KEYWORD]);
+      console.log('\n→ Syncing Keepa data to dashboard (migrate-keepa-to-dash.js)...');
+      await runScript('migrate-keepa-to-dash.js', [KEYWORD]);
+    }
   },
   {
     num: 3, name: 'Reviews', description: 'Scrape and analyze customer reviews',
