@@ -31,11 +31,12 @@ const DASH = createClient(
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3a2l0a2Z1ZmlnbGRwbGRxdGJxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTA0NTY0NSwiZXhwIjoyMDc2NjIxNjQ1fQ.FjLFaMPE4VO5vVwFEAAvLiub3Xc1hhjsv9fd2jWFIAc'
 );
 
-const CAT_ID  = '820537da-3994-4a11-a2e0-a636d751b26f';
 const KEYWORD = process.argv.includes('--keyword')
   ? process.argv[process.argv.indexOf('--keyword') + 1]
   : 'ashwagandha gummies';
 const FORCE   = process.argv.includes('--force');
+
+// CAT_ID is resolved dynamically in run() — no hardcoding
 
 // â”€â”€â”€ xAI Key â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -253,7 +254,9 @@ Return a valid JSON object mapping each ASIN to a one-line comparison note:
 
 ---
 
-Be brutally honest. If P8 over-engineered the formula with 16 ingredients when the market only supports 4-6, say so. If our KSM-66 dose is unrealistically high for a gummy, flag it. This is the final QA gate before we send specs to a manufacturer.`;
+Be brutally honest. If P8 over-engineered the formula with 16 ingredients when the market only supports 4-6, say so. If our KSM-66 dose is unrealistically high for a gummy, flag it. This is the final QA gate before we send specs to a manufacturer.
+
+⚠️ CRITICAL OUTPUT REQUIREMENT: You MUST include the section "## ADJUSTED FORMULA SPECIFICATION" as an exact heading (two ## symbols, exact casing). This section is machine-parsed by our pipeline. If this heading is missing, the adjusted formula will not save to our database. Do not rename it, do not skip it, do not embed it inside another section.`;
 }
 
 // â”€â”€â”€ Parse competitor notes from QA output â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -293,6 +296,21 @@ async function run() {
   console.log(`\n${'â•'.repeat(62)}`);
   console.log(`P9: FORMULA QA & COMPETITIVE BENCHMARKING â€” "${KEYWORD}"`);
   console.log(`${'â•'.repeat(62)}\n`);
+
+  
+  // Dynamic category lookup — no hardcoded CAT_ID
+  const { data: catMatches } = await DASH.from('categories')
+    .select('id, name').ilike('name', `%${KEYWORD}%`).order('created_at', { ascending: true }).limit(5);
+  if (!catMatches?.length) { console.error(`ERROR: No category found for "${KEYWORD}"`); setTimeout(() => process.exit(1), 100); return; }
+  let CAT_ID = catMatches[0].id;
+  if (catMatches.length > 1) {
+    const counts = await Promise.all(catMatches.map(async c => {
+      const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
+      return { ...c, count: count || 0 };
+    }));
+    CAT_ID = counts.sort((a, b) => b.count - a.count)[0].id;
+  }
+  console.log(`Category: ${catMatches.find(c => c.id === CAT_ID)?.name} (${CAT_ID})\n`);
 
   // Check if already done
   if (!FORCE) {
