@@ -35,8 +35,9 @@ const OPENCLAW_TOKEN = process.env.OPENCLAW_TOKEN;
 const KEYWORD = process.argv.includes('--keyword')
   ? process.argv[process.argv.indexOf('--keyword') + 1]
   : null;
-const FROM_PHASE = process.argv.includes('--from')
-  ? parseInt(process.argv[process.argv.indexOf('--from') + 1].replace('P', ''))
+const _fromFlag = process.argv.includes('--from-phase') ? '--from-phase' : process.argv.includes('--from') ? '--from' : null;
+const FROM_PHASE = _fromFlag
+  ? parseInt(process.argv[process.argv.indexOf(_fromFlag) + 1].replace('P', ''))
   : 1;
 const ONLY_PHASES = process.argv.includes('--phases')
   ? process.argv[process.argv.indexOf('--phases') + 1].split(',').map(p => parseInt(p.replace('P', '')))

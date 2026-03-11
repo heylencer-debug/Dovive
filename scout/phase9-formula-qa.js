@@ -295,7 +295,7 @@ async function run() {
       .select('ingredients').eq('category_id', CAT_ID).limit(1).single();
     if (existing?.ingredients?.qa_report) {
       console.log(`âœ… P9 QA report already exists. Use --force to regenerate.`);
-      process.exit(0);
+      return;
     }
   }
 
@@ -308,7 +308,7 @@ async function run() {
   const claudeBrief = briefRow?.ingredients?.ai_generated_brief_claude || null;
   if (!grokBrief && !claudeBrief) {
     console.error('ERROR: No P9 formula briefs found. Run phase8-formula-brief.js first.');
-    process.exit(1);
+    setTimeout(() => process.exit(1), 100);
   }
   console.log(`  Grok 4.2 brief:    ${grokBrief   ? Math.round(grokBrief.length/1000)+'k chars OK' : 'NOT FOUND'}`);
   console.log(`  Claude Opus brief: ${claudeBrief ? Math.round(claudeBrief.length/1000)+'k chars OK' : 'NOT FOUND (single model run)'}`);
@@ -413,4 +413,10 @@ async function run() {
   if (adjustedFormula) console.log(`Adjusted formula: extracted âœ…`);
 }
 
-run().catch(e => { console.error('\nâŒ FAILED:', e.message); process.exit(1); });
+
+run()
+  .then(() => setTimeout(() => process.exit(0), 500))
+  .catch(function(e) {
+    console.error(e.message);
+    setTimeout(() => process.exit(1), 500);
+  });
