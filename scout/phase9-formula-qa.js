@@ -1,5 +1,5 @@
 ﻿/**
- * phase9-formula-qa.js â€” Formula QA & Competitive Benchmarking
+ * phase9-formula-qa.js â€" Formula QA & Competitive Benchmarking
  *
  * Acts as a senior pharmaceutical formulator + QA specialist.
  * Stress-tests the P8 formula against every competitor formula one-by-one.
@@ -36,9 +36,9 @@ const KEYWORD = process.argv.includes('--keyword')
   : 'ashwagandha gummies';
 const FORCE   = process.argv.includes('--force');
 
-// CAT_ID is resolved dynamically in run() — no hardcoding
+// CAT_ID is resolved dynamically in run() - no hardcoding
 
-// â”€â”€â”€ xAI Key â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ xAI Key â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 function getOpenRouterKey() {
   const sterlingEnv = require('path').join(__dirname, '../../sterling/.env');
@@ -71,7 +71,7 @@ async function callClaudeOpusQA(prompt, maxTokens = 12000) {
   }
 }
 
-// â”€â”€â”€ Load P6 market intelligence from vault â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Load P6 market intelligence from vault â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 function loadMarketIntelFromVault(keyword) {
   const slug = keyword.replace(/\s+/g, '-').toLowerCase();
@@ -82,7 +82,7 @@ function loadMarketIntelFromVault(keyword) {
   return fs.readFileSync(path.join(dir, files[0]), 'utf8');
 }
 
-// â”€â”€â”€ Build QA prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Build QA prompt â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 function buildQAPrompt(grokBrief, marketIntel, competitors, keyword, claudeBrief = null) {
   const competitorSection = competitors.map((c, i) => {
@@ -114,8 +114,8 @@ function buildQAPrompt(grokBrief, marketIntel, competitors, keyword, claudeBrief
 ## YOUR MISSION
 
 DOVIVE's AI (P8) produced a formula specification for ${keyword}. Your job is to:
-1. **Critically review** every ingredient, every dose â€” question everything
-2. **Compare head-to-head** against each of the top 20 competitors
+1. **Critically review** every ingredient, every dose â€" question everything
+2. **Compare head-to-head** against each of the top 10 competitors
 3. **Identify what's too much, what's too little, what's unjustified**
 4. **Produce an adjusted formula** with precise reasoning for every change
 5. **Write competitor comparison notes** that will show on each competitor's card
@@ -126,14 +126,14 @@ This is a CRITICAL QA gate. P8 AI may have over-engineered the formula. Be the e
 
 ## DUAL AI FORMULA PROPOSALS (both to be reviewed and adjudicated)
 
-### FORMULA A — Grok 4.2 Deep Reasoning (grok-4.20-beta-0309-reasoning)
+### FORMULA A - Grok 4.2 Deep Reasoning (grok-4.20-beta-0309-reasoning)
 ${(grokBrief || "Not available").substring(0, 4000)}
-${(grokBrief || "").length > 4000 ? "\n[Grok brief continues — key sections shown above]\n" : ""}
+${(grokBrief || "").length > 4000 ? "\n[Grok brief continues - key sections shown above]\n" : ""}
 
-### FORMULA B — Claude Opus 4.6 (anthropic/claude-opus-4.6)
+### FORMULA B - Claude Opus 4.6 (anthropic/claude-opus-4.6)
 
 ${claudeBrief ? claudeBrief.substring(0, 4000) : "Claude Opus brief not available (single-model run)"}
-${claudeBrief && claudeBrief.length > 4000 ? "\n[Claude brief continues — key sections shown above]\n" : ""}
+${claudeBrief && claudeBrief.length > 4000 ? "\n[Claude brief continues - key sections shown above]\n" : ""}
 
 ---
 
@@ -143,34 +143,72 @@ ${(marketIntel || 'Not available').substring(0, 3000)}
 
 ---
 
-## TOP 20 COMPETITORS (formula-by-formula comparison)
+## TOP 10 COMPETITORS (formula-by-formula comparison)
 
 ${competitorSection}
 
 ---
 
-## YOUR DELIVERABLE â€” produce this exact markdown structure:
+## YOUR DELIVERABLE â€" produce this exact markdown structure:
 
-# P9 FORMULA QA REPORT â€” ${keyword.toUpperCase()}
+# P9 FORMULA QA REPORT â€" ${keyword.toUpperCase()}
+
+## FINAL FORMULA BRIEF
+(Write this FIRST - complete, production-ready manufacturing spec synthesizing Formula A + Formula B + QA corrections. This is what goes to the CMO. Full detail required - match the depth of the input briefs.)
+
+### Executive Summary
+[2-3 sentences: market opportunity, who it is for, key differentiator vs Goli/competitors]
+
+### Recommended Formula - Per Serving (2 gummies)
+| Ingredient | Amount | Form / Grade | Role | Why This Dose |
+|---|---|---|---|---|
+[Actives only - must stay within 250-350mg actives per gummy max for real manufacturability]
+
+### Excipients & Manufacturing Notes
+[Pectin, sweeteners, acids, flavors, colors - with specific CMO instructions]
+
+### Supplement Facts Panel (label-ready, FDA-compliant)
+Serving Size: 2 Gummies | Servings Per Container: 45
+[All ingredients with amounts and %DV]
+
+### Certifications Required
+| Certification | Priority | Reason |
+|---|---|---|
+
+### Flavor & Format
+[Flavor name, gummy form, color, texture notes]
+
+### Variant Lineup
+[2-3 SKUs with names and differentiation]
+
+### Pricing & Margin Targets
+| Format | MSRP | Est. COGS/serving | Target Margin |
+|---|---|---|---|
+
+### Claims (Label + Marketing)
+[Bullet list - structure/function only, no disease claims]
+
+### Why DOVIVE Wins
+[3-5 bullets - competitive advantages vs top ASINs]
 
 ## QA VERDICT
 **Overall:** [APPROVED / APPROVED WITH ADJUSTMENTS / NEEDS MAJOR REVISION]
 **QA Score:** X/10
-**Summary:** 2-3 sentences â€” did P8 AI over-engineer this? What's the critical finding?
+**Summary:** 2-3 sentences â€" did P8 AI over-engineer this? What's the critical finding?
 
-## CRITICAL ISSUES â›”
+## CRITICAL ISSUES â›"
 (Issues that MUST be fixed before manufacturing)
 | # | Issue | Ingredient/Element | Problem | Fix |
 |---|---|---|---|---|
 | 1 | ... | ... | ... | ... |
 
-## WARNINGS âš ï¸
+## WARNINGS âš ï¸
 (Important but not blocking)
 | # | Warning | Detail | Recommendation |
 |---|---|---|---|
 
 ## DOSE ANALYSIS TABLE
-(Every active ingredient â€” is the dose right?)
+(Every active ingredient â€" is the dose right?)
 | Ingredient | Proposed Dose | Clinical Effective Range | Market Avg | Verdict | Notes |
 |---|---|---|---|---|---|
 
@@ -184,12 +222,12 @@ ${competitorSection}
 | Gummy texture impact | ... | ... | ... |
 
 ## COMPETITOR HEAD-TO-HEAD COMPARISON
-(One section per competitor â€” be specific)
+(One section per competitor â€" be specific)
 
-### vs [Brand] â€” BSR [X] | $[price]
+### vs [Brand] â€" BSR [X] | $[price]
 **Our formula vs theirs:**
-- Ashwagandha: our [Xmg KSM-66] vs their [Ymg Unknown] â†’ [ADVANTAGE OURS / THEIRS / TIE]
-- Bonus ingredients: we have [A,B,C] they have [D,E] â†’ [analysis]
+- Ashwagandha: our [Xmg KSM-66] vs their [Ymg Unknown] â†' [ADVANTAGE OURS / THEIRS / TIE]
+- Bonus ingredients: we have [A,B,C] they have [D,E] â†' [analysis]
 - Price positioning: [analysis]
 - Sugar content: [comparison]
 - Third-party testing: [comparison]
@@ -212,7 +250,7 @@ ${competitorSection}
 | Overall QA Score | [X/10] | [X/10] | [A/B] |
 
 **Winner:** [Formula A or B]
-**Reason:** [One sentence — why this formula is stronger for DOVIVE]
+**Reason:** [One sentence - why this formula is stronger for DOVIVE]
 
 **Best elements from Formula A to keep:** [list]
 **Best elements from Formula B to incorporate:** [list]
@@ -223,7 +261,7 @@ ${competitorSection}
 |---|---|---|---|
 
 ## ADJUSTED FORMULA SPECIFICATION
-(Complete revised formula â€” production ready)
+(Complete revised formula â€" production ready)
 
 ### Per Serving (2 gummies)
 | Ingredient | Amount | Form/Grade | Justification |
@@ -239,16 +277,16 @@ ${competitorSection}
 [key instructions for CMO]
 
 ### Cost Estimate
-- Estimated COGS per serving: $X.XXâ€“$X.XX
+- Estimated COGS per serving: $X.XXâ€"$X.XX
 - Target MSRP: $XX.XX
 - Estimated margin: XX%
 
 ## QA SIGN-OFF NOTES
 (What to tell the contract manufacturer)
-[paragraph â€” key QA requirements, testing protocols, stability concerns]
+[paragraph â€" key QA requirements, testing protocols, stability concerns]
 
 ## COMPETITOR_NOTES_JSON
-(Do NOT skip this section â€” used to populate competitor cards in dashboard)
+(Do NOT skip this section â€" used to populate competitor cards in dashboard)
 Return a valid JSON object mapping each ASIN to a one-line comparison note:
 {"ASIN1": "note", "ASIN2": "note", ...}
 
@@ -256,10 +294,15 @@ Return a valid JSON object mapping each ASIN to a one-line comparison note:
 
 Be brutally honest. If P8 over-engineered the formula with 16 ingredients when the market only supports 4-6, say so. If our KSM-66 dose is unrealistically high for a gummy, flag it. This is the final QA gate before we send specs to a manufacturer.
 
-⚠️ CRITICAL OUTPUT REQUIREMENT: You MUST include the section "## ADJUSTED FORMULA SPECIFICATION" as an exact heading (two ## symbols, exact casing). This section is machine-parsed by our pipeline. If this heading is missing, the adjusted formula will not save to our database. Do not rename it, do not skip it, do not embed it inside another section.`;
+⚠️ CRITICAL OUTPUT REQUIREMENTS (machine-parsed - do not skip or rename):
+1. "## ADJUSTED FORMULA SPECIFICATION" - exact heading, two ## symbols
+2. "## FINAL FORMULA BRIEF" - exact heading, must appear BEFORE ## COMPETITOR_NOTES_JSON
+3. "## COMPETITOR_NOTES_JSON" - exact heading with valid JSON object
+
+All three sections are required. If any is missing, pipeline data will not save correctly.`;
 }
 
-// â”€â”€â”€ Parse competitor notes from QA output â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Parse competitor notes from QA output â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 function parseCompetitorNotes(qaReport) {
   const match = qaReport.match(/## COMPETITOR_NOTES_JSON\s*\n([\s\S]*?)(?:\n##|$)/);
@@ -277,7 +320,7 @@ function parseCompetitorNotes(qaReport) {
   }
 }
 
-// â”€â”€â”€ Parse QA verdict â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Parse QA verdict â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 function parseQAVerdict(qaReport) {
   const verdictMatch = qaReport.match(/\*\*Overall:\*\*\s*(.+)/);
@@ -290,15 +333,15 @@ function parseQAVerdict(qaReport) {
   };
 }
 
-// â”€â”€â”€ Main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Main â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 async function run() {
   console.log(`\n${'â•'.repeat(62)}`);
-  console.log(`P9: FORMULA QA & COMPETITIVE BENCHMARKING â€” "${KEYWORD}"`);
+  console.log(`P9: FORMULA QA & COMPETITIVE BENCHMARKING â€" "${KEYWORD}"`);
   console.log(`${'â•'.repeat(62)}\n`);
 
-  
-  // Dynamic category lookup — no hardcoded CAT_ID
+
+  // Dynamic category lookup - no hardcoded CAT_ID
   const { data: catMatches } = await DASH.from('categories')
     .select('id, name').ilike('name', `%${KEYWORD}%`).order('created_at', { ascending: true }).limit(5);
   if (!catMatches?.length) { console.error(`ERROR: No category found for "${KEYWORD}"`); setTimeout(() => process.exit(1), 100); return; }
@@ -341,8 +384,8 @@ async function run() {
   const marketIntel = loadMarketIntelFromVault(KEYWORD);
   console.log(`  ${marketIntel ? `OK Loaded from vault (${Math.round(marketIntel.length / 1000)}k chars)` : 'Not found in vault - P10 will run without market context'}`);
 
-  // Load top 20 competitors
-  console.log(`Loading top 20 competitors with formulas...`);
+  // Load top 10 competitors
+  console.log(`Loading top 10 competitors with formulas...`);
   const { data: competitors } = await DASH.from('products')
     .select(`asin, brand, title, bsr_current, price, monthly_revenue, monthly_sales,
              rating_value, rating_count, supplement_facts_raw, marketing_analysis`)
@@ -357,37 +400,46 @@ async function run() {
   const prompt = buildQAPrompt(grokBrief, marketIntel, competitors || [], KEYWORD, claudeBrief);
   console.log(`  Prompt size: ${Math.round(prompt.length / 1000)}k chars\n`);
 
-  // â”€â”€ Call Grok â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Call Grok â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   console.log(`Calling Claude Opus 4.6 via OpenRouter (QA adjudicator)...`);
   const startTime = Date.now();
   const qaReport = await callClaudeOpusQA(prompt, 8000);
   const elapsed = Math.round((Date.now() - startTime) / 1000);
   console.log(`  âœ… Done (${elapsed}s, ${Math.round(qaReport.length / 1000)}k chars)\n`);
 
-  // â”€â”€ Parse output â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Parse output â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const verdict = parseQAVerdict(qaReport);
   const competitorNotes = parseCompetitorNotes(qaReport);
   const noteCount = Object.keys(competitorNotes).length;
   console.log(`QA Verdict: ${verdict.verdict} | Score: ${verdict.score}/10`);
   console.log(`Competitor notes parsed: ${noteCount}\n`);
 
-  // â”€â”€ Extract adjusted formula section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  const adjustedFormulaMatch = qaReport.match(/## ADJUSTED FORMULA SPECIFICATION([\s\S]*?)(?:\n## |$)/);
-  const adjustedFormula = adjustedFormulaMatch?.[1]?.trim() || null;
-
-  // Parse the complete Final Formula Brief
-  const finalBriefMatch = qaReport.match(/## FINAL FORMULA BRIEF([\s\S]*?)(?:\n## COMPETITOR_NOTES_JSON|$)/);
+  // ── Parse Final Formula Brief FIRST (written first in output) ──────────────
+  const finalBriefMatch = qaReport.match(/## FINAL FORMULA BRIEF([\s\S]*?)(?:\n## QA VERDICT|$)/);
   const finalFormulaBrief = finalBriefMatch?.[1]?.trim() || null;
   if (finalFormulaBrief) {
-    console.log(`  Final Formula Brief parsed: ${Math.round(finalFormulaBrief.length / 1000)}k chars ✅`);
+    console.log(`  Final Formula Brief: ${Math.round(finalFormulaBrief.length / 1000)}k chars OK`);
   } else {
-    console.log(`  ⚠️  Final Formula Brief section not found in QA output`);
+    console.log(`  WARNING: Final Formula Brief section not found in QA output`);
+  }
+
+  // ── Adjusted formula: standalone section OR extracted from brief ─────────────
+  const adjustedFormulaMatch = qaReport.match(/## ADJUSTED FORMULA SPECIFICATION([\s\S]*?)(?:\n## |$)/);
+  const adjustedFormulaFromBrief = finalFormulaBrief
+    ? finalFormulaBrief.match(/### Recommended Formula[\s\S]*?(?=\n### |$)/)?.[0]?.trim() || null
+    : null;
+  const adjustedFormula = adjustedFormulaMatch?.[1]?.trim() || adjustedFormulaFromBrief || null;
+  if (adjustedFormula) {
+    const src = adjustedFormulaMatch ? 'standalone section' : 'extracted from Final Formula Brief';
+    console.log(`  Adjusted formula: ${Math.round(adjustedFormula.length / 1000)}k chars OK (${src})`);
+  } else {
+    console.log(`  WARNING: Adjusted formula not found`);
   }
 
   const adjustmentsMatch = qaReport.match(/## FORMULA ADJUSTMENTS\s*\n[\s\S]*?\n(\|[\s\S]*?)(?:\n## )/);
   const adjustmentsTable = adjustmentsMatch?.[1]?.trim() || null;
 
-  // â”€â”€ Save QA report to formula_briefs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Save QA report to formula_briefs â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   console.log(`Saving QA report to Supabase...`);
   const updatedIngredients = {
     ...(briefRow.ingredients || {}),
@@ -404,7 +456,7 @@ async function run() {
   if (saveErr) console.error(`  âŒ Save error: ${saveErr.message}`);
   else console.log(`  âœ… Saved to formula_briefs.ingredients.qa_report`);
 
-  // â”€â”€ Save competitor notes to products â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Save competitor notes to products â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   if (noteCount > 0) {
     console.log(`\nSaving comparison notes to ${noteCount} products...`);
     let notesSaved = 0;
@@ -421,7 +473,7 @@ async function run() {
     console.log(`  âœ… Notes saved: ${notesSaved}/${noteCount}`);
   }
 
-  // â”€â”€ Save to vault â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Save to vault â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   console.log(`\nSaving to vault...`);
   const date = new Date().toISOString().split('T')[0];
   const slug = KEYWORD.replace(/\s+/g, '-').toLowerCase();
@@ -429,7 +481,7 @@ async function run() {
   if (!fs.existsSync(vaultDir)) fs.mkdirSync(vaultDir, { recursive: true });
   const vaultPath = path.join(vaultDir, `${date}-${slug}-qa-report.md`);
   fs.writeFileSync(vaultPath, [
-    `# P9 Formula QA Report â€” ${KEYWORD}`,
+    `# P9 Formula QA Report â€" ${KEYWORD}`,
     `Generated: ${new Date().toISOString()}`,
     `Verdict: ${verdict.verdict} | Score: ${verdict.score}/10`,
     ``,
@@ -437,7 +489,7 @@ async function run() {
   ].join('\n'));
   console.log(`  âœ… ${vaultPath}`);
 
-  // â”€â”€ Preview â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Preview â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   console.log(`\n${'â•'.repeat(62)}`);
   console.log(`P9 COMPLETE`);
   console.log(`Verdict: ${verdict.verdict} | Score: ${verdict.score}/10`);
