@@ -1,4 +1,4 @@
-/**
+﻿/**
  * phase5-deep-research.js — Automated P5 Deep Research
  *
  * Fetches two pools of products from Supabase and runs Grok 4.2 deep
@@ -48,7 +48,7 @@ function getXaiKey() {
 
 // ─── Grok 4.2 Deep Research Call ──────────────────────────────────────────────
 
-async function callGrok42(prompt) {
+async function callGrok(prompt) {
   const key = getXaiKey();
   if (!key) throw new Error('XAI_API_KEY not found in sterling/.env');
 
@@ -56,13 +56,13 @@ async function callGrok42(prompt) {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'grok-4.20-beta-0309-reasoning',
+      model: 'grok-4-1-fast-non-reasoning',
       max_tokens: 4000,
       messages: [{ role: 'user', content: prompt }],
     }),
   });
   const j = await res.json();
-  if (j.error) throw new Error(`Grok 4.2 error: ${j.error.message}`);
+  if (j.error) throw new Error(`Grok error: ${j.error.message}`);
   return j.choices?.[0]?.message?.content || null;
 }
 
@@ -236,7 +236,7 @@ function parseResearchOutput(rawText, product, pool) {
     competitor_angle: angleSection.substring(0, 600),
     full_research: rawText,
     researched_at: new Date().toISOString(),
-    researched_by: 'grok-4.20-beta-0309-reasoning',
+    researched_by: 'grok-4-1-fast-non-reasoning',
     phase: 5,
   };
 }
@@ -332,7 +332,7 @@ async function run() {
   console.log(`\n${'═'.repeat(60)}`);
   console.log(`🔎 PHASE 5: DEEP RESEARCH — "${KEYWORD}"`);
   console.log(`Pool: ${POOL_ARG === 'both' ? 'Top 10 BSR + Top 10 New Brands' : POOL_ARG === 'top10' ? 'Top 10 BSR only' : 'Top 10 New Brands only'}`);
-  console.log(`Model: grok-4.20-beta-0309-reasoning (deep thinking)`);
+  console.log(`Model: grok-4-1-fast-non-reasoning (deep thinking)`);
   console.log(`${'═'.repeat(60)}\n`);
 
   // Get category
@@ -394,10 +394,10 @@ async function run() {
     try {
       // Build and run prompt
       const prompt = buildProductPrompt(product, rank, pool, KEYWORD);
-      console.log(`  Prompt: ${Math.round(prompt.length / 1000)}k chars | Calling Grok 4.2 deep reasoning...`);
+      console.log(`  Prompt: ${Math.round(prompt.length / 1000)}k chars | Calling Grok 4.1 fast...`);
 
       const start = Date.now();
-      const rawOutput = await callGrok42(prompt);
+      const rawOutput = await callGrok(prompt);
       const elapsed = Math.round((Date.now() - start) / 1000);
 
       if (!rawOutput) throw new Error('Empty response from Grok 4.2');
@@ -426,7 +426,7 @@ async function run() {
   console.log(`${'═'.repeat(60)}`);
   console.log(`Researched: ${done} | Failed: ${failed} | Skipped: ${toSkip}`);
   console.log(`Pools: Top 10 BSR + Top 10 New Brands`);
-  console.log(`Model: grok-4.20-beta-0309-reasoning`);
+  console.log(`Model: grok-4-1-fast-non-reasoning`);
   console.log(`\nNext: run phase6-product-intelligence.js to score all 159 products`);
 }
 
