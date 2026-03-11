@@ -537,6 +537,58 @@ async function runCall2(keyword, grokBrief, claudeBrief, adjustedFormula, compet
   return { comprehensiveComparison, flavorQA, competitorNotes };
 }
 
+// ── Call 3: Competitor Notes ONLY — tiny focused JSON call ────────────────────
+async function runCall3CompetitorNotes(keyword, adjustedFormula, competitors) {
+  console.log(`\nRunning Call 3: Competitor Notes (JSON only)...`);
+  const top10 = (competitors || []).slice(0, 10);
+
+  const compLines = top10.map(c => {
+    const sf = (c.supplement_facts_raw || '').slice(0, 300);
+    return `ASIN: ${c.asin} | Brand: ${c.brand} | BSR: ${c.bsr_current} | $${c.price}
+Formula: ${sf || 'Not available'}`;
+  }).join('\n\n');
+
+  const adjSummary = (adjustedFormula || '').slice(0, 600);
+
+  const prompt = `You are a supplement analyst. Compare DOVIVE's formula to each competitor. Output ONLY a valid JSON object — no markdown, no explanation, no code fences. Pure JSON only.
+
+DOVIVE's ${keyword} formula (QA-approved):
+${adjSummary}
+
+COMPETITORS:
+${compLines}
+
+Return this exact format — one entry per ASIN, one sentence comparing to DOVIVE. Focus on the most important difference (dose, ingredient quality, certification, or price):
+{"ASIN1": "one sentence", "ASIN2": "one sentence"}`;
+
+  try {
+    const key = getOpenRouterKey();
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 90000);
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST', signal: controller.signal,
+      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'anthropic/claude-opus-4.6',
+        max_tokens: 1500,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    const text = await res.text();
+    const parsed = JSON.parse(text);
+    const raw = parsed.choices?.[0]?.message?.content?.trim() || '';
+    // Try to extract JSON — handle if Claude adds any wrapping text
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) { console.log(`  No JSON found in response. Raw: ${raw.slice(0, 200)}`); return {}; }
+    const notes = JSON.parse(jsonMatch[0]);
+    console.log(`  Competitor notes: ${Object.keys(notes).length} ASINs OK`);
+    return notes;
+  } catch (e) {
+    console.log(`  Call 3 failed: ${e.message}`);
+    return {};
+  }
+}
+
 async function run() {
   console.log(`\n${'â•'.repeat(62)}`);
   console.log(`P9: FORMULA QA & COMPETITIVE BENCHMARKING â€" "${KEYWORD}"`);
@@ -660,13 +712,16 @@ async function run() {
 
   // â"€â"€ Save competitor notes to products â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
     // ── Call 2 invocation ──────────────────────────────────────────────────────
-  const marketIntelText = marketIntelDoc?.report || marketIntelDoc?.ai_market_analysis || '';
+  const marketIntelText = marketIntel || '';
   const { comprehensiveComparison, flavorQA, competitorNotes: call2Notes } = await runCall2(
     KEYWORD, grokBrief, claudeBrief, adjustedFormula, competitors, marketIntelText
   );
 
-  // Merge notes — call2 is authoritative
-  const finalNotes = { ...competitorNotes, ...call2Notes };
+  // Call 3: dedicated JSON-only competitor notes (always runs, always completes)
+  const call3Notes = await runCall3CompetitorNotes(KEYWORD, adjustedFormula, competitors);
+
+  // Merge: call3 > call2 > call1 parsed notes
+  const finalNotes = { ...competitorNotes, ...call2Notes, ...call3Notes };
   const finalNoteCount = Object.keys(finalNotes).length;
   console.log(`Competitor notes total: ${finalNoteCount}`);
 
@@ -688,10 +743,10 @@ async function run() {
     else console.log('  Call 2 results saved (comparison + flavor QA) OK');
   }
 
-  if (noteCount > 0) {
-    console.log(`\nSaving comparison notes to ${noteCount} products...`);
+  if (finalNoteCount > 0) {
+    console.log(Saving  competitor notes to products...);
     let notesSaved = 0;
-    for (const [asin, note] of Object.entries(finalNotes || {})) {
+    for (const [asin, note] of Object.entries(finalNotes)) {
       const { data: prod } = await DASH.from('products')
         .select('marketing_analysis').eq('asin', asin).single();
       if (!prod) continue;
@@ -701,7 +756,9 @@ async function run() {
       }).eq('asin', asin);
       if (!ne) notesSaved++;
     }
-    console.log(`  âœ… Notes saved: ${notesSaved}/${noteCount}`);
+    console.log(  Notes saved to products: / OK);
+  } else {
+    console.log('  No competitor notes to save');
   }
 
   // â"€â"€ Save to vault â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
