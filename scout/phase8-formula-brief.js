@@ -749,6 +749,10 @@ Target Length: 3,000-4,000 words (focused on FORMULA, not process)`;
 // â”€â”€â”€ Save to DB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function saveToDB(categoryId, grokBrief, claudeBrief, marketData) {
+  // Preserve market_intelligence before delete (it gets wiped otherwise)
+  const { data: existingFB } = await DASH.from('formula_briefs').select('ingredients').eq('category_id', categoryId).limit(1).maybeSingle();
+  const preservedMarketIntel = existingFB?.ingredients?.market_intelligence || null;
+
   // Delete existing brief for this category
   await DASH.from('formula_briefs').delete().eq('category_id', categoryId);
 
@@ -791,6 +795,7 @@ async function saveToDB(categoryId, grokBrief, claudeBrief, marketData) {
       claude_chars: claudeBrief?.length || 0,
       generated_at: new Date().toISOString(),
       keyword: KEYWORD,
+      market_intelligence: preservedMarketIntel, // Preserved from pre-delete
       data_sources: {
         top5_used: marketData.category_summary.top_performers.length,
         new_winners_used: marketData.formula_references.length,

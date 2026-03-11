@@ -1,16 +1,30 @@
-﻿require('dotenv').config();
+require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 
 const DASH = createClient(
   'https://jwkitkfufigldpldqtbq.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3a2l0a2Z1ZmlnbGRwbGRxdGJxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTA0NTY0NSwiZXhwIjoyMDc2NjIxNjQ1fQ.FjLFaMPE4VO5vVwFEAAvLiub3Xc1hhjsv9fd2jWFIAc'
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp3a2l0a2Z1ZmlnbGRwbGRxdGJxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTA0NTY0NSwiZXhwIjoyMDc2NjIxNjQ1fQ.FjLFaMPE4VO5vVwFEAAvLiub3Xc1hhjsv9fd2jWFIAc'
 );
 
-const CAT_ID = '820537da-3994-4a11-a2e0-a636d751b26f';
+const KEYWORD_ARG = process.argv.includes('--keyword') ? process.argv[process.argv.indexOf('--keyword') + 1] : 'ashwagandha gummies';
+const CAT_ID_ARG  = process.argv.includes('--cat-id')  ? process.argv[process.argv.indexOf('--cat-id')  + 1] : null;
 
-const record = {
-  category_id: CAT_ID,
-  category_name: 'ashwagandha gummies',
+async function resolveCatId() {
+  if (CAT_ID_ARG) return CAT_ID_ARG;
+  // Dynamic lookup by keyword
+  const { data: cats } = await DASH.from('categories').select('id,name').ilike('name', `%${KEYWORD_ARG}%`).order('created_at', { ascending: true }).limit(5);
+  if (!cats?.length) throw new Error(`No category found for "${KEYWORD_ARG}"`);
+  if (cats.length === 1) return cats[0].id;
+  const counts = await Promise.all(cats.map(async c => {
+    const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
+    return { ...c, count: count || 0 };
+  }));
+  return counts.sort((a, b) => b.count - a.count)[0].id;
+}
+
+const buildRecord = (catId, keyword) => ({
+  category_id: catId,
+  category_name: keyword,
   overall_score: 82,
   opportunity_index: 78,
   opportunity_tier: 'A',
@@ -165,22 +179,4 @@ const record = {
   reviews_analyzed: 491,
   analysis_date: new Date().toISOString(),
   run_number: 1
-};
-
-async function main() {
-  console.log('Inserting category_analyses for ashwagandha gummies...');
-  const { data, error } = await DASH.from('category_analyses').insert(record).select('id');
-  if (error) {
-    console.log('Insert error:', error.message);
-    console.log('Trying upsert...');
-    const { data: d2, error: e2 } = await DASH.from('category_analyses')
-      .upsert(record, { onConflict: 'category_id' }).select('id');
-    if (e2) { console.log('Upsert error:', e2.message); return; }
-    console.log('Upserted! id:', d2?.[0]?.id);
-  } else {
-    console.log('Inserted! id:', data?.[0]?.id);
-  }
-  console.log('Done — Benchmark Comparison Our Concept should now populate.');
-}
-
-main().catch(console.error);
+});
