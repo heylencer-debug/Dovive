@@ -409,6 +409,134 @@ function parseQAVerdict(qaReport) {
 
 // â"€â"€â"€ Main â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
+
+// ── Build focused Call 2 prompt (Comparison + Flavor + Competitor Notes) ──────
+function buildCall2Prompt(keyword, grokBrief, claudeBrief, adjustedFormula, competitors, marketIntel) {
+  const top10 = (competitors || []).slice(0, 10);
+
+  // Build competitor ingredient table data
+  const compRows = top10.map((c, i) => {
+    const sf = (c.supplement_facts_raw || '').slice(0, 500);
+    const rev = c.monthly_revenue ? `${Math.round(c.monthly_revenue / 1000)}k/mo` : 'N/A';
+    return `### Competitor ${i + 1}: ${c.brand} | BSR ${c.bsr_current} | ${rev} | ${c.price}
+ASIN: ${c.asin}
+Supplement Facts: ${sf || 'Not available'}
+Rating: ${c.rating_value} (${c.rating_count} reviews)
+`;
+  }).join('\n');
+
+  // Flavor intelligence from competitor data
+  const flavorData = top10.map(c => {
+    const raw = ((c.supplement_facts_raw || '') + ' ' + ((c.marketing_analysis?.other_ingredients) || '')).toLowerCase();
+    const flavors = ['strawberry','raspberry','lemon','mango','peach','cherry','mixed berry','apple','watermelon','citrus','blackberry','tropical']
+      .filter(f => raw.includes(f));
+    return flavors.length ? `- ${c.brand}: ${flavors.join(', ')}` : null;
+  }).filter(Boolean).join('\n') || '- Flavor data not found in supplement facts';
+
+  const adjFormulaSummary = (adjustedFormula || '').slice(0, 1000);
+  const grokSummary = (grokBrief || '').slice(0, 2000);
+  const claudeSummary = (claudeBrief || '').slice(0, 2000);
+  const miSummary = (marketIntel || '').slice(0, 1500);
+
+  return `You are a supplement product analyst and flavor scientist. Generate THREE sections for DOVIVE's ${keyword} product.
+
+## DOVIVE FORMULA CONTEXT
+### Adjusted Formula (QA-approved):
+${adjFormulaSummary}
+
+### Formula A Summary (Grok 4.2 P9):
+${grokSummary}
+
+### Formula B Summary (Claude Opus 4.6 P9):
+${claudeSummary}
+
+## MARKET INTELLIGENCE
+${miSummary}
+
+## TOP COMPETITOR FORMULAS
+${compRows}
+
+## COMPETITOR FLAVOR PROFILES (detected from supplement facts)
+${flavorData}
+
+---
+
+Generate exactly these three sections. Use exact headings.
+
+## COMPREHENSIVE INGREDIENT COMPARISON
+Build a complete table comparing DOVIVE's adjusted formula against top 5 competitors for every active ingredient. Be specific with exact mg amounts from the competitor data above.
+
+| Ingredient | DOVIVE (Adjusted) | Comp #1 | Comp #2 | Comp #3 | Comp #4 | Comp #5 | Clinical Range | Market Verdict |
+|---|---|---|---|---|---|---|---|---|
+[One row per active ingredient. Use exact mg from supplement facts. Market Verdict: Under-dosed / Clinical / Over-dosed / Not common]
+
+**DOVIVE Unique Differentiators** (what we have that competitors don't at clinical dose):
+[bullet list]
+
+**Competitive Gaps** (what competitors have that we're missing or under-dosing):
+[bullet list]
+
+**Why our formula wins overall:**
+[2-3 sentence summary]
+
+## FLAVOR & TASTE QA
+(Gummies live or die on taste — critical for repeat purchases and reviews)
+
+**Category Flavor Intelligence:**
+- Top competitor flavors: [from data above]
+- Ashwagandha masking challenge: ashwagandha has an earthy/bitter/slightly sulfuric note at 600mg — this MUST be aggressively masked
+- What 1-star reviews say: [common taste complaints in supplement gummy category]
+
+**Recommended Flavor Strategy for DOVIVE ${keyword}:**
+| Element | Recommendation | Reason |
+|---|---|---|
+| Primary flavor | [specific flavor name] | [why it masks ashwagandha best] |
+| Flavor intensity | [mild/medium/bold] | [balance with active taste] |
+| Sweetener system | [stevia / monk fruit / erythritol blend + amounts] | [sugar-free, no aftertaste] |
+| Masking agent | [citric acid / natural flavor blend] | [cuts bitterness] |
+| Color | [natural color] | [consumer expectation] |
+| Texture target | [firm/soft, chew time] | [gummy standard] |
+
+**Pilot Testing Priority:** [what to test first in CMO pilot runs]
+**Risk:** [main taste risk and how to mitigate]
+
+## COMPETITOR_NOTES_JSON
+Return ONLY a valid JSON object. One entry per ASIN. One sentence comparing their formula to ours. Focus on the most important difference (dose, ingredient quality, or certification).
+{"ASIN": "comparison note", ...}
+`;
+}
+
+async function runCall2(keyword, grokBrief, claudeBrief, adjustedFormula, competitors, marketIntelText) {
+  console.log(`\nRunning Call 2: Comprehensive Comparison + Flavor QA + Competitor Notes...`);
+  const prompt = buildCall2Prompt(keyword, grokBrief, claudeBrief, adjustedFormula, competitors, marketIntelText);
+  console.log(`  Prompt size: ${Math.round(prompt.length / 1000)}k chars`);
+  const result = await callClaudeOpusQA(prompt, 6000);
+  console.log(`  Call 2 done: ${Math.round(result.length / 1000)}k chars`);
+
+  // Parse sections from call 2
+  const comparisonMatch = result.match(/## COMPREHENSIVE INGREDIENT COMPARISON([\s\S]*?)(?:\n## FLAVOR|$)/);
+  const flavorMatch     = result.match(/## FLAVOR & TASTE QA([\s\S]*?)(?:\n## COMPETITOR_NOTES_JSON|$)/);
+  const notesMatch      = result.match(/## COMPETITOR_NOTES_JSON([\s\S]*)/);
+
+  const comprehensiveComparison = comparisonMatch?.[1]?.trim() || null;
+  const flavorQA                = flavorMatch?.[1]?.trim() || null;
+  const notesRaw                = notesMatch?.[1]?.trim() || '';
+
+  // Parse competitor notes JSON
+  const jsonBlock = notesRaw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+  let competitorNotes = {};
+  try {
+    const obj = jsonBlock.match(/\{[\s\S]*\}/)?.[0];
+    competitorNotes = obj ? JSON.parse(obj) : {};
+  } catch {}
+
+  console.log(`  Comprehensive comparison: ${comprehensiveComparison ? Math.round(comprehensiveComparison.length/1000)+'k chars OK' : 'MISSING'}`);
+  console.log(`  Flavor QA: ${flavorQA ? Math.round(flavorQA.length/1000)+'k chars OK' : 'MISSING'}`);
+  console.log(`  Competitor notes: ${Object.keys(competitorNotes).length} ASINs`);
+
+  return { comprehensiveComparison, flavorQA, competitorNotes };
+}
+
 async function run() {
   console.log(`\n${'â•'.repeat(62)}`);
   console.log(`P9: FORMULA QA & COMPETITIVE BENCHMARKING â€" "${KEYWORD}"`);
@@ -531,10 +659,39 @@ async function run() {
   else console.log(`  âœ… Saved to formula_briefs.ingredients.qa_report`);
 
   // â"€â"€ Save competitor notes to products â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    // ── Call 2 invocation ──────────────────────────────────────────────────────
+  const marketIntelText = marketIntelDoc?.report || marketIntelDoc?.ai_market_analysis || '';
+  const { comprehensiveComparison, flavorQA, competitorNotes: call2Notes } = await runCall2(
+    KEYWORD, grokBrief, claudeBrief, adjustedFormula, competitors, marketIntelText
+  );
+
+  // Merge notes — call2 is authoritative
+  const finalNotes = { ...competitorNotes, ...call2Notes };
+  const finalNoteCount = Object.keys(finalNotes).length;
+  console.log(`Competitor notes total: ${finalNoteCount}`);
+
+  // Save call2 sections into formula_briefs.ingredients
+  if (comprehensiveComparison || flavorQA) {
+    const { error: c2Err } = await DASH.from('formula_briefs')
+      .update({
+        ingredients: {
+          ...updatedIngredients,
+          comprehensive_comparison: comprehensiveComparison,
+          flavor_qa: flavorQA,
+          qa_report: updatedIngredients.qa_report
+            + (comprehensiveComparison ? '\n\n## COMPREHENSIVE INGREDIENT COMPARISON\n' + comprehensiveComparison : '')
+            + (flavorQA ? '\n\n## FLAVOR & TASTE QA\n' + flavorQA : ''),
+        }
+      })
+      .eq('id', briefRow.id);
+    if (c2Err) console.error('  Call 2 save error:', c2Err.message);
+    else console.log('  Call 2 results saved (comparison + flavor QA) OK');
+  }
+
   if (noteCount > 0) {
     console.log(`\nSaving comparison notes to ${noteCount} products...`);
     let notesSaved = 0;
-    for (const [asin, note] of Object.entries(finalNotes)) {
+    for (const [asin, note] of Object.entries(finalNotes || {})) {
       const { data: prod } = await DASH.from('products')
         .select('marketing_analysis').eq('asin', asin).single();
       if (!prod) continue;
