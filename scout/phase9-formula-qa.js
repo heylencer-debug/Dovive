@@ -39,30 +39,35 @@ const FORCE   = process.argv.includes('--force');
 
 // â”€â”€â”€ xAI Key â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-function getXaiKey() {
-  const sterlingEnv = path.join(__dirname, '../../sterling/.env');
-  if (fs.existsSync(sterlingEnv)) {
-    const m = fs.readFileSync(sterlingEnv, 'utf8').match(/XAI_API_KEY\s*=\s*(.+)/);
+function getOpenRouterKey() {
+  const sterlingEnv = require('path').join(__dirname, '../../sterling/.env');
+  if (require('fs').existsSync(sterlingEnv)) {
+    const m = require('fs').readFileSync(sterlingEnv, 'utf8').match(/OPENROUTER_API_KEY\s*=\s*(.+)/);
     if (m) return m[1].trim();
   }
-  return process.env.XAI_API_KEY || null;
+  return process.env.OPENROUTER_API_KEY || null;
 }
 
-async function callGrok(prompt, maxTokens = 12000) {
-  const key = getXaiKey();
-  if (!key) throw new Error('No xAI key');
-  const res = await fetch('https://api.x.ai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'grok-4-1-fast-reasoning',
-      max_tokens: maxTokens,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
-  const j = await res.json();
-  if (j.error) throw new Error(`Grok: ${j.error.message}`);
-  return j.choices?.[0]?.message?.content || null;
+async function callClaudeOpusQA(prompt, maxTokens = 8000) {
+  const key = getOpenRouterKey();
+  if (!key) throw new Error('No OpenRouter key');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 300000); // 5 min hard timeout
+  try {
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'https://dovive.com', 'X-Title': 'DOVIVE Scout P10 QA' },
+      body: JSON.stringify({ model: 'anthropic/claude-opus-4.6', max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }),
+    });
+    const raw = await res.text();
+    let j;
+    try { j = JSON.parse(raw); } catch (e) { throw new Error(`Bad JSON from OpenRouter (${raw.length} chars): ${raw.slice(0, 200)}`); }
+    if (j.error) throw new Error(`Claude Opus QA error: ${j.error.message || JSON.stringify(j.error)}`);
+    return j.choices?.[0]?.message?.content || null;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // â”€â”€â”€ Load P6 market intelligence from vault â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -335,9 +340,9 @@ async function run() {
   console.log(`  Prompt size: ${Math.round(prompt.length / 1000)}k chars\n`);
 
   // â”€â”€ Call Grok â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  console.log(`Calling Grok (grok-4-1-fast-reasoning)...`);
+  console.log(`Calling Claude Opus 4.6 via OpenRouter (QA adjudicator)...`);
   const startTime = Date.now();
-  const qaReport = await callGrok(prompt, 12000);
+  const qaReport = await callClaudeOpusQA(prompt, 8000);
   const elapsed = Math.round((Date.now() - startTime) / 1000);
   console.log(`  âœ… Done (${elapsed}s, ${Math.round(qaReport.length / 1000)}k chars)\n`);
 
