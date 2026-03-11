@@ -51,7 +51,7 @@ async function callGrok(prompt, maxTokens = 8000) {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'grok-4-1-fast-reasoning',
+      model: 'grok-4.20-beta-0309-reasoning',
       max_tokens: maxTokens,
       messages: [{ role: 'user', content: prompt }],
     }),
@@ -316,7 +316,7 @@ async function saveToSupabase(categoryId, keyword, report, ctx) {
   const marketPayload = {
     ai_market_analysis: report,
     generated_at: new Date().toISOString(),
-    grok_model: 'grok-4-1-fast-reasoning',
+    grok_model: 'grok-4.20-beta-0309-reasoning',
     products_analyzed: ctx.summary.total_products,
     review_coverage: ctx.reviewCoverage,
   };

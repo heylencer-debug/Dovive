@@ -708,15 +708,25 @@ async function run() {
   const adjustmentsMatch = qaReport.match(/## FORMULA ADJUSTMENTS\s*\n[\s\S]*?\n(\|[\s\S]*?)(?:\n## )/);
   const adjustmentsTable = adjustmentsMatch?.[1]?.trim() || null;
 
+  // ── Formula Validator — hard manufacturing constraint check ─────────────────
+  const { validateFormula, formatValidationReport } = require('./formula-validator');
+  const validationResult = validateFormula(adjustedFormula || finalFormulaBrief || '');
+  const validationReport = formatValidationReport(validationResult);
+  console.log('Formula Validation: ' + (validationResult.valid ? 'PASS ✅' : 'FAIL ❌') + ' | ' + validationResult.perGummy_mg + 'mg/gummy | ' + validationResult.errors.length + ' errors');
+  validationResult.errors.forEach(e => console.log("  VALIDATOR ERROR:", e));
+  validationResult.warnings.forEach(w => console.log("  VALIDATOR WARN:", w));
+
   // â"€â"€ Save QA report to formula_briefs â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   console.log(`Saving QA report to Supabase...`);
   const updatedIngredients = {
     ...(briefRow.ingredients || {}),
-    qa_report: qaReport,
+    qa_report: qaReport + '\n\n' + validationReport,
     qa_verdict: verdict,
     adjusted_formula: adjustedFormula,
     final_formula_brief: finalFormulaBrief,
     adjustments_table: adjustmentsTable,
+    formula_validation: validationResult,
+    formula_validation: validationResult,
     qa_generated_at: new Date().toISOString(),
   };
   const { error: saveErr } = await DASH.from('formula_briefs')
