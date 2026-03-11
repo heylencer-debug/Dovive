@@ -1,7 +1,9 @@
 /**
  * run-pipeline.js — Full Scout Pipeline Orchestrator
  *
- * Runs P1 → P2 → P3 → P4 → P5 → P6 → P7 → P8 for a keyword.
+ * Runs P1 → P2 → P3 → P4 → P5 → P6 → P7 → P8 → P9 → P10 for a keyword.
+ * P6 = Product Intelligence (per-product AI scoring — powers 9 dashboard sections)
+ * P7 = Market Intelligence (category-level Grok report — powers Market tab)
  * Checks existing data before each phase (skip if already done).
  * Sends Telegram status updates after each phase.
  *
@@ -110,14 +112,23 @@ async function checkPhaseStatus(phaseNum, categoryId) {
       return { done: count >= total * 0.9, count, total, msg: `${count}/${total} have P6 intel` };
     }
     case 7: {
-      const { data: sample } = await DASH.from('products').select('marketing_analysis').eq('category_id', categoryId).not('marketing_analysis', 'is', null).limit(5);
-      const hasP7 = sample?.some(p => p.marketing_analysis?.packaging_intelligence);
-      const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', categoryId).not('marketing_analysis', 'is', null);
-      return { done: hasP7 && count >= total * 0.9, count, total, msg: hasP7 ? `${count}/${total} have P7 data` : 'P7 not run yet' };
+      // P7 = Market Intelligence (phase6-market-analysis.js)
+      const { data: fb } = await DASH.from('formula_briefs').select('ingredients').eq('category_id', categoryId).single();
+      const hasMarketIntel = !!(fb?.ingredients?.market_intelligence?.ai_market_analysis);
+      return { done: hasMarketIntel, count: hasMarketIntel ? 1 : 0, total: 1, msg: hasMarketIntel ? 'Market intelligence report exists' : 'Market intelligence not generated yet' };
     }
     case 8: {
-      const { data } = await DASH.from('formula_briefs').select('id, created_at').eq('category_id', categoryId).limit(1);
-      return { done: data?.length > 0, count: data?.length || 0, total: 1, msg: data?.length ? `Brief exists (${data[0].created_at?.split('T')[0]})` : 'No brief yet' };
+      // P8 = Packaging Intelligence (phase7-packaging-intelligence.js)
+      const { data: sample } = await DASH.from('products').select('marketing_analysis').eq('category_id', categoryId).not('marketing_analysis', 'is', null).limit(5);
+      const hasP8 = sample?.some(p => p.marketing_analysis?.packaging_intelligence);
+      const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', categoryId).not('marketing_analysis', 'is', null);
+      return { done: hasP8 && count >= total * 0.9, count, total, msg: hasP8 ? `${count}/${total} have packaging data` : 'Packaging not run yet' };
+    }
+    case 9: {
+      // P9 = Formula Brief (phase8-formula-brief.js)
+      const { data } = await DASH.from('formula_briefs').select('id, created_at, ingredients').eq('category_id', categoryId).limit(1);
+      const hasBrief = !!(data?.[0]?.ingredients?.ai_generated_brief);
+      return { done: hasBrief, count: hasBrief ? 1 : 0, total: 1, msg: hasBrief ? `Brief exists (${data[0].created_at?.split('T')[0]})` : 'No brief yet' };
     }
     default: return { done: false, count: 0, total: 0 };
   }
@@ -136,27 +147,50 @@ const PHASES = [
   },
   {
     num: 3, name: 'Reviews', description: 'Scrape and analyze customer reviews',
-    run: async () => runScript('human-reviews.js', ['--keyword', KEYWORD])
+    run: async () => {
+      await runScript('human-reviews.js', ['--keyword', KEYWORD]);
+      console.log('\n→ Syncing reviews to dashboard (migrate-reviews-to-dash.js)...');
+      await runScript('migrate-reviews-to-dash.js', [KEYWORD]);
+    }
   },
   {
     num: 4, name: 'OCR / Formula Extraction', description: 'Extract supplement facts from product images',
-    run: async () => runScript('phase4-text-extract.js', ['--keyword', KEYWORD])
+    run: async () => {
+      await runScript('phase4-text-extract.js', ['--keyword', KEYWORD]);
+      console.log('\n→ Syncing OCR data to dashboard (migrate-ocr-to-dash.js)...');
+      await runScript('migrate-ocr-to-dash.js', [KEYWORD]);
+    }
   },
   {
     num: 5, name: 'Deep Research', description: 'Top-10 competitor deep dive (Reddit, certs, clinical)',
     run: async () => runScript('phase5-save.js', ['--keyword', KEYWORD])
   },
   {
-    num: 6, name: 'Product Intelligence', description: 'Formula scoring, extract types, dosage analysis',
+    num: 6, name: 'Product Intelligence', description: 'Per-product AI scoring — powers Formula Landscape, Extract Types, Dosage, Certs, Threat Levels, Top 10 (9 dashboard sections)',
     run: async () => runScript('phase6-product-intelligence.js')
   },
   {
-    num: 7, name: 'Packaging Intelligence', description: 'Claims, badges, color signals, market gaps',
+    num: 7, name: 'Market Intelligence', description: 'Category-level Grok market report — powers Market tab analysis',
+    run: async () => runScript('phase6-market-analysis.js', ['--keyword', KEYWORD])
+  },
+  {
+    num: 8, name: 'Packaging Intelligence', description: 'Claims, badges, color signals, market gaps',
     run: async () => runScript('phase7-packaging-intelligence.js')
   },
   {
-    num: 8, name: 'Formula Brief', description: 'CMO-ready formula specification',
+    num: 9, name: 'Formula Brief', description: 'CMO-ready formula specification',
     run: async () => runScript('phase8-formula-brief.js', ['--keyword', KEYWORD, ...(USE_AI ? ['--ai'] : [])])
+  },
+  {
+    num: 10, name: 'Formula QA', description: 'QA specialist: dose validation, competitor head-to-head, formula adjustments',
+    run: async () => {
+      await runScript('phase9-formula-qa.js', ['--keyword', KEYWORD]);
+      // Re-run market intelligence AFTER QA so formula_briefs record has fresh data
+      console.log('\n→ Refreshing market intelligence in formula_briefs (post-QA)...');
+      await runScript('phase6-market-analysis.js', ['--keyword', KEYWORD, '--force']);
+      console.log('\n→ Seeding category_analyses for dashboard Benchmark Comparison...');
+      await runScript('seed-category-analysis.js', [KEYWORD]);
+    }
   },
 ];
 

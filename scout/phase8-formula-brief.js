@@ -2,7 +2,7 @@
  * phase8-formula-brief.js
  * P8: Formula Brief Generator
  *
- * Uses Carlo's exact CMO prompt template — feeds compiled P1-P7 data to Claude
+ * Uses Carlo's exact CMO prompt template â€” feeds compiled P1-P7 data to Claude
  * and lets AI generate the COMPLETE formula specification (not rule-based).
  *
  * Usage:
@@ -24,9 +24,9 @@ const KEYWORD = process.argv.includes('--keyword')
   : 'ashwagandha gummies';
 const FORCE = process.argv.includes('--force');
 
-// ─── API Key ──────────────────────────────────────────────────────────────────
+// â”€â”€â”€ API Key â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// Priority order: xAI Grok (from sterling/.env) → Anthropic → OpenRouter
+// Priority order: xAI Grok (from sterling/.env) â†’ Anthropic â†’ OpenRouter
 function getXaiKey() {
   // Load from sterling/.env directly since that's where it lives
   const fs = require('fs');
@@ -65,7 +65,7 @@ async function callAI(prompt) {
   console.log(`  Provider: ${apiKey.provider}`);
 
   if (apiKey.provider === 'xai') {
-    // xAI Grok — OpenAI-compatible API
+    // xAI Grok â€” OpenAI-compatible API
     const res = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -73,7 +73,7 @@ async function callAI(prompt) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'grok-3',
+        model: 'grok-4-1-fast-non-reasoning',
         max_tokens: 8192,
         messages: [{ role: 'user', content: prompt }],
       }),
@@ -121,7 +121,7 @@ async function callAI(prompt) {
   }
 }
 
-// ─── Data Compilation ─────────────────────────────────────────────────────────
+// â”€â”€â”€ Data Compilation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function compileMarketData(categoryId) {
   // Pull P6 market intelligence doc (new single-doc market analysis)
@@ -193,7 +193,7 @@ async function compileMarketData(categoryId) {
     .select('*', { count: 'exact', head: true })
     .eq('category_id', categoryId);
 
-  // ── Aggregate ingredient frequency from P6 ──
+  // â”€â”€ Aggregate ingredient frequency from P6 â”€â”€
   const ingredientMap = {};
   const claimMap = {};
   const painPointMap = {};
@@ -330,7 +330,7 @@ async function compileMarketData(categoryId) {
   };
 }
 
-// ─── Build Prompt (Carlo's exact template + P6 market intel + top20 formulas) ──
+// â”€â”€â”€ Build Prompt (Carlo's exact template + P6 market intel + top20 formulas) â”€â”€
 
 function buildPrompt(marketData) {
   const cs = marketData.category_summary;
@@ -339,20 +339,20 @@ function buildPrompt(marketData) {
   const mi = marketData.market_intelligence;
   const top20 = marketData.top20_competitors || [];
 
-  // P6 market intelligence section — full report from phase6-market-analysis.js
+  // P6 market intelligence section â€” full report from phase6-market-analysis.js
   const marketIntelSection = mi?.has_data
     ? `## P6 MARKET INTELLIGENCE REPORT
 *AI-generated single market analysis across all ${cs.total_products} products. Source: phase6-market-analysis.js*
 
 ${mi.report?.substring(0, 6000) || 'Not available'}
-${(mi.report?.length || 0) > 6000 ? '\n[... report continues — using first 6k chars for context ...]\n' : ''}`
+${(mi.report?.length || 0) > 6000 ? '\n[... report continues â€” using first 6k chars for context ...]\n' : ''}`
     : `## P6 MARKET INTELLIGENCE
-⚠️ Not yet generated. Run: node phase6-market-analysis.js --keyword "${KEYWORD}"
+âš ï¸ Not yet generated. Run: node phase6-market-analysis.js --keyword "${KEYWORD}"
 P8 will still run but with reduced market context.`;
 
   // Top 20 competitor formula table
   const top20FormulasSection = top20.slice(0, 20).map(c => `
-### #${c.rank} ${c.brand} — BSR ${c.bsr?.toLocaleString()} | $${c.monthly_revenue?.toLocaleString()}/mo | $${c.price} | ${c.rating}⭐ (${c.reviews?.toLocaleString()} reviews)
+### #${c.rank} ${c.brand} â€” BSR ${c.bsr?.toLocaleString()} | $${c.monthly_revenue?.toLocaleString()}/mo | $${c.price} | ${c.rating}â­ (${c.reviews?.toLocaleString()} reviews)
 **Formula:** ${c.ashwagandha_mg || '?'}mg ${c.extract_type || 'Unknown'} ${c.withanolides ? `(${c.withanolides} withanolides)` : ''}
 **Bonus ingredients:** ${c.bonus_ingredients.join(', ') || 'None'}
 **Certifications:** ${c.certifications.join(', ') || 'None'} | Sugar-Free: ${c.is_sugar_free} | Vegan: ${c.is_vegan} | 3rd Party Tested: ${c.is_third_party_tested}
@@ -386,13 +386,13 @@ New Winner #${i + 1}: ${p.brand} (BSR: ${p.bsr_current?.toLocaleString()}, Rev: 
 - Form: ${p.packaging_type || 'Not specified'} | Serving: ${p.serving_size || 'Not specified'}
 - Claims: ${(p.claims_on_label || []).join(', ') || 'Not available'}
 
-🔍 DETAILED SUPPLEMENT FACTS (Extracted via OCR):
+ðŸ” DETAILED SUPPLEMENT FACTS (Extracted via OCR):
 ${p.supplement_facts_raw || JSON.stringify(p.all_nutrients || 'No detailed nutrients found', null, 2)}
 
-🧪 PROPRIETARY BLENDS:
+ðŸ§ª PROPRIETARY BLENDS:
 ${p.proprietary_blends && p.proprietary_blends.length > 0 ? JSON.stringify(p.proprietary_blends, null, 2) : 'None'}
 
-🔹 OTHER INGREDIENTS / EXCIPIENTS:
+ðŸ”¹ OTHER INGREDIENTS / EXCIPIENTS:
 ${p.other_ingredients || 'Not specified'}
 `).join('\n---\n')
     : 'No specific new winners identified.';
@@ -434,7 +434,7 @@ ${p.other_ingredients || 'Not specified'}
 
   return `You are a senior supplement formulation specialist and CMO consultant creating a FORMULA SPECIFICATION to BEAT the #1 market leader for DOVIVE brand.
 
-# MISSION: DECONSTRUCT TOP COMPETITORS' FORMULAS → IDENTIFY MARKET DEMAND → BUILD A BETTER FORMULA
+# MISSION: DECONSTRUCT TOP COMPETITORS' FORMULAS â†’ IDENTIFY MARKET DEMAND â†’ BUILD A BETTER FORMULA
 
 Your job:
 1. Study the exact formulas of the top 20 competitors (OCR-extracted supplement facts below)
@@ -449,7 +449,7 @@ ${marketIntelSection}
 
 ---
 
-## 🏆 TOP 20 COMPETITOR FORMULA DECONSTRUCTION
+## ðŸ† TOP 20 COMPETITOR FORMULA DECONSTRUCTION
 
 These are the formulas you must analyze, reconstruct, and BEAT. Full OCR supplement facts included.
 
@@ -457,7 +457,7 @@ ${top20FormulasSection}
 
 ---
 
-## 🥇 PRIMARY BENCHMARK: THE #1 MARKET LEADER (THE GIANT)
+## ðŸ¥‡ PRIMARY BENCHMARK: THE #1 MARKET LEADER (THE GIANT)
 
 This is the established standard to match:
 
@@ -465,20 +465,20 @@ ${leaderSection}
 
 ---
 
-## 🚀 THE NEW WINNERS (High Growth, Low Reviews = Recently Launched)
+## ðŸš€ THE NEW WINNERS (High Growth, Low Reviews = Recently Launched)
 These are the new products stealing market share right now. Prioritize their innovations over the old giant.
 
 ${newWinnersSection}
 
 ---
 
-## 📊 COMPETITIVE INTELLIGENCE: TOP 5 ANALYSIS (ALL TIME)
+## ðŸ“Š COMPETITIVE INTELLIGENCE: TOP 5 ANALYSIS (ALL TIME)
 
 ${top5Section}
 
 ---
 
-## 🧪 INGREDIENT FREQUENCY ANALYSIS
+## ðŸ§ª INGREDIENT FREQUENCY ANALYSIS
 
 These ingredients appear most frequently across successful products:
 
@@ -488,7 +488,7 @@ STRATEGIC INSIGHT: 50%+ = MUST-HAVE. 20-50% = Differentiator. <20% = Unique sell
 
 ---
 
-## 📈 CATEGORY STATISTICS
+## ðŸ“ˆ CATEGORY STATISTICS
 
 - Total Products Analyzed: ${cs.total_products || 'N/A'}
 - Average Ingredient Count: ${cs.avg_ingredients_count || 'N/A'}
@@ -497,7 +497,7 @@ STRATEGIC INSIGHT: 50%+ = MUST-HAVE. 20-50% = Differentiator. <20% = Unique sell
 
 ---
 
-## ⚠️ CONSUMER PAIN POINTS (Problems to SOLVE)
+## âš ï¸ CONSUMER PAIN POINTS (Problems to SOLVE)
 
 Formulation-Related Complaints:
 ${formPainPoints}
@@ -510,7 +510,7 @@ ${allPainPoints}
 
 ---
 
-## 🏷️ CLAIMS ANALYSIS
+## ðŸ·ï¸ CLAIMS ANALYSIS
 
 ${claimsAnalysis}
 
@@ -591,8 +591,8 @@ Synergistic Combinations: [Key ingredient pairs that enhance efficacy]
 |-----------|---------------|
 | Dosage Form | [Soft chew/Tablet/Capsule/Gummy/Powder] |
 | Shape | [Description] |
-| Dimensions | [L x W x H ± tolerance] |
-| Individual Unit Weight | [X mg ± X%] |
+| Dimensions | [L x W x H Â± tolerance] |
+| Individual Unit Weight | [X mg Â± X%] |
 | Serving Size | [X units] |
 | Servings Per Container | [90/120/etc.] |
 | Net Weight Per Container | [X g / X oz] |
@@ -634,8 +634,8 @@ Synergistic Combinations: [Key ingredient pairs that enhance efficacy]
 ### Physical Tests:
 | Test | Specification |
 |------|---------------|
-| Unit Weight | X mg ± X% |
-| Weight Uniformity (RSD) | ≤X% |
+| Unit Weight | X mg Â± X% |
+| Weight Uniformity (RSD) | â‰¤X% |
 | Hardness | X-X N |
 | Moisture | X.X-X.X% |
 | Water Activity | X.XX-X.XX |
@@ -643,9 +643,9 @@ Synergistic Combinations: [Key ingredient pairs that enhance efficacy]
 ### Microbiological Limits:
 | Test | Specification |
 |------|---------------|
-| Total Aerobic Count | ≤10,000 CFU/g |
-| Yeast & Mold | ≤1,000 CFU/g |
-| Coliforms | ≤100 CFU/g |
+| Total Aerobic Count | â‰¤10,000 CFU/g |
+| Yeast & Mold | â‰¤1,000 CFU/g |
+| Coliforms | â‰¤100 CFU/g |
 | E. coli | Negative/10g |
 | Salmonella | Negative/25g |
 | S. aureus | Negative/10g |
@@ -653,16 +653,16 @@ Synergistic Combinations: [Key ingredient pairs that enhance efficacy]
 ### Heavy Metals Limits:
 | Metal | Limit |
 |-------|-------|
-| Lead (Pb) | ≤0.5 ppm |
-| Cadmium (Cd) | ≤0.3 ppm |
-| Mercury (Hg) | ≤0.1 ppm |
-| Arsenic (As) | ≤1.0 ppm |
+| Lead (Pb) | â‰¤0.5 ppm |
+| Cadmium (Cd) | â‰¤0.3 ppm |
+| Mercury (Hg) | â‰¤0.1 ppm |
+| Arsenic (As) | â‰¤1.0 ppm |
 
 ---
 
 ## 6. STABILITY & OVERAGE
 
-Target Shelf Life: 24 months at room temperature (below 25°C/77°F)
+Target Shelf Life: 24 months at room temperature (below 25Â°C/77Â°F)
 
 ### Overage Requirements:
 | Ingredient | Label Claim | Overage % | Manufacturing Target | Reason |
@@ -743,7 +743,7 @@ END OF FORMULA SPECIFICATION
 
 ## OUTPUT REQUIREMENTS:
 
-✅ MUST INCLUDE:
+âœ… MUST INCLUDE:
 - Complete Executive Summary
 - ALL ingredient tables with EVERY ingredient (no "etc." or abbreviations)
 - EXACT amounts for every ingredient (mg, mcg, IU, CFU)
@@ -754,7 +754,7 @@ END OF FORMULA SPECIFICATION
 - All Warning Statements
 - Complete Variant Lineup (Section 10)
 
-❌ DO NOT INCLUDE:
+âŒ DO NOT INCLUDE:
 - Manufacturing process steps (CMO has their own)
 - Equipment lists (CMO has their own)
 - Detailed SOPs or CCPs
@@ -767,7 +767,7 @@ END OF FORMULA SPECIFICATION
 Target Length: 3,000-4,000 words (focused on FORMULA, not process)`;
 }
 
-// ─── Save to DB ───────────────────────────────────────────────────────────────
+// â”€â”€â”€ Save to DB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function saveToDB(categoryId, aiOutput, marketData) {
   // Delete existing brief for this category
@@ -777,7 +777,7 @@ async function saveToDB(categoryId, aiOutput, marketData) {
 
   const { error } = await DASH.from('formula_briefs').insert({
     category_id: categoryId,
-    positioning: `AI-generated formula brief for ${KEYWORD} — based on ${marketData.category_summary.total_products} products`,
+    positioning: `AI-generated formula brief for ${KEYWORD} â€” based on ${marketData.category_summary.total_products} products`,
     target_customer: `Adults seeking ${KEYWORD} supplementation`,
     form_type: 'gummy',
     form_rationale: `Category leader uses gummy format`,
@@ -818,25 +818,25 @@ async function saveToDB(categoryId, aiOutput, marketData) {
   if (error) throw error;
 }
 
-// ─── Save markdown to vault ───────────────────────────────────────────────────
+// â”€â”€â”€ Save markdown to vault â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function saveToVault(aiOutput) {
   const fs = require('fs');
   const date = new Date().toISOString().split('T')[0];
   const vaultPath = `C:\\SirPercival-Vault\\07_ai-systems\\agents\\scout\\formula-briefs\\${date}-${KEYWORD.replace(/\s+/g, '-')}-ai-brief.md`;
-  const content = `# P8 Formula Brief — ${KEYWORD} (AI Generated)\n**Date:** ${date}\n**Keyword:** ${KEYWORD}\n\n---\n\n${aiOutput}`;
+  const content = `# P8 Formula Brief â€” ${KEYWORD} (AI Generated)\n**Date:** ${date}\n**Keyword:** ${KEYWORD}\n\n---\n\n${aiOutput}`;
   fs.writeFileSync(vaultPath, content, 'utf8');
   console.log(`  Vault: ${vaultPath}`);
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function run() {
-  console.log(`\n${'═'.repeat(60)}`);
-  console.log(`🧪 PHASE 8: FORMULA BRIEF — "${KEYWORD}"`);
-  console.log(`${'═'.repeat(60)}\n`);
+  console.log(`\n${'â•'.repeat(60)}`);
+  console.log(`ðŸ§ª PHASE 8: FORMULA BRIEF â€” "${KEYWORD}"`);
+  console.log(`${'â•'.repeat(60)}\n`);
 
-  // Get category — match full keyword first, fall back to first word
+  // Get category â€” match full keyword first, fall back to first word
   let cats = null;
   const { data: exact } = await DASH.from('categories')
     .select('id, name')
@@ -910,10 +910,10 @@ async function run() {
   console.log('=== FORMULA BRIEF PREVIEW (first 800 chars) ===');
   console.log(aiOutput.substring(0, 800));
   console.log('\n...\n');
-  console.log(`✅ Complete — ${Math.round(aiOutput.length / 1000)}k chars saved to Supabase + vault`);
+  console.log(`âœ… Complete â€” ${Math.round(aiOutput.length / 1000)}k chars saved to Supabase + vault`);
 }
 
 run().catch(e => {
-  console.error('\n❌ FAILED:', e.message);
+  console.error('\nâŒ FAILED:', e.message);
   process.exit(1);
 });
