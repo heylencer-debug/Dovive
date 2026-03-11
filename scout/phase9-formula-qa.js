@@ -49,7 +49,7 @@ function getOpenRouterKey() {
   return process.env.OPENROUTER_API_KEY || null;
 }
 
-async function callClaudeOpusQA(prompt, maxTokens = 8000) {
+async function callClaudeOpusQA(prompt, maxTokens = 12000) {
   const key = getOpenRouterKey();
   if (!key) throw new Error('No OpenRouter key');
   const controller = new AbortController();
@@ -375,6 +375,15 @@ async function run() {
   const adjustedFormulaMatch = qaReport.match(/## ADJUSTED FORMULA SPECIFICATION([\s\S]*?)(?:\n## |$)/);
   const adjustedFormula = adjustedFormulaMatch?.[1]?.trim() || null;
 
+  // Parse the complete Final Formula Brief
+  const finalBriefMatch = qaReport.match(/## FINAL FORMULA BRIEF([\s\S]*?)(?:\n## COMPETITOR_NOTES_JSON|$)/);
+  const finalFormulaBrief = finalBriefMatch?.[1]?.trim() || null;
+  if (finalFormulaBrief) {
+    console.log(`  Final Formula Brief parsed: ${Math.round(finalFormulaBrief.length / 1000)}k chars ✅`);
+  } else {
+    console.log(`  ⚠️  Final Formula Brief section not found in QA output`);
+  }
+
   const adjustmentsMatch = qaReport.match(/## FORMULA ADJUSTMENTS\s*\n[\s\S]*?\n(\|[\s\S]*?)(?:\n## )/);
   const adjustmentsTable = adjustmentsMatch?.[1]?.trim() || null;
 
@@ -385,6 +394,7 @@ async function run() {
     qa_report: qaReport,
     qa_verdict: verdict,
     adjusted_formula: adjustedFormula,
+    final_formula_brief: finalFormulaBrief,
     adjustments_table: adjustmentsTable,
     qa_generated_at: new Date().toISOString(),
   };
