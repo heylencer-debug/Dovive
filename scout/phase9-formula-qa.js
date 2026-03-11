@@ -237,6 +237,22 @@ Serving Size: 2 Gummies | Servings Per Container: 45
 
 [repeat for each competitor]
 
+## COMPREHENSIVE INGREDIENT COMPARISON
+(Every active ingredient compared: DOVIVE proposed vs top 5 competitors — exact amounts)
+
+Build a table with ALL primary active ingredients. For each ingredient, show:
+| Ingredient | DOVIVE Formula A | DOVIVE Formula B | Competitor #1 | Competitor #2 | Competitor #3 | Market Verdict |
+|---|---|---|---|---|---|---|
+[Row per ingredient — use exact mg amounts from the competitor OCR data above]
+[Market Verdict: Under-dosed / Clinical / Over-dosed / Not used]
+
+After the table:
+**DOVIVE's Unique Differentiators** (ingredients we have that competitors don't):
+- [ingredient]: [clinical dose vs competitors]
+
+**Competitive Gaps** (what competitors have that we're missing or under-dosing):
+- [ingredient]: [their dose vs ours vs recommendation]
+
 ## DUAL FORMULA COMPARISON
 (Score Formula A and Formula B independently, then pick the winner)
 
@@ -254,6 +270,20 @@ Serving Size: 2 Gummies | Servings Per Container: 45
 
 **Best elements from Formula A to keep:** [list]
 **Best elements from Formula B to incorporate:** [list]
+
+## FLAVOR & TASTE QA
+(Gummies live or die on taste — evaluate both formulas' flavor strategy)
+
+| Dimension | Formula A (Grok) | Formula B (Claude) | Market Expectation |
+|---|---|---|---|
+| Proposed flavor | [A's flavor] | [B's flavor] | [What top sellers use] |
+| Bitterness masking | [A's approach] | [B's approach] | [Best practice] |
+| Sweetener system | [A's sweeteners] | [B's sweeteners] | [Sugar-free preference] |
+| Texture/mouthfeel | [Assessment] | [Assessment] | [Gummy standard] |
+
+**Flavor Risk Assessment:** [Will ashwagandha's earthy/bitter notes break through? How to fix?]
+**Recommended Flavor Profile:** [Specific name + masking strategy + sweetener recommendation]
+**Review-Backed Evidence:** [What do 1-star reviews say about taste in this category?]
 
 ## FORMULA ADJUSTMENTS
 (What P8 got wrong and what we're fixing)
@@ -303,6 +333,50 @@ All three sections are required. If any is missing, pipeline data will not save 
 }
 
 // â"€â"€â"€ Parse competitor notes from QA output â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+
+async function generateCompetitorNotesOnly(competitors, qaAdjustedFormula, keyword) {
+  /** Separate small API call — guaranteed to complete, not affected by main QA token budget */
+  const lines = competitors.slice(0, 10).map((comp, i) => {
+    const sf = (comp.supplement_facts_raw || '').slice(0, 300);
+    return `### #${i+1} ASIN: ${comp.asin} — ${comp.brand}\nBSR: ${comp.bsr_current} | ${comp.price} | ${comp.monthly_revenue?.toLocaleString()}/mo revenue\nFormula snippet: ${sf || 'Not available'}`;
+  }).join('\n');
+
+  const prompt = `You are a supplement product analyst. For each competitor below, write ONE concise sentence comparing their formula to DOVIVE's formula for ${keyword}. Focus on the most important ingredient/dose/quality difference.
+
+DOVIVE's Final Formula (key actives):
+${(qaAdjustedFormula || '').slice(0, 800)}
+
+COMPETITORS:
+${lines}
+
+Return ONLY a valid JSON object mapping each ASIN to a one-line note:
+{"ASIN1": "Their dose is X vs our Y — we win on Z", "ASIN2": "..."}
+No other text. Pure JSON only.`;
+
+  try {
+    const key = getOpenRouterKey();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST', signal: controller.signal,
+      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'anthropic/claude-opus-4.6',
+        max_tokens: 2000,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    clearTimeout(timeout);
+    const text = await res.text();
+    const json = JSON.parse(text);
+    const raw = json.choices?.[0]?.message?.content || '';
+    const obj = raw.match(/\{[\s\S]*\}/)?.[0];
+    return obj ? JSON.parse(obj) : {};
+  } catch (e) {
+    console.log(`  Competitor notes generation failed: ${e.message}`);
+    return {};
+  }
+}
 
 function parseCompetitorNotes(qaReport) {
   const match = qaReport.match(/## COMPETITOR_NOTES_JSON\s*\n([\s\S]*?)(?:\n##|$)/);
@@ -460,7 +534,7 @@ async function run() {
   if (noteCount > 0) {
     console.log(`\nSaving comparison notes to ${noteCount} products...`);
     let notesSaved = 0;
-    for (const [asin, note] of Object.entries(competitorNotes)) {
+    for (const [asin, note] of Object.entries(finalNotes)) {
       const { data: prod } = await DASH.from('products')
         .select('marketing_analysis').eq('asin', asin).single();
       if (!prod) continue;
