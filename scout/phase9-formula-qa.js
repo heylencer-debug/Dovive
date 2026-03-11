@@ -49,7 +49,7 @@ function getOpenRouterKey() {
   return process.env.OPENROUTER_API_KEY || null;
 }
 
-async function callClaudeOpusQA(prompt, maxTokens = 12000) {
+async function callClaudeSonnetQA(prompt, maxTokens = 12000) {
   const key = getOpenRouterKey();
   if (!key) throw new Error('No OpenRouter key');
   const controller = new AbortController();
@@ -59,12 +59,12 @@ async function callClaudeOpusQA(prompt, maxTokens = 12000) {
       method: 'POST',
       signal: controller.signal,
       headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'https://dovive.com', 'X-Title': 'DOVIVE Scout P10 QA' },
-      body: JSON.stringify({ model: 'anthropic/claude-opus-4.6', max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }),
+      body: JSON.stringify({ model: 'anthropic/claude-sonnet-4-6', max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }),
     });
     const raw = await res.text();
     let j;
     try { j = JSON.parse(raw); } catch (e) { throw new Error(`Bad JSON from OpenRouter (${raw.length} chars): ${raw.slice(0, 200)}`); }
-    if (j.error) throw new Error(`Claude Opus QA error: ${j.error.message || JSON.stringify(j.error)}`);
+    if (j.error) throw new Error(`Claude Sonnet QA error: ${j.error.message || JSON.stringify(j.error)}`);
     return j.choices?.[0]?.message?.content || null;
   } finally {
     clearTimeout(timeout);
@@ -130,7 +130,7 @@ This is a CRITICAL QA gate. P8 AI may have over-engineered the formula. Be the e
 ${(grokBrief || "Not available").substring(0, 4000)}
 ${(grokBrief || "").length > 4000 ? "\n[Grok brief continues - key sections shown above]\n" : ""}
 
-### FORMULA B - Claude Opus 4.6 (anthropic/claude-opus-4.6)
+### FORMULA B - Claude Sonnet 4.6 (anthropic/claude-sonnet-4-6)
 
 ${claudeBrief ? claudeBrief.substring(0, 4000) : "Claude Opus brief not available (single-model run)"}
 ${claudeBrief && claudeBrief.length > 4000 ? "\n[Claude brief continues - key sections shown above]\n" : ""}
@@ -361,7 +361,7 @@ No other text. Pure JSON only.`;
       method: 'POST', signal: controller.signal,
       headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'anthropic/claude-opus-4.6',
+        model: 'anthropic/claude-sonnet-4-6',
         max_tokens: 2000,
         messages: [{ role: 'user', content: prompt }]
       })
@@ -453,7 +453,7 @@ ${adjFormulaSummary}
 ### Formula A Draft (Grok 4.2 P9 - before QA):
 ${grokSummary}
 
-### Formula B Draft (Claude Opus 4.6 P9 - before QA):
+### Formula B Draft (Claude Sonnet 4.6 P9 - before QA):
 ${claudeSummary}
 
 ## MARKET INTELLIGENCE
@@ -520,7 +520,7 @@ async function runCall2(keyword, grokBrief, claudeBrief, adjustedFormula, compet
   console.log(`\nRunning Call 2: Comprehensive Comparison + Flavor QA + Competitor Notes...`);
   const prompt = buildCall2Prompt(keyword, grokBrief, claudeBrief, adjustedFormula, competitors, marketIntelText);
   console.log(`  Prompt size: ${Math.round(prompt.length / 1000)}k chars`);
-  const result = await callClaudeOpusQA(prompt, 6000);
+  const result = await callClaudeSonnetQA(prompt, 6000);
   console.log(`  Call 2 done: ${Math.round(result.length / 1000)}k chars`);
 
   // Parse sections from call 2
@@ -584,7 +584,7 @@ Replace each "one sentence" with your comparison. Focus on the most important di
       method: 'POST', signal: controller.signal,
       headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'anthropic/claude-opus-4.6',
+        model: 'anthropic/claude-sonnet-4-6',
         max_tokens: 1500,
         messages: [{ role: 'user', content: prompt }]
       })
@@ -634,8 +634,8 @@ async function run() {
     }
   }
 
-  // Load BOTH P9 formula briefs (Grok 4.2 + Claude Opus 4.6)
-  console.log(`Loading dual P9 formula briefs (Grok 4.2 + Claude Opus 4.6)...`);
+  // Load BOTH P9 formula briefs (Grok 4.2 + Claude Sonnet 4.6)
+  console.log(`Loading dual P9 formula briefs (Grok 4.2 + Claude Sonnet 4.6)...`);
   const { data: briefRow } = await DASH.from('formula_briefs')
     .select('id, ingredients').eq('category_id', CAT_ID)
     .not('ingredients', 'is', null).limit(1).single();
@@ -670,9 +670,9 @@ async function run() {
   console.log(`  Prompt size: ${Math.round(prompt.length / 1000)}k chars\n`);
 
   // â"€â"€ Call Grok â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
-  console.log(`Calling Claude Opus 4.6 via OpenRouter (QA adjudicator)...`);
+  console.log(`Calling Claude Sonnet 4.6 via OpenRouter (QA adjudicator)...`);
   const startTime = Date.now();
-  const qaReport = await callClaudeOpusQA(prompt, 8000);
+  const qaReport = await callClaudeSonnetQA(prompt, 8000);
   const elapsed = Math.round((Date.now() - startTime) / 1000);
   console.log(`  âœ… Done (${elapsed}s, ${Math.round(qaReport.length / 1000)}k chars)\n`);
 

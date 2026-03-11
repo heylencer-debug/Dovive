@@ -55,7 +55,7 @@ function getOpenRouterKey() {
 // ─── DUAL AI Formulation ───────────────────────────────────────────────────────
 // P9 generates TWO independent formula briefs in parallel:
 //   1. Grok 4.2 Beta Reasoning  — deep scientific reasoning, like a PhD formulator
-//   2. Claude Opus 4.6          — via OpenRouter, 1M context synthesis
+//   2. Claude Sonnet 4.6          — via OpenRouter, 1M context synthesis
 // P10 QA then compares both and produces a final adjudicated formula.
 
 async function callGrok42(prompt) {
@@ -78,7 +78,7 @@ async function callGrok42(prompt) {
   return output;
 }
 
-async function callClaudeOpus(prompt) {
+async function callClaudeSonnet(prompt) {
   const key = getOpenRouterKey();
   if (!key) throw new Error('OPENROUTER_API_KEY not found in sterling/.env');
   const start = Date.now();
@@ -91,15 +91,15 @@ async function callClaudeOpus(prompt) {
       'X-Title': 'DOVIVE Scout',
     },
     body: JSON.stringify({
-      model: 'anthropic/claude-opus-4.6',
+      model: 'anthropic/claude-sonnet-4-6',
       max_tokens: 16000,
       messages: [{ role: 'user', content: prompt }],
     }),
   });
   const j = await res.json();
-  if (j.error) throw new Error(`Claude Opus 4.6 error: ${j.error.message}`);
+  if (j.error) throw new Error(`Claude Sonnet 4.6 error: ${j.error.message}`);
   const output = j.choices?.[0]?.message?.content || null;
-  console.log(`  ✅ Claude Opus 4.6 done (${Math.round((Date.now()-start)/1000)}s, ${Math.round((output?.length||0)/1000)}k chars)`);
+  console.log(`  ✅ Claude Sonnet 4.6 done (${Math.round((Date.now()-start)/1000)}s, ${Math.round((output?.length||0)/1000)}k chars)`);
   return output;
 }
 async function compileMarketData(categoryId) {
@@ -803,7 +803,7 @@ async function saveToDB(categoryId, grokBrief, claudeBrief, marketData) {
 
   const { error } = await DASH.from('formula_briefs').insert({
     category_id: categoryId,
-    positioning: `Dual AI formula brief for ${KEYWORD} — Grok 4.2 + Claude Opus 4.6 vs ${marketData.category_summary.total_products} products`,
+    positioning: `Dual AI formula brief for ${KEYWORD} — Grok 4.2 + Claude Sonnet 4.6 vs ${marketData.category_summary.total_products} products`,
     target_customer: `Adults seeking ${KEYWORD} supplementation`,
     form_type: 'gummy',
     form_rationale: 'Category leader uses gummy format',
@@ -832,7 +832,7 @@ async function saveToDB(categoryId, grokBrief, claudeBrief, marketData) {
       ai_generated_brief_grok:   grokBrief   || null,
       ai_generated_brief_claude: claudeBrief || null,
       formula_brief_model_grok:   'grok-4.20-beta-0309-reasoning',
-      formula_brief_model_claude: 'anthropic/claude-opus-4.6',
+      formula_brief_model_claude: 'anthropic/claude-sonnet-4-6',
       grok_chars:   grokBrief?.length   || 0,
       claude_chars: claudeBrief?.length || 0,
       generated_at: new Date().toISOString(),
@@ -863,7 +863,7 @@ async function saveToVault(grokBrief, claudeBrief) {
   }
   if (claudeBrief) {
     const p = `${dir}\\${date}-${KEYWORD.replace(/\s+/g, '-')}-claude-opus-brief.md`;
-    fs.writeFileSync(p, `# P9 Formula Brief (Claude Opus 4.6) — ${KEYWORD}\n**Date:** ${date}\n**Model:** anthropic/claude-opus-4.6\n\n---\n\n${claudeBrief}`, 'utf8');
+    fs.writeFileSync(p, `# P9 Formula Brief (Claude Sonnet 4.6) — ${KEYWORD}\n**Date:** ${date}\n**Model:** anthropic/claude-sonnet-4-6\n\n---\n\n${claudeBrief}`, 'utf8');
     console.log(`  Claude vault: ${p}`);
   }
 }
@@ -924,14 +924,14 @@ async function run() {
   const prompt = buildPrompt(marketData);
   console.log(`Done (${Math.round(prompt.length / 1000)}k chars)\n`);
 
-  // 3. Run DUAL formulation in parallel — Grok 4.2 Deep Reasoning + Claude Opus 4.6
+  // 3. Run DUAL formulation in parallel — Grok 4.2 Deep Reasoning + Claude Sonnet 4.6
   console.log("Running dual AI formulation in parallel...");
   console.log("  [Grok]   grok-4.20-beta-0309-reasoning — deep scientific thinking");
-  console.log("  [Claude] anthropic/claude-opus-4.6 via OpenRouter — 1M context synthesis\n");
+  console.log("  [Claude] anthropic/claude-sonnet-4-6 via OpenRouter — 1M context synthesis\n");
 
   const [grokResult, claudeResult] = await Promise.allSettled([
     callGrok42(prompt),
-    callClaudeOpus(prompt),
+    callClaudeSonnet(prompt),
   ]);
 
   const grokBrief  = grokResult.status  === "fulfilled" ? grokResult.value  : null;
@@ -943,7 +943,7 @@ async function run() {
 
   console.log("\nDual formulation complete:");
   console.log(`  Grok 4.2 Reasoning:  ${grokBrief  ? Math.round(grokBrief.length/1000)+"k chars OK" : "FAILED"}`);
-  console.log(`  Claude Opus 4.6:     ${claudeBrief ? Math.round(claudeBrief.length/1000)+"k chars OK" : "FAILED"}\n`);
+  console.log(`  Claude Sonnet 4.6:     ${claudeBrief ? Math.round(claudeBrief.length/1000)+"k chars OK" : "FAILED"}\n`);
 
   // 4. Save to Supabase — both outputs
   process.stdout.write("Saving both briefs to formula_briefs table... ");
