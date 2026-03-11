@@ -398,6 +398,46 @@ ${p.other_ingredients || 'Not specified'}
       .some(w => p.keyword.toLowerCase().includes(w))
   ).map(p => `- ${p.keyword}: ${p.mentions} mentions`).join('\n') || 'No specific formulation feedback';
 
+  // Build flavor intelligence from top competitor data
+  const flavorIntelSection = (() => {
+    const lines = [];
+    // Flavor data from top competitors (titles + other_ingredients)
+    const flavorCompetitors = top20.slice(0, 10).filter(c => c.supplement_facts_raw || c.other_ingredients);
+    flavorCompetitors.forEach(c => {
+      const raw = ((c.supplement_facts_raw || '') + ' ' + (c.other_ingredients || '')).toLowerCase();
+      const flavors = [];
+      if (raw.includes('strawberry')) flavors.push('strawberry');
+      if (raw.includes('raspberry')) flavors.push('raspberry');
+      if (raw.includes('lemon')) flavors.push('lemon');
+      if (raw.includes('mango')) flavors.push('mango');
+      if (raw.includes('peach')) flavors.push('peach');
+      if (raw.includes('cherry')) flavors.push('cherry');
+      if (raw.includes('mixed berry') || raw.includes('mixed fruit')) flavors.push('mixed berry');
+      if (raw.includes('apple')) flavors.push('apple');
+      if (raw.includes('watermelon')) flavors.push('watermelon');
+      if (raw.includes('citrus')) flavors.push('citrus');
+      if (flavors.length) lines.push(`- ${c.brand} BSR#${c.rank}: ${flavors.join(', ')}`);
+    });
+    // Taste/flavor pain points from reviews
+    const tastePains = cs.top_pain_points.filter(p =>
+      ['taste', 'flavor', 'texture', 'smell', 'aftertaste', 'chalky', 'gritty', 'bitter', 'sweet', 'sugar']
+        .some(w => p.keyword.toLowerCase().includes(w))
+    ).map(p => `- "${p.keyword}": ${p.mentions} review mentions`);
+    return [
+      '### Competitor Flavor Profiles',
+      lines.length ? lines.join('\n') : '- Flavor data not extracted from supplement facts',
+      '',
+      '### Consumer Taste Complaints (from reviews — solve these)',
+      tastePains.length ? tastePains.join('\n') : '- No specific taste complaints found',
+      '',
+      '### Flavor Strategy Directive',
+      '- Gummies must taste GREAT — taste is a purchase repeat driver',
+      '- Ashwagandha has a bitter/earthy note — must be masked aggressively',
+      '- Recommend: natural fruit flavor with citric acid brightness to cut bitterness',
+      '- Include flavor name, intensity level, and masking agent recommendations in spec',
+    ].join('\n');
+  })();
+
   const efficacyPainPoints = cs.top_pain_points.filter(p =>
     ['work', 'effect', 'result', 'notice', 'difference', 'help', 'benefit']
       .some(w => p.keyword.toLowerCase().includes(w))
@@ -581,7 +621,9 @@ Synergistic Combinations: [Key ingredient pairs that enhance efficacy]
 |----------|---------------------|
 | Color | [Description with acceptable range] |
 | Odor | [Characteristic description] |
-| Taste | [If applicable - flavor profile] |
+| Taste | [REQUIRED: Specific flavor name + masking strategy for ashwagandha bitterness] |
+| Sweetener System | [Type + amount — sugar-free preferred; use stevia/monk fruit/erythritol blend] |
+| Flavor Masking | [How to neutralize earthy/bitter ashwagandha notes] |
 | Texture | [Description] |
 | Hardness | [X-X Newtons or Shore A] |
 | Water Activity (Aw) | [X.XX - X.XX] |
