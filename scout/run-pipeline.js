@@ -105,7 +105,7 @@ async function checkPhaseStatus(phaseNum, categoryId) {
     }
     case 5: {
       const { count } = await DOVIVE.from('dovive_phase5_research').select('*', { count: 'exact', head: true }).ilike('keyword', `%${KEYWORD.split(' ')[0]}%`);
-      return { done: count >= 5, count, total: 10, msg: `${count}/10 deep research records` };
+      return { done: count >= 10, count, total: 20, msg: `${count}/20 deep research records (Top 10 BSR + Top 10 New Brands)` };
     }
     case 6: {
       const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', categoryId).not('marketing_analysis', 'is', null);
@@ -162,8 +162,8 @@ const PHASES = [
     }
   },
   {
-    num: 5, name: 'Deep Research', description: 'Top-10 competitor deep dive (Reddit, certs, clinical)',
-    run: async () => runScript('phase5-save.js', ['--keyword', KEYWORD])
+    num: 5, name: 'Deep Research', description: 'Top 10 BSR + Top 10 New Brands — Grok 4.2 deep reasoning per product',
+    run: async () => runScript('phase5-deep-research.js', ['--keyword', KEYWORD])
   },
   {
     num: 6, name: 'Product Intelligence', description: 'Per-product AI scoring — powers Formula Landscape, Extract Types, Dosage, Certs, Threat Levels, Top 10 (9 dashboard sections)',
