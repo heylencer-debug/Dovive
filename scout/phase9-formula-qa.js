@@ -238,12 +238,12 @@ Serving Size: 2 Gummies | Servings Per Container: 45
 [repeat for each competitor]
 
 ## COMPREHENSIVE INGREDIENT COMPARISON
-(Every active ingredient compared: DOVIVE proposed vs top 5 competitors — exact amounts)
+(Every active ingredient compared: DOVIVE proposed vs top 5 competitors - exact amounts)
 
 Build a table with ALL primary active ingredients. For each ingredient, show:
 | Ingredient | DOVIVE Formula A | DOVIVE Formula B | Competitor #1 | Competitor #2 | Competitor #3 | Market Verdict |
 |---|---|---|---|---|---|---|
-[Row per ingredient — use exact mg amounts from the competitor OCR data above]
+[Row per ingredient - use exact mg amounts from the competitor OCR data above]
 [Market Verdict: Under-dosed / Clinical / Over-dosed / Not used]
 
 After the table:
@@ -272,7 +272,7 @@ After the table:
 **Best elements from Formula B to incorporate:** [list]
 
 ## FLAVOR & TASTE QA
-(Gummies live or die on taste — evaluate both formulas' flavor strategy)
+(Gummies live or die on taste - evaluate both formulas' flavor strategy)
 
 | Dimension | Formula A (Grok) | Formula B (Claude) | Market Expectation |
 |---|---|---|---|
@@ -335,10 +335,10 @@ All three sections are required. If any is missing, pipeline data will not save 
 // â"€â"€â"€ Parse competitor notes from QA output â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 async function generateCompetitorNotesOnly(competitors, qaAdjustedFormula, keyword) {
-  /** Separate small API call — guaranteed to complete, not affected by main QA token budget */
+  /** Separate small API call - guaranteed to complete, not affected by main QA token budget */
   const lines = competitors.slice(0, 10).map((comp, i) => {
     const sf = (comp.supplement_facts_raw || '').slice(0, 300);
-    return `### #${i+1} ASIN: ${comp.asin} — ${comp.brand}\nBSR: ${comp.bsr_current} | ${comp.price} | ${comp.monthly_revenue?.toLocaleString()}/mo revenue\nFormula snippet: ${sf || 'Not available'}`;
+    return `### #${i+1} ASIN: ${comp.asin} - ${comp.brand}\nBSR: ${comp.bsr_current} | ${comp.price} | ${comp.monthly_revenue?.toLocaleString()}/mo revenue\nFormula snippet: ${sf || 'Not available'}`;
   }).join('\n');
 
   const prompt = `You are a supplement product analyst. For each competitor below, write ONE concise sentence comparing their formula to DOVIVE's formula for ${keyword}. Focus on the most important ingredient/dose/quality difference.
@@ -350,7 +350,7 @@ COMPETITORS:
 ${lines}
 
 Return ONLY a valid JSON object mapping each ASIN to a one-line note:
-{"ASIN1": "Their dose is X vs our Y — we win on Z", "ASIN2": "..."}
+{"ASIN1": "Their dose is X vs our Y - we win on Z", "ASIN2": "..."}
 No other text. Pure JSON only.`;
 
   try {
@@ -433,21 +433,27 @@ Rating: ${c.rating_value} (${c.rating_count} reviews)
     return flavors.length ? `- ${c.brand}: ${flavors.join(', ')}` : null;
   }).filter(Boolean).join('\n') || '- Flavor data not found in supplement facts';
 
-  const adjFormulaSummary = (adjustedFormula || '').slice(0, 1000);
+  // Use full adjusted formula - this is the ANCHOR all analysis must align to
+  const adjFormulaSummary = adjustedFormula || 'Not yet generated';
   const grokSummary = (grokBrief || '').slice(0, 2000);
   const claudeSummary = (claudeBrief || '').slice(0, 2000);
   const miSummary = (marketIntel || '').slice(0, 1500);
 
   return `You are a supplement product analyst and flavor scientist. Generate THREE sections for DOVIVE's ${keyword} product.
 
-## DOVIVE FORMULA CONTEXT
-### Adjusted Formula (QA-approved):
+⚠️ CONSISTENCY RULE - READ FIRST:
+The formula anchor below is the QA-approved final specification. Every ingredient amount, every dose, every ingredient name you reference in your analysis MUST exactly match this anchor. Do not invent different amounts. Do not reference ingredients not in this anchor. This ensures the full document is internally consistent.
+
+## ✅ FORMULA ANCHOR - DOVIVE FINAL SPEC (do not deviate from these numbers)
 ${adjFormulaSummary}
 
-### Formula A Summary (Grok 4.2 P9):
+---
+
+## SUPPORTING CONTEXT (reference only - anchor above takes precedence)
+### Formula A Draft (Grok 4.2 P9 - before QA):
 ${grokSummary}
 
-### Formula B Summary (Claude Opus 4.6 P9):
+### Formula B Draft (Claude Opus 4.6 P9 - before QA):
 ${claudeSummary}
 
 ## MARKET INTELLIGENCE
@@ -464,27 +470,31 @@ ${flavorData}
 Generate exactly these three sections. Use exact headings.
 
 ## COMPREHENSIVE INGREDIENT COMPARISON
-Build a complete table comparing DOVIVE's adjusted formula against top 5 competitors for every active ingredient. Be specific with exact mg amounts from the competitor data above.
+⚠️ DOVIVE column MUST use the exact amounts from the FORMULA ANCHOR above - no deviations.
+Compare DOVIVE's formula against the top competitors for every active ingredient.
 
-| Ingredient | DOVIVE (Adjusted) | Comp #1 | Comp #2 | Comp #3 | Comp #4 | Comp #5 | Clinical Range | Market Verdict |
+| Ingredient | DOVIVE *(exact from anchor)* | Comp #1 | Comp #2 | Comp #3 | Comp #4 | Comp #5 | Clinical Range | Verdict |
 |---|---|---|---|---|---|---|---|---|
-[One row per active ingredient. Use exact mg from supplement facts. Market Verdict: Under-dosed / Clinical / Over-dosed / Not common]
+[One row per ingredient in DOVIVE anchor. DOVIVE amounts must match anchor exactly. Use exact mg from competitor supplement facts for their columns. Verdict: Under-dosed / Clinical / Over-dosed / Not used]
 
-**DOVIVE Unique Differentiators** (what we have that competitors don't at clinical dose):
+**Why each DOVIVE ingredient beats competitors:**
+[One bullet per ingredient - specific clinical or quality reason]
+
+**DOVIVE Unique Differentiators** (ingredients competitors don't have at clinical dose):
 [bullet list]
 
-**Competitive Gaps** (what competitors have that we're missing or under-dosing):
+**Competitive Gaps** (ingredients competitors have that we don't - and whether we should add them):
 [bullet list]
 
-**Why our formula wins overall:**
-[2-3 sentence summary]
+**Bottom line - why our formula wins:**
+[2-3 sentences, referencing specific amounts from the anchor]
 
 ## FLAVOR & TASTE QA
-(Gummies live or die on taste — critical for repeat purchases and reviews)
+(Gummies live or die on taste - critical for repeat purchases and reviews)
 
 **Category Flavor Intelligence:**
 - Top competitor flavors: [from data above]
-- Ashwagandha masking challenge: ashwagandha has an earthy/bitter/slightly sulfuric note at 600mg — this MUST be aggressively masked
+- Ashwagandha masking challenge: ashwagandha has an earthy/bitter/slightly sulfuric note at 600mg - this MUST be aggressively masked
 - What 1-star reviews say: [common taste complaints in supplement gummy category]
 
 **Recommended Flavor Strategy for DOVIVE ${keyword}:**
@@ -537,7 +547,7 @@ async function runCall2(keyword, grokBrief, claudeBrief, adjustedFormula, compet
   return { comprehensiveComparison, flavorQA, competitorNotes };
 }
 
-// ── Call 3: Competitor Notes ONLY — tiny focused JSON call ────────────────────
+// ── Call 3: Competitor Notes ONLY - tiny focused JSON call ────────────────────
 async function runCall3CompetitorNotes(keyword, adjustedFormula, competitors) {
   console.log(`\nRunning Call 3: Competitor Notes (JSON only)...`);
   const top10 = (competitors || []).slice(0, 10);
@@ -548,17 +558,20 @@ async function runCall3CompetitorNotes(keyword, adjustedFormula, competitors) {
 Formula: ${sf || 'Not available'}`;
   }).join('\n\n');
 
-  const adjSummary = (adjustedFormula || '').slice(0, 600);
+  // Pass full formula as anchor - competitor notes must reference exact amounts
+  const adjSummary = adjustedFormula || 'Not yet generated';
 
   const prompt = `You are a supplement analyst. Compare DOVIVE's formula to each competitor. Output ONLY a valid JSON object — no markdown, no explanation, no code fences. Pure JSON only.
 
-DOVIVE's ${keyword} formula (QA-approved):
+⚠️ Use the EXACT ingredient amounts from the formula anchor below in your comparison notes. Do not invent different amounts.
+
+DOVIVE's ${keyword} FORMULA ANCHOR (QA-approved final spec):
 ${adjSummary}
 
 COMPETITORS:
 ${compLines}
 
-Return this exact format — use the EXACT ASIN codes listed above, one entry per ASIN:
+Return this exact format - use the EXACT ASIN codes listed above, one entry per ASIN:
 {${top10.map(c => `"${c.asin}": "one sentence"`).join(', ')}}
 
 Replace each "one sentence" with your comparison. Focus on the most important difference (dose, ingredient quality, certification, or price). Return ONLY pure JSON, no markdown.`;
@@ -579,7 +592,7 @@ Replace each "one sentence" with your comparison. Focus on the most important di
     const text = await res.text();
     const parsed = JSON.parse(text);
     const raw = parsed.choices?.[0]?.message?.content?.trim() || '';
-    // Try to extract JSON — handle if Claude adds any wrapping text
+    // Try to extract JSON - handle if Claude adds any wrapping text
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (!jsonMatch) { console.log(`  No JSON found in response. Raw: ${raw.slice(0, 200)}`); return {}; }
     const notes = JSON.parse(jsonMatch[0]);
