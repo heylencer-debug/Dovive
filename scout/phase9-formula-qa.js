@@ -756,7 +756,7 @@ async function run() {
       }).eq('asin', asin);
       if (!ne) notesSaved++;
     }
-    console.log(  Notes saved to products: / OK);
+    console.log('  Notes saved to products: ' + notesSaved + '/' + finalNoteCount + ' OK');
   } else {
     console.log('  No competitor notes to save');
   }
