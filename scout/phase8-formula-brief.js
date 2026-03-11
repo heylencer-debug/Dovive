@@ -26,9 +26,9 @@ const FORCE = process.argv.includes('--force');
 
 // â”€â”€â”€ API Key â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// Priority order: xAI Grok (from sterling/.env) â†’ Anthropic â†’ OpenRouter
+// ─── API Keys ─────────────────────────────────────────────────────────────────
+
 function getXaiKey() {
-  // Load from sterling/.env directly since that's where it lives
   const fs = require('fs');
   const path = require('path');
   const sterlingEnv = path.join(__dirname, '../../sterling/.env');
@@ -40,89 +40,68 @@ function getXaiKey() {
   return process.env.XAI_API_KEY || null;
 }
 
-async function getApiKey() {
-  // 1. Try xAI Grok first (from sterling/.env)
-  const xaiKey = getXaiKey();
-  if (xaiKey) return { provider: 'xai', key: xaiKey };
-
-  // 2. Try Supabase app_settings (Anthropic or OpenRouter)
-  const { data } = await DOVIVE
-    .from('app_settings')
-    .select('key, value')
-    .in('key', ['anthropic_api_key', 'openrouter_api_key']);
-  if (!data?.length) return null;
-  const anthropic = data.find(r => r.key === 'anthropic_api_key');
-  const openrouter = data.find(r => r.key === 'openrouter_api_key');
-  if (anthropic) return { provider: 'anthropic', key: anthropic.value };
-  if (openrouter) return { provider: 'openrouter', key: openrouter.value };
-  return null;
-}
-
-async function callAI(prompt) {
-  const apiKey = await getApiKey();
-  if (!apiKey) throw new Error('No API key found. Add XAI_API_KEY to sterling/.env or anthropic_api_key to app_settings.');
-
-  console.log(`  Provider: ${apiKey.provider}`);
-
-  if (apiKey.provider === 'xai') {
-    // xAI Grok â€” OpenAI-compatible API
-    const res = await fetch('https://api.x.ai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey.key}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'grok-4-1-fast-non-reasoning',
-        max_tokens: 8192,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    const j = await res.json();
-    if (j.error) throw new Error(`xAI error: ${j.error.message}`);
-    return j.choices?.[0]?.message?.content || null;
-
-  } else if (apiKey.provider === 'anthropic') {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey.key,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-5-20251120',
-        max_tokens: 8192,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    const j = await res.json();
-    if (j.error) throw new Error(`Anthropic error: ${j.error.message}`);
-    return j.content?.[0]?.text || null;
-
-  } else {
-    // OpenRouter fallback
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey.key}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://dovive.com',
-      },
-      body: JSON.stringify({
-        model: 'anthropic/claude-sonnet-4-5',
-        max_tokens: 8192,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    const j = await res.json();
-    if (j.error) throw new Error(`OpenRouter error: ${j.error.message}`);
-    return j.choices?.[0]?.message?.content || null;
+function getOpenRouterKey() {
+  const fs = require('fs');
+  const path = require('path');
+  const sterlingEnv = path.join(__dirname, '../../sterling/.env');
+  if (fs.existsSync(sterlingEnv)) {
+    const content = fs.readFileSync(sterlingEnv, 'utf8');
+    const match = content.match(/OPENROUTER_API_KEY\s*=\s*(.+)/);
+    if (match) return match[1].trim();
   }
+  return process.env.OPENROUTER_API_KEY || null;
 }
 
-// â”€â”€â”€ Data Compilation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── DUAL AI Formulation ───────────────────────────────────────────────────────
+// P9 generates TWO independent formula briefs in parallel:
+//   1. Grok 4.2 Beta Reasoning  — deep scientific reasoning, like a PhD formulator
+//   2. Claude Opus 4.6          — via OpenRouter, 1M context synthesis
+// P10 QA then compares both and produces a final adjudicated formula.
 
+async function callGrok42(prompt) {
+  const key = getXaiKey();
+  if (!key) throw new Error('XAI_API_KEY not found in sterling/.env');
+  const start = Date.now();
+  const res = await fetch('https://api.x.ai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'grok-4.20-beta-0309-reasoning',
+      max_tokens: 16000,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+  const j = await res.json();
+  if (j.error) throw new Error(`Grok 4.2 error: ${j.error.message}`);
+  const output = j.choices?.[0]?.message?.content || null;
+  console.log(`  ✅ Grok 4.2 done (${Math.round((Date.now()-start)/1000)}s, ${Math.round((output?.length||0)/1000)}k chars)`);
+  return output;
+}
+
+async function callClaudeOpus(prompt) {
+  const key = getOpenRouterKey();
+  if (!key) throw new Error('OPENROUTER_API_KEY not found in sterling/.env');
+  const start = Date.now();
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://dovive.com',
+      'X-Title': 'DOVIVE Scout',
+    },
+    body: JSON.stringify({
+      model: 'anthropic/claude-opus-4.6',
+      max_tokens: 16000,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+  const j = await res.json();
+  if (j.error) throw new Error(`Claude Opus 4.6 error: ${j.error.message}`);
+  const output = j.choices?.[0]?.message?.content || null;
+  console.log(`  ✅ Claude Opus 4.6 done (${Math.round((Date.now()-start)/1000)}s, ${Math.round((output?.length||0)/1000)}k chars)`);
+  return output;
+}
 async function compileMarketData(categoryId) {
   // Pull P6 market intelligence doc (new single-doc market analysis)
   const { data: marketIntelDocs } = await DASH.from('market_intelligence')
@@ -769,18 +748,19 @@ Target Length: 3,000-4,000 words (focused on FORMULA, not process)`;
 
 // â”€â”€â”€ Save to DB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-async function saveToDB(categoryId, aiOutput, marketData) {
+async function saveToDB(categoryId, grokBrief, claudeBrief, marketData) {
   // Delete existing brief for this category
   await DASH.from('formula_briefs').delete().eq('category_id', categoryId);
 
   const leader = marketData.category_summary.top_performers[0];
+  const primaryBrief = grokBrief || claudeBrief; // Grok is primary; fallback to Claude
 
   const { error } = await DASH.from('formula_briefs').insert({
     category_id: categoryId,
-    positioning: `AI-generated formula brief for ${KEYWORD} â€” based on ${marketData.category_summary.total_products} products`,
+    positioning: `Dual AI formula brief for ${KEYWORD} — Grok 4.2 + Claude Opus 4.6 vs ${marketData.category_summary.total_products} products`,
     target_customer: `Adults seeking ${KEYWORD} supplementation`,
     form_type: 'gummy',
-    form_rationale: `Category leader uses gummy format`,
+    form_rationale: 'Category leader uses gummy format',
     flavor_profile: 'See variant lineup in brief',
     flavor_importance: 'high',
     flavor_development_needed: true,
@@ -799,9 +779,16 @@ async function saveToDB(categoryId, aiOutput, marketData) {
       frequency: p.mentions,
       solution: 'See AI brief',
     })),
-    // Store the full AI-generated markdown output in ingredients field for dashboard display
     ingredients: {
-      ai_generated_brief: aiOutput,
+      // Primary (Grok) — used by dashboard and backward-compat fields
+      ai_generated_brief: primaryBrief,
+      // Dual outputs — both stored separately for P10 QA comparison
+      ai_generated_brief_grok:   grokBrief   || null,
+      ai_generated_brief_claude: claudeBrief || null,
+      formula_brief_model_grok:   'grok-4.20-beta-0309-reasoning',
+      formula_brief_model_claude: 'anthropic/claude-opus-4.6',
+      grok_chars:   grokBrief?.length   || 0,
+      claude_chars: claudeBrief?.length || 0,
       generated_at: new Date().toISOString(),
       keyword: KEYWORD,
       data_sources: {
@@ -818,19 +805,21 @@ async function saveToDB(categoryId, aiOutput, marketData) {
   if (error) throw error;
 }
 
-// â”€â”€â”€ Save markdown to vault â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-async function saveToVault(aiOutput) {
+async function saveToVault(grokBrief, claudeBrief) {
   const fs = require('fs');
   const date = new Date().toISOString().split('T')[0];
-  const vaultPath = `C:\\SirPercival-Vault\\07_ai-systems\\agents\\scout\\formula-briefs\\${date}-${KEYWORD.replace(/\s+/g, '-')}-ai-brief.md`;
-  const content = `# P8 Formula Brief â€” ${KEYWORD} (AI Generated)\n**Date:** ${date}\n**Keyword:** ${KEYWORD}\n\n---\n\n${aiOutput}`;
-  fs.writeFileSync(vaultPath, content, 'utf8');
-  console.log(`  Vault: ${vaultPath}`);
+  const dir = 'C:\\SirPercival-Vault\\07_ai-systems\\agents\\scout\\formula-briefs';
+  if (grokBrief) {
+    const p = `${dir}\\${date}-${KEYWORD.replace(/\s+/g, '-')}-grok42-brief.md`;
+    fs.writeFileSync(p, `# P9 Formula Brief (Grok 4.2 Reasoning) — ${KEYWORD}\n**Date:** ${date}\n**Model:** grok-4.20-beta-0309-reasoning\n\n---\n\n${grokBrief}`, 'utf8');
+    console.log(`\n  Grok vault: ${p}`);
+  }
+  if (claudeBrief) {
+    const p = `${dir}\\${date}-${KEYWORD.replace(/\s+/g, '-')}-claude-opus-brief.md`;
+    fs.writeFileSync(p, `# P9 Formula Brief (Claude Opus 4.6) — ${KEYWORD}\n**Date:** ${date}\n**Model:** anthropic/claude-opus-4.6\n\n---\n\n${claudeBrief}`, 'utf8');
+    console.log(`  Claude vault: ${p}`);
+  }
 }
-
-// â”€â”€â”€ Main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
 async function run() {
   console.log(`\n${'â•'.repeat(60)}`);
   console.log(`ðŸ§ª PHASE 8: FORMULA BRIEF â€” "${KEYWORD}"`);
@@ -888,32 +877,52 @@ async function run() {
   const prompt = buildPrompt(marketData);
   console.log(`Done (${Math.round(prompt.length / 1000)}k chars)\n`);
 
-  // 3. Call Claude
-  process.stdout.write('Calling Claude API... ');
-  const startTime = Date.now();
-  const aiOutput = await callAI(prompt);
-  const elapsed = Math.round((Date.now() - startTime) / 1000);
-  if (!aiOutput) throw new Error('No output from AI');
-  console.log(`Done (${elapsed}s, ${Math.round(aiOutput.length / 1000)}k chars output)\n`);
+  // 3. Run DUAL formulation in parallel — Grok 4.2 Deep Reasoning + Claude Opus 4.6
+  console.log("Running dual AI formulation in parallel...");
+  console.log("  [Grok]   grok-4.20-beta-0309-reasoning — deep scientific thinking");
+  console.log("  [Claude] anthropic/claude-opus-4.6 via OpenRouter — 1M context synthesis\n");
 
-  // 4. Save to Supabase
-  process.stdout.write('Saving to formula_briefs table... ');
-  await saveToDB(cat.id, aiOutput, marketData);
-  console.log('Done\n');
+  const [grokResult, claudeResult] = await Promise.allSettled([
+    callGrok42(prompt),
+    callClaudeOpus(prompt),
+  ]);
 
-  // 5. Save to vault
-  process.stdout.write('Saving to vault... ');
-  await saveToVault(aiOutput);
-  console.log('Done\n');
+  const grokBrief  = grokResult.status  === "fulfilled" ? grokResult.value  : null;
+  const claudeBrief = claudeResult.status === "fulfilled" ? claudeResult.value : null;
 
-  // 6. Print preview
-  console.log('=== FORMULA BRIEF PREVIEW (first 800 chars) ===');
-  console.log(aiOutput.substring(0, 800));
-  console.log('\n...\n');
-  console.log(`âœ… Complete â€” ${Math.round(aiOutput.length / 1000)}k chars saved to Supabase + vault`);
+  if (grokResult.status === "rejected")   console.error("  WARNING: Grok 4.2 failed:", grokResult.reason?.message);
+  if (claudeResult.status === "rejected") console.error("  WARNING: Claude Opus failed:", claudeResult.reason?.message);
+  if (!grokBrief && !claudeBrief) throw new Error("Both AI models failed — no formula output");
+
+  console.log("\nDual formulation complete:");
+  console.log(`  Grok 4.2 Reasoning:  ${grokBrief  ? Math.round(grokBrief.length/1000)+"k chars OK" : "FAILED"}`);
+  console.log(`  Claude Opus 4.6:     ${claudeBrief ? Math.round(claudeBrief.length/1000)+"k chars OK" : "FAILED"}\n`);
+
+  // 4. Save to Supabase — both outputs
+  process.stdout.write("Saving both briefs to formula_briefs table... ");
+  await saveToDB(cat.id, grokBrief, claudeBrief, marketData);
+  console.log("Done\n");
+
+  // 5. Save to vault — both outputs
+  process.stdout.write("Saving to vault... ");
+  await saveToVault(grokBrief, claudeBrief);
+  console.log("Done\n");
+
+  // 6. Previews
+  if (grokBrief) {
+    console.log("=== GROK 4.2 PREVIEW (first 400 chars) ===");
+    console.log(grokBrief.substring(0, 400));
+  }
+  if (claudeBrief) {
+    console.log("\n=== CLAUDE OPUS 4.6 PREVIEW (first 400 chars) ===");
+    console.log(claudeBrief.substring(0, 400));
+  }
+  const total = (grokBrief?.length||0) + (claudeBrief?.length||0);
+  console.log(`\nComplete — ${Math.round(total/1000)}k chars total (both briefs) saved to Supabase + vault`);
+  console.log("Next: run phase9-formula-qa.js --keyword to compare and adjudicate final formula.");
 }
 
 run().catch(e => {
-  console.error('\nâŒ FAILED:', e.message);
+  console.error('\nFAILED:', e.message);
   process.exit(1);
 });

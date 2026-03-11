@@ -78,7 +78,7 @@ function loadMarketIntelFromVault(keyword) {
 
 // â”€â”€â”€ Build QA prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-function buildQAPrompt(p8Brief, marketIntel, competitors, keyword) {
+function buildQAPrompt(grokBrief, marketIntel, competitors, keyword, claudeBrief = null) {
   const competitorSection = competitors.map((c, i) => {
     const pi = c.marketing_analysis?.product_intelligence || {};
     return `
@@ -118,10 +118,16 @@ This is a CRITICAL QA gate. P8 AI may have over-engineered the formula. Be the e
 
 ---
 
-## P8 PROPOSED FORMULA (to be reviewed)
+## DUAL AI FORMULA PROPOSALS (both to be reviewed and adjudicated)
 
-${p8Brief.substring(0, 5000)}
-${p8Brief.length > 5000 ? '\n[brief continues â€” key formula section above]\n' : ''}
+### FORMULA A — Grok 4.2 Deep Reasoning (grok-4.20-beta-0309-reasoning)
+${(grokBrief || "Not available").substring(0, 4000)}
+${(grokBrief || "").length > 4000 ? "\n[Grok brief continues — key sections shown above]\n" : ""}
+
+### FORMULA B — Claude Opus 4.6 (anthropic/claude-opus-4.6)
+
+${claudeBrief ? claudeBrief.substring(0, 4000) : "Claude Opus brief not available (single-model run)"}
+${claudeBrief && claudeBrief.length > 4000 ? "\n[Claude brief continues — key sections shown above]\n" : ""}
 
 ---
 
@@ -186,6 +192,24 @@ ${competitorSection}
 **ASIN:** [asin]
 
 [repeat for each competitor]
+
+## DUAL FORMULA COMPARISON
+(Score Formula A and Formula B independently, then pick the winner)
+
+| Dimension | Formula A (Grok 4.2) | Formula B (Claude Opus) | Winner |
+|---|---|---|---|
+| Primary active dose | [dose] | [dose] | [A/B/Tie] |
+| Bonus ingredient quality | [assessment] | [assessment] | [A/B/Tie] |
+| Manufacturability in gummies | [Yes/Risk/No] | [Yes/Risk/No] | [A/B/Tie] |
+| Clinical dose alignment | [score/10] | [score/10] | [A/B/Tie] |
+| Cost efficiency | [assessment] | [assessment] | [A/B/Tie] |
+| Overall QA Score | [X/10] | [X/10] | [A/B] |
+
+**Winner:** [Formula A or B]
+**Reason:** [One sentence — why this formula is stronger for DOVIVE]
+
+**Best elements from Formula A to keep:** [list]
+**Best elements from Formula B to incorporate:** [list]
 
 ## FORMULA ADJUSTMENTS
 (What P8 got wrong and what we're fixing)
@@ -275,24 +299,26 @@ async function run() {
     }
   }
 
-  // â”€â”€ Load P8 formula brief â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  console.log(`Loading P8 formula brief...`);
+  // Load BOTH P9 formula briefs (Grok 4.2 + Claude Opus 4.6)
+  console.log(`Loading dual P9 formula briefs (Grok 4.2 + Claude Opus 4.6)...`);
   const { data: briefRow } = await DASH.from('formula_briefs')
     .select('id, ingredients').eq('category_id', CAT_ID)
     .not('ingredients', 'is', null).limit(1).single();
-  const p8Brief = briefRow?.ingredients?.ai_generated_brief;
-  if (!p8Brief) {
-    console.error('âŒ No P8 formula brief found. Run phase8-formula-brief.js first.');
+  const grokBrief   = briefRow?.ingredients?.ai_generated_brief_grok   || briefRow?.ingredients?.ai_generated_brief || null;
+  const claudeBrief = briefRow?.ingredients?.ai_generated_brief_claude || null;
+  if (!grokBrief && !claudeBrief) {
+    console.error('ERROR: No P9 formula briefs found. Run phase8-formula-brief.js first.');
     process.exit(1);
   }
-  console.log(`  âœ… P8 brief loaded (${Math.round(p8Brief.length / 1000)}k chars)`);
+  console.log(`  Grok 4.2 brief:    ${grokBrief   ? Math.round(grokBrief.length/1000)+'k chars OK' : 'NOT FOUND'}`);
+  console.log(`  Claude Opus brief: ${claudeBrief ? Math.round(claudeBrief.length/1000)+'k chars OK' : 'NOT FOUND (single model run)'}`);
 
-  // â”€â”€ Load P6 market intelligence â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Load P6 market intelligence
   console.log(`Loading P6 market intelligence...`);
   const marketIntel = loadMarketIntelFromVault(KEYWORD);
-  console.log(`  ${marketIntel ? `âœ… Loaded from vault (${Math.round(marketIntel.length / 1000)}k chars)` : 'âš ï¸  Not found in vault â€” P9 will run without market context'}`);
+  console.log(`  ${marketIntel ? `OK Loaded from vault (${Math.round(marketIntel.length / 1000)}k chars)` : 'Not found in vault - P10 will run without market context'}`);
 
-  // â”€â”€ Load top 20 competitors â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Load top 20 competitors
   console.log(`Loading top 20 competitors with formulas...`);
   const { data: competitors } = await DASH.from('products')
     .select(`asin, brand, title, bsr_current, price, monthly_revenue, monthly_sales,
@@ -301,11 +327,11 @@ async function run() {
     .not('bsr_current', 'is', null)
     .order('bsr_current', { ascending: true })
     .limit(20);
-  console.log(`  âœ… ${competitors?.length || 0} competitors loaded\n`);
+  console.log(`  OK ${competitors?.length || 0} competitors loaded\n`);
 
-  // â”€â”€ Build prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  console.log(`Building QA prompt...`);
-  const prompt = buildQAPrompt(p8Brief, marketIntel, competitors || [], KEYWORD);
+  // Build dual-comparison QA prompt
+  console.log(`Building dual-comparison QA prompt...`);
+  const prompt = buildQAPrompt(grokBrief, marketIntel, competitors || [], KEYWORD, claudeBrief);
   console.log(`  Prompt size: ${Math.round(prompt.length / 1000)}k chars\n`);
 
   // â”€â”€ Call Grok â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
