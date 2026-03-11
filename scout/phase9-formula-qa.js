@@ -558,8 +558,10 @@ ${adjSummary}
 COMPETITORS:
 ${compLines}
 
-Return this exact format — one entry per ASIN, one sentence comparing to DOVIVE. Focus on the most important difference (dose, ingredient quality, certification, or price):
-{"ASIN1": "one sentence", "ASIN2": "one sentence"}`;
+Return this exact format — use the EXACT ASIN codes listed above, one entry per ASIN:
+{${top10.map(c => `"${c.asin}": "one sentence"`).join(', ')}}
+
+Replace each "one sentence" with your comparison. Focus on the most important difference (dose, ingredient quality, certification, or price). Return ONLY pure JSON, no markdown.`;
 
   try {
     const key = getOpenRouterKey();
@@ -748,7 +750,7 @@ async function run() {
     let notesSaved = 0;
     for (const [asin, note] of Object.entries(finalNotes)) {
       const { data: prod } = await DASH.from('products')
-        .select('marketing_analysis').eq('asin', asin).single();
+        .select('marketing_analysis').eq('asin', asin).maybeSingle();
       if (!prod) continue;
       const existing = prod.marketing_analysis || {};
       const { error: ne } = await DASH.from('products').update({
