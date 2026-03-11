@@ -744,7 +744,7 @@ async function run() {
   }
 
   if (finalNoteCount > 0) {
-    console.log(Saving  competitor notes to products...);
+    console.log('Saving ' + finalNoteCount + ' competitor notes to products...');
     let notesSaved = 0;
     for (const [asin, note] of Object.entries(finalNotes)) {
       const { data: prod } = await DASH.from('products')
