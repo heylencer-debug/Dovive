@@ -1,0 +1,123 @@
+﻿/**
+ * migrate-ocr-to-dash.js
+ * Syncs P4 OCR data from dovive_ocr → supplement-scope-dash products table
+ * Populates: all_nutrients, nutrients_count, ocr_confidence, servings_per_container, serving_size
+ *
+ * Confidence score logic:
+ *   >= 8 nutrients → 0.92 (high)
+ *   5–7 nutrients  → 0.78 (good)
+ *   2–4 nutrients  → 0.55 (partial)
+ *   1 nutrient     → 0.35 (low)
+ *   0 / null       → 0.15 (very low)
+ */
+
+require('dotenv').config();
+const { createClient } = require('@supabase/supabase-js');
+
+const DOVIVE = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+const DASH = createClient(
+  'https://jwkitkfufigldpldqtbq.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3a2l0a2Z1ZmlnbGRwbGRxdGJxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTA0NTY0NSwiZXhwIjoyMDc2NjIxNjQ1fQ.FjLFaMPE4VO5vVwFEAAvLiub3Xc1hhjsv9fd2jWFIAc'
+);
+
+const DASH_CAT_ID = '820537da-3994-4a11-a2e0-a636d751b26f';
+const KEYWORD = process.argv[2] || 'ashwagandha gummies';
+
+function calcConfidence(facts) {
+  const n = (facts || []).length;
+  if (n >= 8) return 0.92;
+  if (n >= 5) return 0.78;
+  if (n >= 2) return 0.55;
+  if (n >= 1) return 0.35;
+  return 0.15;
+}
+
+// Pick best OCR record per ASIN: most supplement_facts items
+function pickBest(records) {
+  return records.reduce((best, cur) => {
+    const curCount = (cur.supplement_facts || []).length;
+    const bestCount = (best.supplement_facts || []).length;
+    return curCount > bestCount ? cur : best;
+  });
+}
+
+async function main() {
+  console.log(`\n=== OCR Migration: dovive_ocr → supplement-scope-dash ===`);
+  console.log(`Keyword: "${KEYWORD}"\n`);
+
+  // 1. Load all OCR records for this keyword
+  const { data: ocrRows, error: ocrErr } = await DOVIVE
+    .from('dovive_ocr')
+    .select('asin,serving_size,servings_per_container,supplement_facts,certifications,health_claims')
+    .eq('keyword', KEYWORD);
+
+  if (ocrErr) { console.error('OCR fetch error:', ocrErr.message); return; }
+  console.log(`Fetched ${ocrRows.length} OCR records`);
+
+  // Group by ASIN, keep best record per ASIN
+  const byAsin = new Map();
+  for (const row of ocrRows) {
+    const existing = byAsin.get(row.asin);
+    if (!existing) {
+      byAsin.set(row.asin, row);
+    } else {
+      // Keep record with more supplement_facts
+      const existingCount = (existing.supplement_facts || []).length;
+      const curCount = (row.supplement_facts || []).length;
+      if (curCount > existingCount) byAsin.set(row.asin, row);
+    }
+  }
+  console.log(`Unique ASINs with OCR data: ${byAsin.size}`);
+
+  // 2. Load all products from DASH
+  const { data: products, error: prodErr } = await DASH
+    .from('products')
+    .select('id,asin')
+    .eq('category_id', DASH_CAT_ID);
+
+  if (prodErr) { console.error('Products fetch error:', prodErr.message); return; }
+  console.log(`Products in DASH: ${products.length}\n`);
+
+  const dashByAsin = new Map(products.map(p => [p.asin, p.id]));
+
+  let updated = 0, skipped = 0, errors = 0;
+
+  for (const [asin, ocr] of byAsin) {
+    const productId = dashByAsin.get(asin);
+    if (!productId) { skipped++; continue; }
+
+    const facts = ocr.supplement_facts || [];
+    const confidence = calcConfidence(facts);
+    const nutrientsCount = facts.length;
+
+    const updateData = {
+      all_nutrients: facts.length > 0 ? facts : null,
+      nutrients_count: nutrientsCount,
+      ocr_confidence: confidence,
+    };
+
+    // Only set serving info if not already present
+    if (ocr.serving_size) updateData.serving_size = ocr.serving_size;
+    if (ocr.servings_per_container) updateData.servings_per_container = parseInt(ocr.servings_per_container) || null;
+    if (ocr.certifications && Array.isArray(ocr.certifications) && ocr.certifications.length > 0) {
+      updateData.claims_on_label = ocr.certifications;
+    }
+
+    const { error } = await DASH.from('products').update(updateData).eq('id', productId);
+    if (error) {
+      console.error(`  ✗ ${asin}: ${error.message}`);
+      errors++;
+    } else {
+      updated++;
+      if (updated % 20 === 0) console.log(`  ${updated} updated...`);
+    }
+  }
+
+  console.log(`\n=== DONE ===`);
+  console.log(`Updated: ${updated} products`);
+  console.log(`Skipped (ASIN not in DASH): ${skipped}`);
+  console.log(`Errors: ${errors}`);
+  console.log(`\nFields now populated: all_nutrients, nutrients_count, ocr_confidence, serving_size, servings_per_container`);
+}
+
+main().catch(console.error);

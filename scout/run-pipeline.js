@@ -1,4 +1,4 @@
-/**
+﻿/**
  * run-pipeline.js — Full Scout Pipeline Orchestrator
  *
  * Runs P1 → P2 → P3 → P4 → P5 → P6 → P7 → P8 → P9 → P10 for a keyword.
@@ -22,7 +22,7 @@ const path = require('path');
 
 const DASH = createClient(
   'https://jwkitkfufigldpldqtbq.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3a2l0a2Z1ZmlnbGRwbGRxdGJxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEwNDU2NDUsImV4cCI6MjA3NjYyMTY0NX0.VziSAuTdqcteRERIPCdrMy4vqQuHjeC3tvazE0E8nMM'
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3a2l0a2Z1ZmlnbGRwbGRxdGJxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTA0NTY0NSwiZXhwIjoyMDc2NjIxNjQ1fQ.FjLFaMPE4VO5vVwFEAAvLiub3Xc1hhjsv9fd2jWFIAc'
 );
 const DOVIVE = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const SCOUT_DIR = __dirname;

@@ -183,17 +183,18 @@ async function main() {
   const interstitial = await page.$('input[value="Continue shopping"]');
   if (interstitial) { await interstitial.click(); await sleep(rand(1500, 2500)); }
 
-  // Check if already signed in
+  // Check if already signed in (sign-in is optional — reviews are public)
   const signInLink = await page.$('#nav-signin-tooltip, a[href*="signin"], #nav-link-accountList');
   if (!signInLink) {
     console.log('  ✓ Already signed in');
   } else {
-    console.log('  → Signing in with human-like typing...');
+    console.log('  → Attempting sign-in (optional)...');
+    try {
     await page.goto('https://www.amazon.com/ap/signin', { waitUntil: 'domcontentloaded', timeout: 20000 });
     await sleep(rand(2000, 4000));
 
     // Type email like a human (character by character with random delays)
-    await page.click('#ap_email');
+    await page.click('#ap_email', { timeout: 15000 });
     await sleep(rand(500, 1000));
     for (const char of AMAZON_EMAIL) {
       await page.keyboard.type(char, { delay: rand(80, 200) });
@@ -211,6 +212,9 @@ async function main() {
     await sleep(rand(3000, 5000));
 
     console.log('  ✓ Signed in');
+    } catch (signInErr) {
+      console.log('  ⚠ Sign-in skipped (reviews are public):', signInErr.message?.slice(0, 80));
+    }
   }
 
   let success = 0, failed = 0;
