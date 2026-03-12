@@ -77,11 +77,23 @@ async function run() {
     if (p.asin) asinToId[p.asin] = p.id;
   }
 
-  // 2. Get Keepa data for this keyword
+  // 2. Get ASINs for this keyword from dovive_research (source of truth for keyword→ASIN mapping)
+  const { data: researchRows } = await DOVIVE
+    .from('dovive_research')
+    .select('asin')
+    .eq('keyword', KEYWORD);
+  const keywordAsins = (researchRows || []).map(r => r.asin);
+  if (!keywordAsins.length) {
+    console.log('No ASINs found in dovive_research for this keyword.');
+    return;
+  }
+  console.log(`Found ${keywordAsins.length} ASINs in dovive_research for "${KEYWORD}"`);
+
+  // 3. Get Keepa data by ASIN (not keyword — keyword field may be null)
   const { data: keepaRows, error: keepaErr } = await DOVIVE
     .from('dovive_keepa')
     .select('asin, monthly_sales_est, price_usd, bsr_current, bsr_history_30d, bsr_history_90d, bsr_drops_30d, bsr_drops_90d, monthly_sold_history')
-    .eq('keyword', KEYWORD);
+    .in('asin', keywordAsins);
 
   if (keepaErr) throw keepaErr;
   console.log(`Found ${keepaRows.length} Keepa records\n`);

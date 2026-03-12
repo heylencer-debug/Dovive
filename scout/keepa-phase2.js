@@ -279,7 +279,7 @@ async function main() {
         try {
           const parsed = parseKeepa(product);
           console.log(`  [${parsed.asin}] $${parsed.price_usd} | BSR: ${parsed.bsr_current} | ~${parsed.monthly_sales_est}/mo | Drops30: ${parsed.bsr_drops_30d}`);
-          await saveKeepa(parsed);
+          await saveKeepa({ ...parsed, keyword });
           await updateResearch(parsed.asin, parsed);
           success++;
         } catch (err) {
