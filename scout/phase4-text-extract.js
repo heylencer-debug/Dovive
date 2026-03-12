@@ -24,16 +24,14 @@ const LIMIT_IDX = process.argv.indexOf('--limit');
 const LIMIT     = LIMIT_IDX > -1 ? parseInt(process.argv[LIMIT_IDX + 1]) : null;
 
 const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-let OPENAI_KEY = process.env.OPENAI_API_KEY;
+const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// ── Get OpenAI key ──────────────────────────────────────────
+// ── Validate OpenRouter key ─────────────────────────────────
 async function getOpenAIKey() {
-  if (OPENAI_KEY) return OPENAI_KEY;
-  const { data } = await sb.from('app_settings').select('value').eq('key', 'openai_api_key').single();
-  if (data?.value) { OPENAI_KEY = data.value; return OPENAI_KEY; }
-  throw new Error('No OpenAI API key found');
+  if (!OPENROUTER_KEY) throw new Error('No OPENROUTER_API_KEY found in environment');
+  return OPENROUTER_KEY;
 }
 
 // ── GPT text extraction ─────────────────────────────────────
@@ -71,11 +69,16 @@ Return ONLY valid JSON, no markdown.`;
 
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${OPENAI_KEY}`, 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${OPENROUTER_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://dovive.com',
+          'X-Title': 'Dovive Scout P4'
+        },
         body: JSON.stringify({
-          model: 'gpt-4o',
+          model: 'openai/gpt-4o',
           max_tokens: 1000,
           messages: [{ role: 'user', content: prompt }]
         })
@@ -83,7 +86,7 @@ Return ONLY valid JSON, no markdown.`;
 
       if (!res.ok) {
         const err = await res.text();
-        throw new Error(`OpenAI error ${res.status}: ${err.slice(0, 200)}`);
+        throw new Error(`OpenRouter error ${res.status}: ${err.slice(0, 200)}`);
       }
 
       const data = await res.json();
@@ -177,7 +180,7 @@ async function main() {
           health_claims: hasClaims ? extracted.health_claims : null,
           certifications: extracted.certifications?.length ? extracted.certifications : null,
           raw_text: Array.isArray(p.bullet_points) ? p.bullet_points.join('\n') : p.bullet_points,
-          gpt_model: 'gpt-4o-text',
+          gpt_model: 'openrouter/gpt-4o-text',
           processed_at: new Date().toISOString()
         };
 
