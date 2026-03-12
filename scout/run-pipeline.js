@@ -205,7 +205,7 @@ const PHASES = [
   },
   {
     num: 6, name: 'Product Intelligence', description: 'Per-product AI scoring — powers Formula Landscape, Extract Types, Dosage, Certs, Threat Levels, Top 10 (9 dashboard sections)',
-    run: async () => runScript('phase6-product-intelligence.js')
+    run: async () => runScript('phase6-product-intelligence.js', ['--keyword', KEYWORD])
   },
   {
     num: 7, name: 'Market Intelligence', description: 'Category-level Grok market report — powers Market tab analysis',
@@ -213,7 +213,7 @@ const PHASES = [
   },
   {
     num: 8, name: 'Packaging Intelligence', description: 'Claims, badges, color signals, market gaps',
-    run: async () => runScript('phase7-packaging-intelligence.js')
+    run: async () => runScript('phase7-packaging-intelligence.js', ['--keyword', KEYWORD])
   },
   {
     num: 9, name: 'Formula Brief', description: 'CMO-ready formula specification',

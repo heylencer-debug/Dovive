@@ -21,10 +21,33 @@ const DASH = createClient(
 );
 const DOVIVE = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-const CAT_ID = '820537da-3994-4a11-a2e0-a636d751b26f';
+const KEYWORD = process.argv.includes('--keyword') ? process.argv[process.argv.indexOf('--keyword') + 1] : 'ashwagandha gummies';
 const TOP_N = process.argv.includes('--top')
   ? parseInt(process.argv[process.argv.indexOf('--top') + 1])
   : 999;
+
+// Dynamic category lookup
+async function lookupCategoryId(keyword) {
+  const words = keyword.toLowerCase().split(' ');
+  const { data: cats } = await DASH.from('categories').select('id,name').ilike('name', `%${words[0]}%`).limit(30);
+  if (!cats?.length) throw new Error(`No category found for keyword "${keyword}"`);
+  const scored = cats.map(c => {
+    const lower = c.name.toLowerCase();
+    const score = words.filter(w => lower.includes(w)).length;
+    return { ...c, score };
+  }).filter(c => c.score >= words.length).sort((a, b) => b.score - a.score);
+  if (!scored.length) throw new Error(`No category found for keyword "${keyword}"`);
+  const topScore = scored[0].score;
+  const tied = scored.filter(c => c.score === topScore);
+  if (tied.length === 1) return tied[0].id;
+  const counts = await Promise.all(tied.map(async c => {
+    const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
+    return { ...c, count: count || 0 };
+  }));
+  counts.sort((a, b) => b.count - a.count);
+  console.log(`  → Resolved category: "${counts[0].name}" (${counts[0].id}) — ${counts[0].count} products`);
+  return counts[0].id;
+}
 
 // ─── Claim Patterns ───────────────────────────────────────────────────────────
 
@@ -232,8 +255,9 @@ function buildPackagingSummary(products, analyses) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function run() {
+  const CAT_ID = await lookupCategoryId(KEYWORD);
   console.log('=== Phase 7: Packaging Intelligence ===');
-  console.log(`Category: Ashwagandha Gummies | Limit: ${TOP_N}\n`);
+  console.log(`Keyword: "${KEYWORD}" | Limit: ${TOP_N}\n`);
 
   const query = DASH.from('products')
     .select('id, asin, title, brand, bsr_current, price, main_image_url, feature_bullets_text, supplement_facts_raw')
@@ -280,7 +304,7 @@ async function run() {
   // Save to dovive DB
   const { error: catErr } = await DOVIVE
     .from('dovive_packaging_intelligence')
-    .upsert({ keyword: 'ashwagandha gummies', intelligence: summary, generated_at: summary.generated_at, products_analyzed: summary.products_analyzed }, { onConflict: 'keyword' });
+    .upsert({ keyword: KEYWORD, intelligence: summary, generated_at: summary.generated_at, products_analyzed: summary.products_analyzed }, { onConflict: 'keyword' });
 
   if (catErr) {
     console.log('⚠️  dovive_packaging_intelligence table not found — showing summary only\n');
