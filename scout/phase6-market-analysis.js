@@ -1,5 +1,5 @@
 ﻿/**
- * phase6-market-analysis.js â€” Market Intelligence (the REAL P6)
+ * phase6-market-analysis.js â€" Market Intelligence (the REAL P6)
  *
  * Single Grok AI call that ingests all product data across the category
  * and produces ONE market intelligence document:
@@ -32,7 +32,7 @@ const KEYWORD = process.argv.includes('--keyword')
   : 'ashwagandha gummies';
 const FORCE   = process.argv.includes('--force');
 
-// Dynamic category lookup — resolves keyword → DASH category_id (picks largest on tie)
+// Dynamic category lookup - resolves keyword → DASH category_id (picks largest on tie)
 async function lookupCategoryId(keyword) {
   const words = keyword.toLowerCase().split(' ');
   const { data: cats } = await DASH.from('categories').select('id,name').ilike('name', `%${words[0]}%`).limit(30);
@@ -51,11 +51,11 @@ async function lookupCategoryId(keyword) {
     return { ...c, count: count || 0 };
   }));
   counts.sort((a, b) => b.count - a.count);
-  console.log(`  → Resolved category (largest): "${counts[0].name}" (${counts[0].id}) — ${counts[0].count} products`);
+  console.log(`  → Resolved category (largest): "${counts[0].name}" (${counts[0].id}) - ${counts[0].count} products`);
   return counts[0].id;
 }
 
-// â”€â”€â”€ xAI Key â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ xAI Key â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 function getXaiKey() {
   return process.env.XAI_API_KEY || null;
@@ -78,7 +78,59 @@ async function callGrok(prompt, maxTokens = 8000) {
   return j.choices?.[0]?.message?.content || null;
 }
 
-// â”€â”€â”€ Data aggregation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Data aggregation â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+
+// ─── Fetch raw reviews for richer consumer signal ─────────────────────────────
+async function fetchRawReviews(categoryId) {
+  const { data: prods } = await DASH.from('products').select('asin').eq('category_id', categoryId).limit(200);
+  if (!prods?.length) return { positive: [], critical: [] };
+  const asins = prods.map(p => p.asin);
+  const DOVIVE_SB = require('@supabase/supabase-js').createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+  const { data: reviews } = await DOVIVE_SB.from('dovive_reviews')
+    .select('asin, rating, title, body').in('asin', asins.slice(0, 100))
+    .not('body', 'is', null).limit(600);
+  if (!reviews?.length) return { positive: [], critical: [] };
+  const positive = reviews.filter(r => r.rating >= 4).sort(() => Math.random() - 0.5).slice(0, 25);
+  const critical = reviews.filter(r => r.rating <= 2).sort(() => Math.random() - 0.5).slice(0, 25);
+  return { positive, critical };
+}
+
+function buildDosageTable(products) {
+  const rows = [];
+  for (const p of products.slice(0, 20)) {
+    const nutrients = p.all_nutrients;
+    if (!nutrients || !Array.isArray(nutrients) || !nutrients.length) continue;
+    const key = nutrients.slice(0, 6).map(n => `${n.name || n.ingredient || '?'}: ${n.amount || n.quantity || '?'}`).join(' | ');
+    rows.push(`${p.brand || '?'} (BSR ${p.bsr_current?.toLocaleString() || '?'}): ${key}`);
+  }
+  return rows.length ? rows.join('\n') : 'OCR dosage data not yet available';
+}
+
+function buildIngredientWhiteSpace(products) {
+  const total = products.length;
+  const freqMap = {};
+  for (const p of products) {
+    for (const ing of (p.marketing_analysis?.product_intelligence?.bonus_ingredients || [])) {
+      freqMap[ing] = (freqMap[ing] || 0) + 1;
+    }
+  }
+  return Object.entries(freqMap)
+    .filter(([, count]) => count / total < 0.15 && count >= 2)
+    .sort((a, b) => b[1] - a[1]).slice(0, 15)
+    .map(([ing, count]) => `${ing}: ${count} products (${Math.round(count/total*100)}%)`)
+    .join('\n') || 'None detected';
+}
+
+function buildServingSizeNorm(products) {
+  const map = {};
+  for (const p of products) {
+    const ss = (p.serving_size || '').toString().toLowerCase().trim();
+    if (!ss) continue;
+    map[ss] = (map[ss] || 0) + 1;
+  }
+  return Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,8)
+    .map(([ss, count]) => `"${ss}": ${count} products`).join('\n') || 'No serving size data';
+}
 
 function pct(count, total) {
   return total ? `${Math.round(count / total * 100)}%` : '0%';
@@ -104,7 +156,7 @@ function buildMarketContext(products) {
   const ratings = products.map(p => p.rating_value).filter(Boolean);
   const reviewCounts = products.map(p => p.rating_count).filter(Boolean);
 
-  // â”€â”€ Formula extraction from per-product PI data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Formula extraction from per-product PI data â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const extractTypeCounts = {};
   const certCounts = {};
   const bonusCounts = {};
@@ -142,7 +194,7 @@ function buildMarketContext(products) {
     .sort((a, b) => b[1] - a[1])
     .map(([type, count]) => `${type}: ${count} (${pct(count, total)})`);
 
-  // â”€â”€ Top performers (BSR < 5000 with data) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Top performers (BSR < 5000 with data) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const topPerformers = products
     .filter(p => p.bsr_current && p.bsr_current < 8000)
     .sort((a, b) => a.bsr_current - b.bsr_current)
@@ -152,7 +204,7 @@ function buildMarketContext(products) {
       return `  - ${p.brand || 'Unknown'} | BSR ${p.bsr_current?.toLocaleString()} | $${p.price} | Rev $${(p.monthly_revenue||0).toLocaleString()}/mo | ${pi.ashwagandha_extract_type || 'Unknown'} ${pi.ashwagandha_amount_mg ? pi.ashwagandha_amount_mg + 'mg' : ''} | Score ${pi.formula_quality_score || '?'}/10 | ${(pi.certifications||[]).join(', ')||'No certs'} | Bonus: ${(pi.bonus_ingredients||[]).slice(0,3).join(', ')||'None'}`;
     }).join('\n');
 
-  // â”€â”€ Rising stars (positive BSR velocity) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Rising stars (positive BSR velocity) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const risingStars = products
     .filter(p => {
       const pi = p.marketing_analysis?.product_intelligence || {};
@@ -169,7 +221,7 @@ function buildMarketContext(products) {
       return `  - ${p.brand || '?'} | BSR ${p.bsr_current?.toLocaleString()} | ${pi.bsr_trend_label} | $${p.price} | ${pi.ashwagandha_extract_type} | Bonus: ${(pi.bonus_ingredients||[]).slice(0,3).join(', ')||'None'}`;
     }).join('\n');
 
-  // â”€â”€ Consumer pain points from reviews â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Consumer pain points from reviews â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const painPoints = [];
   for (const p of products) {
     const ra = p.review_analysis;
@@ -178,7 +230,7 @@ function buildMarketContext(products) {
     if (raw.length > 50) painPoints.push(raw.substring(0, 400));
   }
 
-  // â”€â”€ Price distribution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Price distribution â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const priceRanges = { under15: 0, '15to20': 0, '20to25': 0, '25to30': 0, over30: 0 };
   for (const p of prices) {
     if (p < 15) priceRanges.under15++;
@@ -212,16 +264,24 @@ function buildMarketContext(products) {
     opportunityGaps: opportunityGaps.slice(0, 30),
     painPointsSample: painPoints.slice(0, 20),
     reviewCoverage: `${products.filter(p => p.review_analysis).length}/${total}`,
+    dosageTable: buildDosageTable(products),
+    ingredientWhiteSpace: buildIngredientWhiteSpace(products),
+    servingSizeNorm: buildServingSizeNorm(products),
   };
 }
 
-// â”€â”€â”€ Build Grok prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Build Grok prompt â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
-function buildPrompt(ctx, keyword) {
+function buildPrompt(ctx, keyword, rawReviews) {
   const s = ctx.summary;
+  const positiveReviewSample = (rawReviews?.positive || []).slice(0, 15)
+    .map(r => `[★${r.rating}] "${r.title || ''}" — ${(r.body || '').slice(0, 200)}`).join('\n');
+  const criticalReviewSample = (rawReviews?.critical || []).slice(0, 15)
+    .map(r => `[★${r.rating}] "${r.title || ''}" — ${(r.body || '').slice(0, 200)}`).join('\n');
+
   return `You are a senior market intelligence analyst for DOVIVE, a supplement brand entering the ${keyword} market on Amazon US. Your job is to produce a comprehensive, CMO-ready market intelligence report that will directly inform product formulation and go-to-market strategy.
 
-## MARKET DATA â€” ${keyword.toUpperCase()} (Amazon US)
+## MARKET DATA — ${keyword.toUpperCase()} (Amazon US)
 
 ### Category Overview
 - Total products analyzed: ${s.total_products}
@@ -230,9 +290,8 @@ function buildPrompt(ctx, keyword) {
 - Avg price: ${s.avg_price} | Median: ${s.median_price}
 - Avg rating: ${s.avg_rating} stars | Avg reviews: ${s.avg_reviews}
 - Avg formula quality score: ${s.avg_formula_score}/10
-- Avg ashwagandha dose: ${s.avg_ashwagandha_mg}mg
 
-### Ashwagandha Extract Type Distribution
+### Primary Ingredient Extract Type Distribution
 ${ctx.extractDist.join('\n')}
 
 ### Certification Frequency
@@ -240,6 +299,21 @@ ${ctx.topCerts.join('\n')}
 
 ### Bonus Ingredients (frequency across category)
 ${ctx.topBonusIngredients.join('\n')}
+
+### Ingredient White Space (present in <15% of products — differentiation opportunities)
+${ctx.ingredientWhiteSpace}
+
+### Serving Size Distribution
+${ctx.servingSizeNorm}
+
+### Competitor Dosage Comparison (from OCR supplement facts)
+${ctx.dosageTable}
+
+### Raw Customer Reviews — POSITIVE (Voice of Customer)
+${positiveReviewSample || 'Reviews not yet available — run P3 first'}
+
+### Raw Customer Reviews — CRITICAL (Pain Points)
+${criticalReviewSample || 'Reviews not yet available — run P3 first'}
 
 ### Price Range Distribution
 <$15: ${ctx.priceRanges.under15} | $15-20: ${ctx.priceRanges['15to20']} | $20-25: ${ctx.priceRanges['20to25']} | $25-30: ${ctx.priceRanges['25to30']} | >$30: ${ctx.priceRanges.over30}
@@ -251,7 +325,7 @@ Premium (â‰¥150% median): ${ctx.priceTiers.premium} | Above Avg: ${ctx.price
 Very High: ${ctx.threats['Very High']} | High: ${ctx.threats.High} | Medium: ${ctx.threats.Medium} | Low: ${ctx.threats.Low}
 
 ### BSR Velocity (30d/90d momentum)
-Surging ðŸš€: ${ctx.velocities.rocket} | Rising ðŸ“ˆ: ${ctx.velocities.rising} | Stable âž¡ï¸: ${ctx.velocities.stable} | Slipping ðŸ“‰: ${ctx.velocities.falling} | Declining ðŸ’§: ${ctx.velocities.sinking}
+Surging ðŸš€: ${ctx.velocities.rocket} | Rising ðŸ"ˆ: ${ctx.velocities.rising} | Stable âž¡ï¸: ${ctx.velocities.stable} | Slipping ðŸ"‰: ${ctx.velocities.falling} | Declining ðŸ'§: ${ctx.velocities.sinking}
 
 ### Top Performers by BSR (BSR rank, price, revenue, formula)
 ${ctx.topPerformers}
@@ -271,7 +345,7 @@ ${ctx.painPointsSample.slice(0, 10).map((p, i) => `${i+1}. ${p.substring(0, 250)
 
 Produce a full market intelligence report in markdown. Use this exact structure:
 
-# ${keyword.toUpperCase()} â€” MARKET INTELLIGENCE REPORT
+# ${keyword.toUpperCase()} â€" MARKET INTELLIGENCE REPORT
 
 ## 1. EXECUTIVE SUMMARY
 3-5 sentences: total market size, revenue concentration, who's winning and why.
@@ -290,7 +364,7 @@ What is the typical product in this category? (extract type, dose, certs, price)
 ## 4. PRICING INTELLIGENCE
 - Where is the price concentration? (Which tier has most products and most revenue)
 - What pricing white space exists? (Under-served price points)
-- Price vs formula quality correlation â€” are premium products actually better?
+- Price vs formula quality correlation â€" are premium products actually better?
 - Recommended price positioning for DOVIVE
 
 ## 5. MARKET MOMENTUM
@@ -301,7 +375,7 @@ What is the typical product in this category? (extract type, dose, certs, price)
 ## 6. CONSUMER DEMAND SIGNALS
 - Top pain points customers have with current products
 - What are buyers asking for but not finding?
-- Taste, dose, value, trust â€” rank the priorities
+- Taste, dose, value, trust â€" rank the priorities
 - Unmet needs = DOVIVE opportunity
 
 ## 7. COMPETITIVE WHITE SPACE
@@ -327,7 +401,7 @@ Based on all the above data, give a clear, direct recommendation:
 Be specific, data-driven, and direct. This report feeds directly into the formula brief for our contract manufacturer.`;
 }
 
-// â”€â”€â”€ Save to Supabase â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Save to Supabase â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 async function saveToSupabase(categoryId, keyword, report, ctx) {
   const marketPayload = {
@@ -350,9 +424,9 @@ async function saveToSupabase(categoryId, keyword, report, ctx) {
     if (error) throw new Error(`Patch failed: ${error.message}`);
     return 'formula_briefs.ingredients.market_intelligence';
   } else {
+    // No category_name column in formula_briefs - omit it
     const { error } = await DASH.from('formula_briefs').insert({
       category_id: categoryId,
-      category_name: keyword,
       ingredients: { market_intelligence: marketPayload },
       generated_at: new Date().toISOString(),
     });
@@ -361,7 +435,7 @@ async function saveToSupabase(categoryId, keyword, report, ctx) {
   }
 }
 
-// â”€â”€â”€ Save to vault â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Save to vault â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 function saveToVault(keyword, report) {
   const date = new Date().toISOString().split('T')[0];
@@ -369,15 +443,15 @@ function saveToVault(keyword, report) {
   const vaultDir = 'C:\\SirPercival-Vault\\07_ai-systems\\agents\\scout\\market-intelligence';
   const vaultPath = path.join(vaultDir, `${date}-${slug}-market-intelligence.md`);
   if (!fs.existsSync(vaultDir)) fs.mkdirSync(vaultDir, { recursive: true });
-  fs.writeFileSync(vaultPath, `# Market Intelligence â€” ${keyword}\nGenerated: ${new Date().toISOString()}\n\n${report}`);
+  fs.writeFileSync(vaultPath, `# Market Intelligence â€" ${keyword}\nGenerated: ${new Date().toISOString()}\n\n${report}`);
   return vaultPath;
 }
 
-// â”€â”€â”€ Main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Main â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 async function run() {
   console.log(`\n${'â•'.repeat(62)}`);
-  console.log(`P6: MARKET INTELLIGENCE â€” "${KEYWORD}"`);
+  console.log(`P6: MARKET INTELLIGENCE â€" "${KEYWORD}"`);
   console.log(`${'â•'.repeat(62)}\n`);
 
   // Resolve category dynamically
@@ -434,7 +508,7 @@ async function run() {
   // Preview
   console.log(`â•â•â• PREVIEW (first 600 chars) â•â•â•`);
   console.log(report.substring(0, 600));
-  console.log(`\nâœ… Market Intelligence complete â€” ${Math.round(report.length / 1000)}k chars`);
+  console.log(`\nâœ… Market Intelligence complete â€" ${Math.round(report.length / 1000)}k chars`);
 }
 
 run().catch(e => { console.error('\nâŒ FAILED:', e.message); process.exit(1); });

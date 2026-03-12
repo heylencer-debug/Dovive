@@ -130,6 +130,20 @@ async function saveReviews(asin, keyword, reviews) {
       const match = rating.match(/[\d.]+/);
       rating = match ? parseFloat(match[0]) : null;
     }
+    // Parse date — axesso returns "Reviewed in the United States on August 17, 2025"
+    let reviewDate = r.date || r.reviewDate || null;
+    if (reviewDate && typeof reviewDate === 'string') {
+      // Extract date from long string like "Reviewed in the United States on August 17, 2025"
+      const dateMatch = reviewDate.match(/(\w+ \d+, \d{4})/);
+      if (dateMatch) {
+        const parsed = new Date(dateMatch[1]);
+        reviewDate = isNaN(parsed.getTime()) ? null : parsed.toISOString().split('T')[0];
+      } else {
+        // Try parsing directly
+        const parsed = new Date(reviewDate);
+        reviewDate = isNaN(parsed.getTime()) ? null : parsed.toISOString().split('T')[0];
+      }
+    }
     return {
       asin: r.asin || asin,
       keyword: keyword || null,
@@ -137,7 +151,7 @@ async function saveReviews(asin, keyword, reviews) {
       rating,
       title: r.title || r.reviewTitle || null,
       body: r.text || r.reviewText || null,
-      review_date: r.date || r.reviewDate || null,
+      review_date: reviewDate,
       verified_purchase: r.verified === true || r.verifiedPurchase === true,
       helpful_votes: r.numberOfHelpful || r.helpfulVoteCount || 0,
       scraped_at: new Date().toISOString(),
@@ -248,31 +262,70 @@ async function main() {
   }
 
   let success = 0, failed = 0, totalReviews = 0;
+  let productsSinceLastMigration = 0;
+
+  // Mid-run DASH migration helper
+  async function runMidMigration() {
+    if (!KEYWORD_FILTER) return;
+    try {
+      console.log(`\n  🔄 Mid-run DASH sync (every 25 products)...`);
+      const { execSync } = require('child_process');
+      execSync(`node migrate-reviews-to-dash.js "${KEYWORD_FILTER}"`, { cwd: __dirname, stdio: 'inherit', timeout: 60000 });
+    } catch (e) {
+      console.warn(`  ⚠ Mid-run migration failed: ${e.message?.slice(0, 100)}`);
+    }
+  }
 
   for (let i = 0; i < toScrape.length; i++) {
     const { asin, keyword, title } = toScrape[i];
     console.log(`\n[${i + 1}/${toScrape.length}] ${asin} — ${title?.slice(0, 60)}`);
 
-    try {
-      const reviews = await fetchApifyReviews(asin);
+    // Retry logic — 3 attempts per ASIN
+    let reviews = [];
+    let gotReviews = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        reviews = await fetchApifyReviews(asin);
+        gotReviews = true;
+        break;
+      } catch (err) {
+        if (attempt < 3) {
+          console.warn(`  ⚠ Attempt ${attempt} failed: ${err.message?.slice(0,80)} — retrying...`);
+          await sleep(8000);
+        } else {
+          console.error(`  ✗ All 3 attempts failed: ${err.message?.slice(0,100)}`);
+        }
+      }
+    }
+
+    if (gotReviews) {
       const actualReviews = reviews.filter(r => r.reviewId);
-      
       if (actualReviews.length > 0) {
-        console.log(`  → Got ${actualReviews.length} reviews`);
-        const saved = await saveReviews(asin, keyword, actualReviews);
-        console.log(`  ✓ ${saved} reviews saved`);
-        totalReviews += saved;
-        success++;
+        try {
+          const saved = await saveReviews(asin, keyword, actualReviews);
+          console.log(`  ✓ ${saved} reviews saved`);
+          totalReviews += saved;
+          success++;
+          productsSinceLastMigration++;
+        } catch (saveErr) {
+          console.error(`  ✗ Save failed: ${saveErr.message?.slice(0,150)}`);
+          failed++;
+        }
       } else {
         console.log(`  ⚠ No reviews found`);
         failed++;
       }
-      await sleep(5000); // Rate limit between ASINs
-    } catch (err) {
-      console.error(`  ✗ ${err.message}`);
+    } else {
       failed++;
-      await sleep(5000);
     }
+
+    // Mid-run DASH migration every 25 products
+    if (productsSinceLastMigration >= 25) {
+      await runMidMigration();
+      productsSinceLastMigration = 0;
+    }
+
+    await sleep(3000); // Rate limit between ASINs
   }
 
   console.log(`\n✅ Done — Products: ${success} success, ${failed} failed | Total reviews: ${totalReviews}`);

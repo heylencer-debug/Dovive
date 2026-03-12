@@ -2,7 +2,7 @@
  * phase8-formula-brief.js
  * P8: Formula Brief Generator
  *
- * Uses Carlo's exact CMO prompt template â€” feeds compiled P1-P7 data to Claude
+ * Uses Carlo's exact CMO prompt template â€" feeds compiled P1-P7 data to Claude
  * and lets AI generate the COMPLETE formula specification (not rule-based).
  *
  * Usage:
@@ -24,7 +24,7 @@ const KEYWORD = process.argv.includes('--keyword')
   : 'ashwagandha gummies';
 const FORCE = process.argv.includes('--force');
 
-// â”€â”€â”€ API Key â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ API Key â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 // ─── API Keys ─────────────────────────────────────────────────────────────────
 
@@ -38,8 +38,8 @@ function getOpenRouterKey() {
 
 // ─── DUAL AI Formulation ───────────────────────────────────────────────────────
 // P9 generates TWO independent formula briefs in parallel:
-//   1. Grok 4.2 Beta Reasoning  — deep scientific reasoning, like a PhD formulator
-//   2. Claude Sonnet 4.6          — via OpenRouter, 1M context synthesis
+//   1. Grok 4.2 Beta Reasoning  - deep scientific reasoning, like a PhD formulator
+//   2. Claude Sonnet 4.6          - via OpenRouter, 1M context synthesis
 // P10 QA then compares both and produces a final adjudicated formula.
 
 async function callGrok42(prompt) {
@@ -156,7 +156,7 @@ async function compileMarketData(categoryId) {
     .select('*', { count: 'exact', head: true })
     .eq('category_id', categoryId);
 
-  // â”€â”€ Aggregate ingredient frequency from P6 â”€â”€
+  // â"€â"€ Aggregate ingredient frequency from P6 â"€â"€
   const ingredientMap = {};
   const claimMap = {};
   const painPointMap = {};
@@ -293,7 +293,7 @@ async function compileMarketData(categoryId) {
   };
 }
 
-// â”€â”€â”€ Build Prompt (Carlo's exact template + P6 market intel + top20 formulas) â”€â”€
+// â"€â"€â"€ Build Prompt (Carlo's exact template + P6 market intel + top20 formulas) â"€â"€
 
 function buildPrompt(marketData) {
   const cs = marketData.category_summary;
@@ -302,20 +302,20 @@ function buildPrompt(marketData) {
   const mi = marketData.market_intelligence;
   const top20 = marketData.top20_competitors || [];
 
-  // P6 market intelligence section â€” full report from phase6-market-analysis.js
+  // P6 market intelligence section â€" full report from phase6-market-analysis.js
   const marketIntelSection = mi?.has_data
     ? `## P6 MARKET INTELLIGENCE REPORT
 *AI-generated single market analysis across all ${cs.total_products} products. Source: phase6-market-analysis.js*
 
 ${mi.report?.substring(0, 6000) || 'Not available'}
-${(mi.report?.length || 0) > 6000 ? '\n[... report continues â€” using first 6k chars for context ...]\n' : ''}`
+${(mi.report?.length || 0) > 6000 ? '\n[... report continues â€" using first 6k chars for context ...]\n' : ''}`
     : `## P6 MARKET INTELLIGENCE
-âš ï¸ Not yet generated. Run: node phase6-market-analysis.js --keyword "${KEYWORD}"
+âš ï¸ Not yet generated. Run: node phase6-market-analysis.js --keyword "${KEYWORD}"
 P8 will still run but with reduced market context.`;
 
   // Top 20 competitor formula table
   const top20FormulasSection = top20.slice(0, 20).map(c => `
-### #${c.rank} ${c.brand} â€” BSR ${c.bsr?.toLocaleString()} | $${c.monthly_revenue?.toLocaleString()}/mo | $${c.price} | ${c.rating}â­ (${c.reviews?.toLocaleString()} reviews)
+### #${c.rank} ${c.brand} â€" BSR ${c.bsr?.toLocaleString()} | $${c.monthly_revenue?.toLocaleString()}/mo | $${c.price} | ${c.rating}â­ (${c.reviews?.toLocaleString()} reviews)
 **Formula:** ${c.ashwagandha_mg || '?'}mg ${c.extract_type || 'Unknown'} ${c.withanolides ? `(${c.withanolides} withanolides)` : ''}
 **Bonus ingredients:** ${c.bonus_ingredients.join(', ') || 'None'}
 **Certifications:** ${c.certifications.join(', ') || 'None'} | Sugar-Free: ${c.is_sugar_free} | Vegan: ${c.is_vegan} | 3rd Party Tested: ${c.is_third_party_tested}
@@ -349,13 +349,13 @@ New Winner #${i + 1}: ${p.brand} (BSR: ${p.bsr_current?.toLocaleString()}, Rev: 
 - Form: ${p.packaging_type || 'Not specified'} | Serving: ${p.serving_size || 'Not specified'}
 - Claims: ${(p.claims_on_label || []).join(', ') || 'Not available'}
 
-ðŸ” DETAILED SUPPLEMENT FACTS (Extracted via OCR):
+ðŸ" DETAILED SUPPLEMENT FACTS (Extracted via OCR):
 ${p.supplement_facts_raw || JSON.stringify(p.all_nutrients || 'No detailed nutrients found', null, 2)}
 
 ðŸ§ª PROPRIETARY BLENDS:
 ${p.proprietary_blends && p.proprietary_blends.length > 0 ? JSON.stringify(p.proprietary_blends, null, 2) : 'None'}
 
-ðŸ”¹ OTHER INGREDIENTS / EXCIPIENTS:
+ðŸ"¹ OTHER INGREDIENTS / EXCIPIENTS:
 ${p.other_ingredients || 'Not specified'}
 `).join('\n---\n')
     : 'No specific new winners identified.';
@@ -411,12 +411,12 @@ ${p.other_ingredients || 'Not specified'}
       '### Competitor Flavor Profiles',
       lines.length ? lines.join('\n') : '- Flavor data not extracted from supplement facts',
       '',
-      '### Consumer Taste Complaints (from reviews — solve these)',
+      '### Consumer Taste Complaints (from reviews - solve these)',
       tastePains.length ? tastePains.join('\n') : '- No specific taste complaints found',
       '',
       '### Flavor Strategy Directive',
-      '- Gummies must taste GREAT — taste is a purchase repeat driver',
-      '- Ashwagandha has a bitter/earthy note — must be masked aggressively',
+      '- Gummies must taste GREAT - taste is a purchase repeat driver',
+      '- Ashwagandha has a bitter/earthy note - must be masked aggressively',
       '- Recommend: natural fruit flavor with citric acid brightness to cut bitterness',
       '- Include flavor name, intensity level, and masking agent recommendations in spec',
     ].join('\n');
@@ -437,7 +437,7 @@ ${p.other_ingredients || 'Not specified'}
 
   return `You are a senior supplement formulation specialist and CMO consultant creating a FORMULA SPECIFICATION to BEAT the #1 market leader for DOVIVE brand.
 
-# MISSION: DECONSTRUCT TOP COMPETITORS' FORMULAS â†’ IDENTIFY MARKET DEMAND â†’ BUILD A BETTER FORMULA
+# MISSION: DECONSTRUCT TOP COMPETITORS' FORMULAS → IDENTIFY MARKET DEMAND → BUILD A BETTER FORMULA
 
 Your job:
 1. Study the exact formulas of the top 20 competitors (OCR-extracted supplement facts below)
@@ -445,6 +445,43 @@ Your job:
 3. Reconstruct what's working in top competitors' formulas
 4. Improve on it based on consumer pain points, market gaps, and emerging ingredient trends
 5. Output a complete, production-ready CMO formula specification
+
+---
+
+## ⚠️ DOVIVE MANUFACTURING CONSTRAINTS — NON-NEGOTIABLE
+
+These are HARD limits. If you exceed them, the formula cannot be manufactured. Do NOT ignore these.
+
+### Gummy Form Factor Constraints
+| Constraint | Limit | Reason |
+|-----------|-------|--------|
+| Max total actives per gummy | **350mg** | Gummy matrix cannot hold more — will collapse/weep |
+| Magnesium glycinate | **Max 50mg cosmetic only** | Hygroscopic — absorbs moisture, causes sticky/unstable gummies |
+| Ashwagandha extract | **Max 150mg/gummy** | Bitter masking limit in gummy matrix |
+| Probiotics | **Not recommended** | Heat-sensitive — destroyed in gummy processing |
+| Omega-3 / Fish oil | **Not in gummies** | Rancidity + oxidation in gummy matrix |
+
+### Banned / Problematic Ingredients in Gummies
+- ❌ Magnesium glycinate >50mg (hygroscopic, sticky)
+- ❌ High-dose magnesium in any form >100mg (moisture issues)
+- ❌ Live probiotics (heat processing kills them)
+- ❌ Fish oil / omega-3 (oxidation, fishy taste)
+- ❌ Iron supplements (taste, interaction with gummy base)
+- ❌ Vitamin B12 >1000mcg (no clinical benefit, wasteful)
+
+### Target Manufacturing Profile
+- Serving size: **2 gummies** (industry standard for compliance)
+- Total active load per 2-gummy serving: **max 700mg combined**
+- Gummy weight: ~3-4g per gummy (standard)
+- Shelf life target: **24 months at room temperature**
+
+### DOVIVE Brand Positioning
+- **Always premium** — never compete on price alone
+- Target price: **$24.99–$34.99** range
+- Certifications to pursue: Non-GMO, Gluten-Free, Third-Party Tested
+- No artificial colors, no high-fructose corn syrup
+
+---
 
 ---
 
@@ -475,7 +512,7 @@ ${newWinnersSection}
 
 ---
 
-## ðŸ“Š COMPETITIVE INTELLIGENCE: TOP 5 ANALYSIS (ALL TIME)
+## ðŸ"Š COMPETITIVE INTELLIGENCE: TOP 5 ANALYSIS (ALL TIME)
 
 ${top5Section}
 
@@ -491,7 +528,7 @@ STRATEGIC INSIGHT: 50%+ = MUST-HAVE. 20-50% = Differentiator. <20% = Unique sell
 
 ---
 
-## ðŸ“ˆ CATEGORY STATISTICS
+## ðŸ"ˆ CATEGORY STATISTICS
 
 - Total Products Analyzed: ${cs.total_products || 'N/A'}
 - Average Ingredient Count: ${cs.avg_ingredients_count || 'N/A'}
@@ -500,7 +537,7 @@ STRATEGIC INSIGHT: 50%+ = MUST-HAVE. 20-50% = Differentiator. <20% = Unique sell
 
 ---
 
-## âš ï¸ CONSUMER PAIN POINTS (Problems to SOLVE)
+## âš ï¸ CONSUMER PAIN POINTS (Problems to SOLVE)
 
 Formulation-Related Complaints:
 ${formPainPoints}
@@ -606,7 +643,7 @@ Synergistic Combinations: [Key ingredient pairs that enhance efficacy]
 | Color | [Description with acceptable range] |
 | Odor | [Characteristic description] |
 | Taste | [REQUIRED: Specific flavor name + masking strategy for ashwagandha bitterness] |
-| Sweetener System | [Type + amount — sugar-free preferred; use stevia/monk fruit/erythritol blend] |
+| Sweetener System | [Type + amount - sugar-free preferred; use stevia/monk fruit/erythritol blend] |
 | Flavor Masking | [How to neutralize earthy/bitter ashwagandha notes] |
 | Texture | [Description] |
 | Hardness | [X-X Newtons or Shore A] |
@@ -772,7 +809,7 @@ END OF FORMULA SPECIFICATION
 Target Length: 3,000-4,000 words (focused on FORMULA, not process)`;
 }
 
-// â”€â”€â”€ Save to DB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Save to DB â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 async function saveToDB(categoryId, grokBrief, claudeBrief, marketData) {
   // Preserve market_intelligence before delete (it gets wiped otherwise)
@@ -787,7 +824,7 @@ async function saveToDB(categoryId, grokBrief, claudeBrief, marketData) {
 
   const { error } = await DASH.from('formula_briefs').insert({
     category_id: categoryId,
-    positioning: `Dual AI formula brief for ${KEYWORD} — Grok 4.2 + Claude Sonnet 4.6 vs ${marketData.category_summary.total_products} products`,
+    positioning: `Dual AI formula brief for ${KEYWORD} - Grok 4.2 + Claude Sonnet 4.6 vs ${marketData.category_summary.total_products} products`,
     target_customer: `Adults seeking ${KEYWORD} supplementation`,
     form_type: 'gummy',
     form_rationale: 'Category leader uses gummy format',
@@ -810,9 +847,9 @@ async function saveToDB(categoryId, grokBrief, claudeBrief, marketData) {
       solution: 'See AI brief',
     })),
     ingredients: {
-      // Primary (Grok) — used by dashboard and backward-compat fields
+      // Primary (Grok) - used by dashboard and backward-compat fields
       ai_generated_brief: primaryBrief,
-      // Dual outputs — both stored separately for P10 QA comparison
+      // Dual outputs - both stored separately for P10 QA comparison
       ai_generated_brief_grok:   grokBrief   || null,
       ai_generated_brief_claude: claudeBrief || null,
       formula_brief_model_grok:   'grok-4.20-beta-0309-reasoning',
@@ -842,21 +879,21 @@ async function saveToVault(grokBrief, claudeBrief) {
   const dir = 'C:\\SirPercival-Vault\\07_ai-systems\\agents\\scout\\formula-briefs';
   if (grokBrief) {
     const p = `${dir}\\${date}-${KEYWORD.replace(/\s+/g, '-')}-grok42-brief.md`;
-    fs.writeFileSync(p, `# P9 Formula Brief (Grok 4.2 Reasoning) — ${KEYWORD}\n**Date:** ${date}\n**Model:** grok-4.20-beta-0309-reasoning\n\n---\n\n${grokBrief}`, 'utf8');
+    fs.writeFileSync(p, `# P9 Formula Brief (Grok 4.2 Reasoning) - ${KEYWORD}\n**Date:** ${date}\n**Model:** grok-4.20-beta-0309-reasoning\n\n---\n\n${grokBrief}`, 'utf8');
     console.log(`\n  Grok vault: ${p}`);
   }
   if (claudeBrief) {
     const p = `${dir}\\${date}-${KEYWORD.replace(/\s+/g, '-')}-claude-opus-brief.md`;
-    fs.writeFileSync(p, `# P9 Formula Brief (Claude Sonnet 4.6) — ${KEYWORD}\n**Date:** ${date}\n**Model:** anthropic/claude-sonnet-4-6\n\n---\n\n${claudeBrief}`, 'utf8');
+    fs.writeFileSync(p, `# P9 Formula Brief (Claude Sonnet 4.6) - ${KEYWORD}\n**Date:** ${date}\n**Model:** anthropic/claude-sonnet-4-6\n\n---\n\n${claudeBrief}`, 'utf8');
     console.log(`  Claude vault: ${p}`);
   }
 }
 async function run() {
   console.log(`\n${'â•'.repeat(60)}`);
-  console.log(`ðŸ§ª PHASE 8: FORMULA BRIEF â€” "${KEYWORD}"`);
+  console.log(`ðŸ§ª PHASE 8: FORMULA BRIEF â€" "${KEYWORD}"`);
   console.log(`${'â•'.repeat(60)}\n`);
 
-  // Get category â€” match full keyword first, fall back to first word
+  // Get category â€" match full keyword first, fall back to first word
   let cats = null;
   const { data: exact } = await DASH.from('categories')
     .select('id, name')
@@ -908,10 +945,10 @@ async function run() {
   const prompt = buildPrompt(marketData);
   console.log(`Done (${Math.round(prompt.length / 1000)}k chars)\n`);
 
-  // 3. Run DUAL formulation in parallel — Grok 4.2 Deep Reasoning + Claude Sonnet 4.6
+  // 3. Run DUAL formulation in parallel - Grok 4.2 Deep Reasoning + Claude Sonnet 4.6
   console.log("Running dual AI formulation in parallel...");
-  console.log("  [Grok]   grok-4.20-beta-0309-reasoning — deep scientific thinking");
-  console.log("  [Claude] anthropic/claude-sonnet-4-6 via OpenRouter — 1M context synthesis\n");
+  console.log("  [Grok]   grok-4.20-beta-0309-reasoning - deep scientific thinking");
+  console.log("  [Claude] anthropic/claude-sonnet-4-6 via OpenRouter - 1M context synthesis\n");
 
   const [grokResult, claudeResult] = await Promise.allSettled([
     callGrok42(prompt),
@@ -923,18 +960,18 @@ async function run() {
 
   if (grokResult.status === "rejected")   console.error("  WARNING: Grok 4.2 failed:", grokResult.reason?.message);
   if (claudeResult.status === "rejected") console.error("  WARNING: Claude Opus failed:", claudeResult.reason?.message);
-  if (!grokBrief && !claudeBrief) throw new Error("Both AI models failed — no formula output");
+  if (!grokBrief && !claudeBrief) throw new Error("Both AI models failed - no formula output");
 
   console.log("\nDual formulation complete:");
   console.log(`  Grok 4.2 Reasoning:  ${grokBrief  ? Math.round(grokBrief.length/1000)+"k chars OK" : "FAILED"}`);
   console.log(`  Claude Sonnet 4.6:     ${claudeBrief ? Math.round(claudeBrief.length/1000)+"k chars OK" : "FAILED"}\n`);
 
-  // 4. Save to Supabase — both outputs
+  // 4. Save to Supabase - both outputs
   process.stdout.write("Saving both briefs to formula_briefs table... ");
   await saveToDB(cat.id, grokBrief, claudeBrief, marketData);
   console.log("Done\n");
 
-  // 5. Save to vault — both outputs
+  // 5. Save to vault - both outputs
   process.stdout.write("Saving to vault... ");
   await saveToVault(grokBrief, claudeBrief);
   console.log("Done\n");
@@ -949,7 +986,7 @@ async function run() {
     console.log(claudeBrief.substring(0, 400));
   }
   const total = (grokBrief?.length||0) + (claudeBrief?.length||0);
-  console.log(`\nComplete — ${Math.round(total/1000)}k chars total (both briefs) saved to Supabase + vault`);
+  console.log(`\nComplete - ${Math.round(total/1000)}k chars total (both briefs) saved to Supabase + vault`);
   console.log("Next: run phase9-formula-qa.js --keyword to compare and adjudicate final formula.");
 }
 

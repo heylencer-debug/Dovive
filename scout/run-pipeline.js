@@ -50,6 +50,21 @@ if (!KEYWORD) {
   process.exit(1);
 }
 
+// ─── Pipeline Lock File (prevent duplicate runs) ──────────────────────────────
+const LOCK_FILE = path.join(SCOUT_DIR, `.pipeline-lock-${KEYWORD.replace(/\s+/g, '-')}`);
+if (require('fs').existsSync(LOCK_FILE)) {
+  const lockAge = Date.now() - require('fs').statSync(LOCK_FILE).mtimeMs;
+  if (lockAge < 4 * 60 * 60 * 1000) { // 4 hour max
+    console.error(`❌ Pipeline already running for "${KEYWORD}" (lock file exists, age: ${Math.round(lockAge/60000)}m). Kill it first or delete: ${LOCK_FILE}`);
+    process.exit(1);
+  }
+  console.warn(`⚠ Stale lock file removed (age: ${Math.round(lockAge/60000)}m)`);
+}
+require('fs').writeFileSync(LOCK_FILE, String(process.pid));
+process.on('exit', () => { try { require('fs').unlinkSync(LOCK_FILE); } catch {} });
+process.on('SIGINT', () => process.exit(1));
+process.on('SIGTERM', () => process.exit(1));
+
 // ─── Telegram Notifications ───────────────────────────────────────────────────
 
 async function notify(message) {
