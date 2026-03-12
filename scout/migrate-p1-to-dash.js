@@ -114,22 +114,25 @@ async function run() {
       featureBulletsText = p.bullet_points || '';
     }
 
+    const priceVal = p.price ? parseFloat(String(p.price).replace(/[^0-9.]/g, '')) || null : null;
     const row = {
       asin: p.asin,
       category_id: categoryId,
       title: p.title || '',
       brand: p.brand || null,
-      price: p.price ? parseFloat(String(p.price).replace(/[^0-9.]/g, '')) || null : null,
-      rating: p.rating || null,
-      review_count: p.review_count || null,
+      price: priceVal,
+      current_price: priceVal,
+      rating_value: p.rating || null,
+      rating_count: p.review_count || null,
       feature_bullets: featureBullets,
       feature_bullets_text: featureBulletsText,
-      specifications: p.specifications || null,
+      specifications: p.specs || null,
       image_urls: imageUrls,
-      main_image_url: mainImageUrl,
-      format_type: p.format_type || null,
-      bsr_current: p.bsr_rank || null,
-      scraped_at: p.scraped_at || new Date().toISOString(),
+      main_image_url: p.main_image || mainImageUrl || null,
+      bsr_current: p.bsr || null,
+      keyword_rank: p.rank_position || null,
+      created_at: p.scraped_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
 
     const { error } = await DASH.from('products').insert(row);
