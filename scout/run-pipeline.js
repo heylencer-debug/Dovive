@@ -89,6 +89,74 @@ function runScript(scriptPath, args = []) {
   });
 }
 
+// ─── Phase-level retry with backoff ──────────────────────────────────────────
+// 3 attempts: immediate → 30s → 60s
+const MAX_PHASE_RETRIES = 3;
+const RETRY_DELAYS_MS = [0, 30000, 60000];
+
+async function runPhaseWithRetry(phase, categoryId) {
+  let lastErr;
+  for (let attempt = 1; attempt <= MAX_PHASE_RETRIES; attempt++) {
+    try {
+      if (attempt > 1) {
+        const waitSec = RETRY_DELAYS_MS[attempt - 1] / 1000;
+        console.log(`\n⏳ Retry ${attempt}/${MAX_PHASE_RETRIES} for P${phase.num} in ${waitSec}s...`);
+        await notify(`⚠️ P${phase.num} retry ${attempt}/${MAX_PHASE_RETRIES}: ${phase.name}\nKeyword: "${KEYWORD}"\nError was: ${lastErr?.message?.slice(0, 200)}\nWaiting ${waitSec}s then retrying...`);
+        await new Promise(r => setTimeout(r, RETRY_DELAYS_MS[attempt - 1]));
+      }
+      await phase.run();
+      return; // success
+    } catch (err) {
+      lastErr = err;
+      console.error(`\n❌ P${phase.num} attempt ${attempt} failed: ${err.message}`);
+    }
+  }
+  throw lastErr; // all retries exhausted
+}
+
+// ─── Clear DASH/Dovive data for a phase (used with --force) ──────────────────
+async function clearPhaseData(phaseNum, categoryId) {
+  if (!categoryId) return;
+  console.log(`  🗑️  Force-clearing P${phaseNum} data in DASH...`);
+  try {
+    switch (phaseNum) {
+      case 3: // reviews
+        await DASH.from('products').update({ review_analysis: null }).eq('category_id', categoryId);
+        break;
+      case 4: // OCR
+        await DASH.from('products').update({ supplement_facts_raw: null }).eq('category_id', categoryId);
+        // Also clear dovive_ocr for this keyword
+        await DOVIVE.from('dovive_ocr').delete().eq('keyword', KEYWORD);
+        break;
+      case 5: // deep research
+        await DOVIVE.from('dovive_phase5_research').delete().ilike('keyword', `%${KEYWORD.split(' ')[0]}%`);
+        break;
+      case 6: // product intelligence
+        await DASH.from('products').update({ marketing_analysis: null }).eq('category_id', categoryId);
+        break;
+      case 7: // market intelligence
+        // Clear market intel from formula_briefs.ingredients
+        await DASH.from('formula_briefs').update({
+          ingredients: DASH.rpc ? null : null
+        }).eq('category_id', categoryId);
+        // Safer: just let phase overwrite (upsert handles it)
+        break;
+      case 8: // packaging
+        await DASH.from('products').update({ marketing_analysis: null }).eq('category_id', categoryId);
+        break;
+      case 9: // formula brief
+        await DASH.from('formula_briefs').delete().eq('category_id', categoryId);
+        break;
+      case 10: // QA
+        // No separate table — QA updates formula_briefs, let it overwrite
+        break;
+    }
+    console.log(`  ✅ P${phaseNum} data cleared`);
+  } catch (e) {
+    console.warn(`  ⚠️ Clear warning (non-fatal): ${e.message}`);
+  }
+}
+
 // ─── Phase Status Checks ──────────────────────────────────────────────────────
 
 async function getCategoryId() {
@@ -303,17 +371,22 @@ async function run() {
 
     await notify(`▶️ P${phase.num} Starting: ${phase.name}`);
 
+    // Force-clear existing data so we get a clean overwrite
+    if (FORCE && categoryId) {
+      await clearPhaseData(phase.num, categoryId);
+    }
+
     try {
-      await phase.run();
+      await runPhaseWithRetry(phase, categoryId);
       const elapsed = Math.round((Date.now() - phaseStart) / 1000);
       console.log(`\n✅ P${phase.num} Complete (${elapsed}s)`);
       results.push({ phase: phase.num, name: phase.name, status: 'complete', elapsed });
       await notify(`✅ P${phase.num} Complete: ${phase.name} (${elapsed}s)`);
     } catch (err) {
-      console.error(`\n❌ P${phase.num} FAILED: ${err.message}`);
+      console.error(`\n❌ P${phase.num} FAILED after ${MAX_PHASE_RETRIES} attempts: ${err.message}`);
       results.push({ phase: phase.num, name: phase.name, status: 'error', error: err.message });
-      await notify(`❌ P${phase.num} FAILED: ${phase.name}\nKeyword: "${KEYWORD}"\nError: ${err.message?.slice(0,300)}\n\nPipeline STOPPED. Fix this phase then restart from P${phase.num}.`);
-      console.error('Pipeline stopped — fix this phase before continuing.');
+      await notify(`🚨 P${phase.num} FAILED (${MAX_PHASE_RETRIES} retries exhausted): ${phase.name}\nKeyword: "${KEYWORD}"\nError: ${err.message?.slice(0,300)}\n\nPipeline STOPPED at P${phase.num}. Manual fix required.`);
+      console.error('Pipeline stopped — all retries exhausted for this phase.');
       break; // ALWAYS stop on any phase failure
     }
 
