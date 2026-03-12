@@ -77,6 +77,26 @@ function buildReviewAnalysis(reviews) {
   const neutralCount = counts[3];
   const negativeCount = counts[2] + counts[1];
 
+  // Top reviews for Product Details Modal display
+  const withBody = reviews.filter(r => r.body && r.body.trim().length > 10);
+  const topPositive = withBody
+    .filter(r => r.rating >= 4)
+    .sort((a, b) => (b.helpful_votes || 0) - (a.helpful_votes || 0))
+    .slice(0, 5)
+    .map(r => ({ rating: r.rating, title: r.title || '', body: r.body, reviewer: r.reviewer_name || '', date: r.review_date, verified: r.verified_purchase }));
+  const topCritical = withBody
+    .filter(r => r.rating <= 2)
+    .sort((a, b) => (b.helpful_votes || 0) - (a.helpful_votes || 0))
+    .slice(0, 5)
+    .map(r => ({ rating: r.rating, title: r.title || '', body: r.body, reviewer: r.reviewer_name || '', date: r.review_date, verified: r.verified_purchase }));
+  const topNeutral = withBody
+    .filter(r => r.rating === 3)
+    .slice(0, 3)
+    .map(r => ({ rating: r.rating, title: r.title || '', body: r.body, reviewer: r.reviewer_name || '', date: r.review_date, verified: r.verified_purchase }));
+
+  // Common pain points from critical reviews
+  const pain_points = topCritical.map(r => ({ issue: r.title, body: r.body?.slice(0, 150) }));
+
   return {
     sentiment_distribution: {
       very_positive_5star: { count: counts[5], percentage: pct(counts[5]) },
@@ -88,6 +108,13 @@ function buildReviewAnalysis(reviews) {
       neutral:  pct(neutralCount),
       negative: pct(negativeCount),
     },
+    // Raw review text for Product Details Modal
+    top_reviews: {
+      positive: topPositive,
+      critical: topCritical,
+      neutral:  topNeutral,
+    },
+    pain_points,
     analysis_metadata: {
       total_reviews_analyzed: total,
       average_rating: Math.round((ratingSum / total) * 10) / 10,
@@ -125,7 +152,7 @@ async function run() {
   while (true) {
     const { data, error } = await DOVIVE
       .from('dovive_reviews')
-      .select('asin, rating')
+      .select('asin, rating, title, body, reviewer_name, review_date, verified_purchase, helpful_votes')
       .eq('keyword', KEYWORD)
       .range(page * pageSize, (page + 1) * pageSize - 1);
 
