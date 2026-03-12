@@ -30,6 +30,9 @@ const KEYWORD_FILTER = (!testMode && args[0]) || null;
 const MAX_REVIEWS = 100; // reviews per product
 const COUNTRY_CODE = 'US';
 const PAGES_PER_PRODUCT = 10; // kept for compatibility
+const ALL_STARS_MODE = true; // kept for compatibility
+const SORT_BY = 'recent'; // kept for compatibility
+const REGION = 'amazon.com'; // kept for compatibility
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 

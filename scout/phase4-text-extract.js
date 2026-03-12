@@ -16,7 +16,9 @@ require('dotenv').config();
 const fetch = require('node-fetch');
 const { createClient } = require('@supabase/supabase-js');
 
-const KEYWORD   = process.argv[2] || 'ashwagandha gummies';
+// Support both: node phase4-text-extract.js "keyword" AND node phase4-text-extract.js --keyword "keyword"
+const _kwIdx = process.argv.indexOf('--keyword');
+const KEYWORD   = _kwIdx > -1 ? process.argv[_kwIdx + 1] : (process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : 'ashwagandha gummies');
 const TEST_MODE = process.argv.includes('--test');
 const LIMIT_IDX = process.argv.indexOf('--limit');
 const LIMIT     = LIMIT_IDX > -1 ? parseInt(process.argv[LIMIT_IDX + 1]) : null;
