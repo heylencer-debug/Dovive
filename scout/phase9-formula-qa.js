@@ -41,11 +41,6 @@ const FORCE   = process.argv.includes('--force');
 // â"€â"€â"€ xAI Key â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 function getOpenRouterKey() {
-  const sterlingEnv = require('path').join(__dirname, '../../sterling/.env');
-  if (require('fs').existsSync(sterlingEnv)) {
-    const m = require('fs').readFileSync(sterlingEnv, 'utf8').match(/OPENROUTER_API_KEY\s*=\s*(.+)/);
-    if (m) return m[1].trim();
-  }
   return process.env.OPENROUTER_API_KEY || null;
 }
 

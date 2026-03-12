@@ -61,12 +61,6 @@ async function lookupCategoryId(keyword) {
 // ─── xAI Key ─────────────────────────────────────────────────────────────────
 
 function getXaiKey() {
-  const sterlingEnv = path.join(__dirname, '../../sterling/.env');
-  if (fs.existsSync(sterlingEnv)) {
-    const content = fs.readFileSync(sterlingEnv, 'utf8');
-    const match = content.match(/XAI_API_KEY\s*=\s*(.+)/);
-    if (match) return match[1].trim();
-  }
   return process.env.XAI_API_KEY || null;
 }
 

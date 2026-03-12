@@ -256,18 +256,41 @@ async function run() {
     if (!phasesToRun.includes(phase.num)) continue;
     if (phase.num < FROM_PHASE) continue;
 
+    // ── Hard dependency gates ──────────────────────────────────
+    // P9 and P10 must NEVER run unless all upstream phases are complete
+    if ((phase.num === 9 || phase.num === 10) && categoryId) {
+      const checks = [
+        { p: 2, label: 'P2 Keepa',           check: async () => { const {count:t}=await DASH.from('products').select('*',{count:'exact',head:true}).eq('category_id',categoryId); const {count:k}=await DASH.from('products').select('*',{count:'exact',head:true}).eq('category_id',categoryId).not('monthly_sales','is',null); return k >= t*0.9; } },
+        { p: 3, label: 'P3 Reviews',          check: async () => { const {count:t}=await DASH.from('products').select('*',{count:'exact',head:true}).eq('category_id',categoryId); const {count:r}=await DASH.from('products').select('*',{count:'exact',head:true}).eq('category_id',categoryId).not('review_analysis','is',null); return r >= t*0.5; } },
+        { p: 6, label: 'P6 Product Intel',    check: async () => { const {count:t}=await DASH.from('products').select('*',{count:'exact',head:true}).eq('category_id',categoryId); const {count:pi}=await DASH.from('products').select('*',{count:'exact',head:true}).eq('category_id',categoryId).not('marketing_analysis','is',null); return pi >= t*0.9; } },
+        { p: 7, label: 'P7 Market Intel',     check: async () => { const {data}=await DASH.from('formula_briefs').select('ingredients').eq('category_id',categoryId).single(); return !!(data?.ingredients?.market_intelligence?.ai_market_analysis); } },
+        { p: 8, label: 'P8 Packaging Intel',  check: async () => { const {count:t}=await DASH.from('products').select('*',{count:'exact',head:true}).eq('category_id',categoryId); const {count:pk}=await DASH.from('products').select('*',{count:'exact',head:true}).eq('category_id',categoryId).not('marketing_analysis','is',null); return pk >= t*0.9; } },
+      ];
+
+      const failed = [];
+      for (const c of checks) {
+        const ok = await c.check();
+        if (!ok) failed.push(c.label);
+      }
+
+      if (failed.length > 0) {
+        const msg = `🚫 P${phase.num} BLOCKED — these phases are not complete:\n${failed.map(f => `  ❌ ${f}`).join('\n')}\n\nFix those phases first, then re-run P${phase.num}.`;
+        console.error(`\n${'═'.repeat(60)}`);
+        console.error(msg);
+        console.error(`${'═'.repeat(60)}\n`);
+        await notify(`🚫 Scout P${phase.num} BLOCKED for "${KEYWORD}"\n\nIncomplete:\n${failed.join('\n')}\n\nFix these first.`);
+        results.push({ phase: phase.num, name: phase.name, status: 'blocked', msg: failed.join(', ') });
+        break; // Stop pipeline entirely
+      }
+    }
+
     const phaseStart = Date.now();
     console.log(`\n${'─'.repeat(60)}`);
     console.log(`P${phase.num}: ${phase.name}`);
     console.log(`Description: ${phase.description}`);
 
-    // Check if already done
+    // Remove skipping phases based on existing data - always run each phase
     const status = categoryId ? await checkPhaseStatus(phase.num, categoryId) : { done: false };
-    if (status.done && !FORCE) {
-      console.log(`✅ Already complete — ${status.msg} — SKIPPING`);
-      results.push({ phase: phase.num, name: phase.name, status: 'skipped', msg: status.msg });
-      continue;
-    }
 
     if (status.count > 0 && !status.done) {
       console.log(`🔄 Partial data: ${status.msg} — RUNNING`);
@@ -305,6 +328,20 @@ async function run() {
   const completed = results.filter(r => r.status === 'complete').length;
   const skipped = results.filter(r => r.status === 'skipped').length;
   const failed = results.filter(r => r.status === 'error').length;
+
+  // Update DASH categories table with latest run_timestamp & updated_at
+  if (categoryId) {
+    try {
+      const { error } = await DASH.from('categories').update({ run_timestamp: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', categoryId);
+      if (error) {
+        console.error('Failed to update category run_timestamp:', error.message);
+      } else {
+        console.log('Category run_timestamp updated in DASH');
+      }
+    } catch (e) {
+      console.error('Error updating category:', e.message);
+    }
+  }
 
   console.log(`\n${'═'.repeat(60)}`);
   console.log(`PIPELINE COMPLETE — "${KEYWORD}"`);

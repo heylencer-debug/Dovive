@@ -38,11 +38,6 @@ const POOL_ARG = process.argv.includes('--pool')     ? process.argv[process.argv
 // ─── xAI Key ──────────────────────────────────────────────────────────────────
 
 function getXaiKey() {
-  const sterlingEnv = path.join(__dirname, '../../sterling/.env');
-  if (fs.existsSync(sterlingEnv)) {
-    const match = fs.readFileSync(sterlingEnv, 'utf8').match(/XAI_API_KEY\s*=\s*(.+)/);
-    if (match) return match[1].trim();
-  }
   return process.env.XAI_API_KEY || null;
 }
 

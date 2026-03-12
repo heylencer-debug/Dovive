@@ -29,6 +29,7 @@ const KEYWORD_FILTER = (!testMode && args[0]) || null;
 // axesso_data actor config
 const MAX_REVIEWS = 100; // reviews per product
 const COUNTRY_CODE = 'US';
+const PAGES_PER_PRODUCT = 10; // kept for compatibility
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
