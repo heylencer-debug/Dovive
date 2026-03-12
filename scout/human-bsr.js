@@ -25,6 +25,62 @@ const SUPABASE_URL  = process.env.SUPABASE_URL;
 const SUPABASE_KEY  = process.env.SUPABASE_KEY;
 const KEYWORD_LABEL = process.argv[2] || 'magnesium gummies';
 
+// ── DASH live sync ────────────────────────────────────────────
+const DASH_URL = 'https://jwkitkfufigldpldqtbq.supabase.co';
+const DASH_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3a2l0a2Z1ZmlnbGRwbGRxdGJxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTA0NTY0NSwiZXhwIjoyMDc2NjIxNjQ1fQ.FjLFaMPE4VO5vVwFEAAvLiub3Xc1hhjsv9fd2jWFIAc';
+let _dashCategoryId = null;
+
+async function getDashCategoryId(keyword) {
+  if (_dashCategoryId) return _dashCategoryId;
+  const res = await fetch(`${DASH_URL}/rest/v1/categories?name=ilike.*${encodeURIComponent(keyword)}*&select=id,name,total_products`, {
+    headers: { apikey: DASH_KEY, Authorization: `Bearer ${DASH_KEY}` }
+  });
+  const cats = await res.json();
+  if (!cats.length) {
+    // Create category
+    const cr = await fetch(`${DASH_URL}/rest/v1/categories`, {
+      method: 'POST',
+      headers: { apikey: DASH_KEY, Authorization: `Bearer ${DASH_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+      body: JSON.stringify({ name: keyword.split(' ').map(w => w[0].toUpperCase() + w.slice(1)).join(' '), search_term: keyword, total_products: 0 })
+    });
+    const newCat = await cr.json();
+    _dashCategoryId = Array.isArray(newCat) ? newCat[0]?.id : newCat?.id;
+  } else {
+    // Pick largest
+    const sorted = cats.sort((a, b) => (b.total_products || 0) - (a.total_products || 0));
+    _dashCategoryId = sorted[0].id;
+  }
+  return _dashCategoryId;
+}
+
+async function syncProductToDash(record) {
+  try {
+    const categoryId = await getDashCategoryId(record.keyword);
+    if (!categoryId) return;
+    const featureBullets = Array.isArray(record.bullet_points) ? record.bullet_points : null;
+    const featureBulletsText = featureBullets ? featureBullets.join('\n') : null;
+    const imageUrls = Array.isArray(record.images) ? record.images : null;
+    const dashProduct = {
+      asin: record.asin, category_id: categoryId, title: record.title || '',
+      brand: record.brand || null, price: record.price || null,
+      rating_value: record.rating || null, rating_count: record.review_count || null,
+      bsr_current: record.bsr || null, feature_bullets: featureBullets,
+      feature_bullets_text: featureBulletsText, specifications: record.specs || null,
+      image_urls: imageUrls, main_image_url: record.main_image || null,
+      updated_at: new Date().toISOString()
+    };
+    await fetch(`${DASH_URL}/rest/v1/products?on_conflict=asin,category_id`, {
+      method: 'POST',
+      headers: { apikey: DASH_KEY, Authorization: `Bearer ${DASH_KEY}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify([dashProduct])
+    });
+    // Update category product count
+    const { } = await fetch(`${DASH_URL}/rest/v1/rpc/increment_category_count`, { method: 'POST' }).catch(() => {});
+  } catch (e) {
+    // Non-fatal — don't crash scraper for DASH sync errors
+  }
+}
+
 // ── Anti-detection config ─────────────────────────────────────
 const USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -258,7 +314,7 @@ async function main() {
   console.log(`   UA: ${userAgent.slice(0, 60)}...`);
   console.log(`   Viewport: ${viewport.width}x${viewport.height}`);
 
-  const browser = await chromium.launch({ headless: false });
+  const browser = await chromium.launch({ headless: process.platform !== 'win32' });
   const context = await browser.newContext({
     userAgent,
     viewport,
@@ -439,6 +495,7 @@ async function main() {
 
     try {
       await upsertProducts([record]);
+      await syncProductToDash(record); // live sync to DASH dashboard
       console.log(`  → Saved ✓`);
       saved++;
     } catch (err) {
