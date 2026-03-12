@@ -124,7 +124,8 @@ async function checkPhaseStatus(phaseNum, categoryId) {
     }
     case 3: {
       const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', categoryId).not('review_analysis', 'is', null);
-      return { done: count > 0, count, total, msg: `${count}/${total} have review analysis` };
+      // Require ≥50% coverage before considering P3 done (avoid skipping on partial Apify runs)
+      return { done: count >= total * 0.5, count, total, msg: `${count}/${total} have review analysis` };
     }
     case 4: {
       const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', categoryId).not('supplement_facts_raw', 'is', null);
