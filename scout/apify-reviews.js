@@ -18,7 +18,7 @@ const fetch = require('node-fetch');
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const APIFY_KEY = process.env.APIFY_KEY;
-const ACT_ID = 'web_wanderer~amazon-reviews-extractor';
+const ACT_ID = 'axesso_data~amazon-reviews-scraper';
 
 // Parse arguments
 const args = process.argv.slice(2);
@@ -26,13 +26,9 @@ const testMode = args[0] === '--test';
 const testAsin = testMode ? args[1] : null;
 const KEYWORD_FILTER = (!testMode && args[0]) || null;
 
-// Target reviews per product using web_wanderer schema
-// limit = pages per product (max 10), each page ~10 reviews per star
-// With all_stars mode enabled, scrapes each star rating separately = up to 500 reviews
-const PAGES_PER_PRODUCT = 10;
-const ALL_STARS_MODE = true; // up to ~500 (100 per star)
-const SORT_BY = 'recent';
-const REGION = 'amazon.com';
+// axesso_data actor config
+const MAX_REVIEWS = 100; // reviews per product
+const COUNTRY_CODE = 'US';
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -68,18 +64,11 @@ async function getScrapedAsins() {
 
 // ── Run Apify actor for one ASIN ──────────────────────────────────────────────
 async function fetchApifyReviews(asin) {
-  console.log(`  → Calling web_wanderer actor (limit: ${PAGES_PER_PRODUCT} pages, all_stars: ${ALL_STARS_MODE})...`);
-  
-  // Input format per actor schema (required field: products)
+  console.log(`  → Calling axesso_data actor (maxReviews: ${MAX_REVIEWS}, country: ${COUNTRY_CODE})...`);
+
   const input = {
-    products: [asin],
-    limit: PAGES_PER_PRODUCT,
-    sort: SORT_BY,
-    all_stars: ALL_STARS_MODE,
-    region: REGION,
-    include_variants: true,
-    avp_reviews: false,
-    personal_data: false
+    input: [{ asin, countryCode: COUNTRY_CODE }],
+    maxReviews: MAX_REVIEWS
   };
 
   // Start the run
@@ -89,7 +78,7 @@ async function fetchApifyReviews(asin) {
     body: JSON.stringify(input)
   });
   const runData = await runRes.json();
-  
+
   if (!runData.data) {
     console.log('  → Apify response:', JSON.stringify(runData).substring(0, 500));
     throw new Error('Failed to start Apify run: ' + JSON.stringify(runData));
@@ -101,18 +90,17 @@ async function fetchApifyReviews(asin) {
   // Wait for completion (poll every 10 seconds, max 300 seconds)
   for (let i = 0; i < 30; i++) {
     await sleep(10000);
-    const statusRes = await fetch(`https://api.apify.com/v2/acts/${ACT_ID}/runs/${runId}?token=${APIFY_KEY}`);
+    const statusRes = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${APIFY_KEY}`);
     const status = await statusRes.json();
 
     const runStatus = status.data?.status;
-    console.log(`  → Status: ${runStatus} (${(i+1)*10}s)`);
+    console.log(`  → Status: ${runStatus} (${(i + 1) * 10}s)`);
 
     if (runStatus === 'SUCCEEDED') {
-      // Get reviews from dataset
       const itemsRes = await fetch(`https://api.apify.com/v2/datasets/${status.data.defaultDatasetId}/items?token=${APIFY_KEY}&clean=1`);
       const items = await itemsRes.json();
       return items;
-    } else if (runStatus === 'FAILED' || runStatus === 'ABORTED') {
+    } else if (runStatus === 'FAILED' || runStatus === 'ABORTED' || runStatus === 'TIMED-OUT') {
       throw new Error(`Apify run ${runStatus}`);
     }
   }
@@ -132,15 +120,15 @@ async function saveReviews(asin, keyword, reviews) {
   }
   
   const rows = actualReviews.map(r => ({
-    asin: r.productAsin || asin,
+    asin: r.asin || asin,
     keyword: keyword || null,
-    reviewer_name: r.profileName || null,
+    reviewer_name: r.userName || r.profileName || null,
     rating: r.rating || null,
-    title: r.reviewTitle || null,
-    body: r.reviewText || null,
-    review_date: r.reviewDate || null,
-    verified_purchase: r.verifiedPurchase === true,
-    helpful_votes: r.helpfulVoteCount || 0,
+    title: r.title || r.reviewTitle || null,
+    body: r.text || r.reviewText || null,
+    review_date: r.date || r.reviewDate || null,
+    verified_purchase: r.verified === true || r.verifiedPurchase === true,
+    helpful_votes: r.numberOfHelpful || r.helpfulVoteCount || 0,
     scraped_at: new Date().toISOString(),
   }));
 
