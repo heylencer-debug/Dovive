@@ -256,31 +256,19 @@ async function run() {
     if (!phasesToRun.includes(phase.num)) continue;
     if (phase.num < FROM_PHASE) continue;
 
-    // ── Hard dependency gates ──────────────────────────────────
-    // P9 and P10 must NEVER run unless all upstream phases are complete
-    if ((phase.num === 9 || phase.num === 10) && categoryId) {
-      const checks = [
-        { p: 2, label: 'P2 Keepa',           check: async () => { const {count:t}=await DASH.from('products').select('*',{count:'exact',head:true}).eq('category_id',categoryId); const {count:k}=await DASH.from('products').select('*',{count:'exact',head:true}).eq('category_id',categoryId).not('monthly_sales','is',null); return k >= t*0.9; } },
-        { p: 3, label: 'P3 Reviews',          check: async () => { const {count:t}=await DASH.from('products').select('*',{count:'exact',head:true}).eq('category_id',categoryId); const {count:r}=await DASH.from('products').select('*',{count:'exact',head:true}).eq('category_id',categoryId).not('review_analysis','is',null); return r >= t*0.5; } },
-        { p: 6, label: 'P6 Product Intel',    check: async () => { const {count:t}=await DASH.from('products').select('*',{count:'exact',head:true}).eq('category_id',categoryId); const {count:pi}=await DASH.from('products').select('*',{count:'exact',head:true}).eq('category_id',categoryId).not('marketing_analysis','is',null); return pi >= t*0.9; } },
-        { p: 7, label: 'P7 Market Intel',     check: async () => { const {data}=await DASH.from('formula_briefs').select('ingredients').eq('category_id',categoryId).single(); return !!(data?.ingredients?.market_intelligence?.ai_market_analysis); } },
-        { p: 8, label: 'P8 Packaging Intel',  check: async () => { const {count:t}=await DASH.from('products').select('*',{count:'exact',head:true}).eq('category_id',categoryId); const {count:pk}=await DASH.from('products').select('*',{count:'exact',head:true}).eq('category_id',categoryId).not('marketing_analysis','is',null); return pk >= t*0.9; } },
-      ];
-
-      const failed = [];
-      for (const c of checks) {
-        const ok = await c.check();
-        if (!ok) failed.push(c.label);
-      }
-
-      if (failed.length > 0) {
-        const msg = `🚫 P${phase.num} BLOCKED — these phases are not complete:\n${failed.map(f => `  ❌ ${f}`).join('\n')}\n\nFix those phases first, then re-run P${phase.num}.`;
+    // ── Strict sequential dependency gate ─────────────────────
+    // Every phase requires ALL previous phases to be complete.
+    // If previous phase failed, STOP immediately.
+    if (phase.num > 1 && categoryId) {
+      const prevResult = results[results.length - 1];
+      if (prevResult && prevResult.status === 'error') {
+        const msg = `🚫 P${phase.num} BLOCKED — P${prevResult.phase} (${prevResult.name}) failed.\nError: ${prevResult.error}\n\nFix P${prevResult.phase} first.`;
         console.error(`\n${'═'.repeat(60)}`);
         console.error(msg);
         console.error(`${'═'.repeat(60)}\n`);
-        await notify(`🚫 Scout P${phase.num} BLOCKED for "${KEYWORD}"\n\nIncomplete:\n${failed.join('\n')}\n\nFix these first.`);
-        results.push({ phase: phase.num, name: phase.name, status: 'blocked', msg: failed.join(', ') });
-        break; // Stop pipeline entirely
+        await notify(`🚫 Scout STOPPED at P${phase.num} for "${KEYWORD}"\n\nP${prevResult.phase} failed: ${prevResult.error?.slice(0,200)}\n\nFix P${prevResult.phase} then retry.`);
+        results.push({ phase: phase.num, name: phase.name, status: 'blocked', msg: `P${prevResult.phase} not complete` });
+        break;
       }
     }
 
@@ -309,14 +297,9 @@ async function run() {
     } catch (err) {
       console.error(`\n❌ P${phase.num} FAILED: ${err.message}`);
       results.push({ phase: phase.num, name: phase.name, status: 'error', error: err.message });
-      await notify(`❌ P${phase.num} Failed: ${phase.name}\n${err.message}`);
-
-      // Stop pipeline on critical phases (P1, P2), continue on others
-      if (phase.num <= 2) {
-        console.error('Critical phase failed — stopping pipeline');
-        break;
-      }
-      console.log('Non-critical phase failed — continuing...');
+      await notify(`❌ P${phase.num} FAILED: ${phase.name}\nKeyword: "${KEYWORD}"\nError: ${err.message?.slice(0,300)}\n\nPipeline STOPPED. Fix this phase then restart from P${phase.num}.`);
+      console.error('Pipeline stopped — fix this phase before continuing.');
+      break; // ALWAYS stop on any phase failure
     }
 
     // Small delay between phases

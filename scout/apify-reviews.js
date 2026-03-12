@@ -123,18 +123,26 @@ async function saveReviews(asin, keyword, reviews) {
     return 0;
   }
   
-  const rows = actualReviews.map(r => ({
-    asin: r.asin || asin,
-    keyword: keyword || null,
-    reviewer_name: r.userName || r.profileName || null,
-    rating: r.rating || null,
-    title: r.title || r.reviewTitle || null,
-    body: r.text || r.reviewText || null,
-    review_date: r.date || r.reviewDate || null,
-    verified_purchase: r.verified === true || r.verifiedPurchase === true,
-    helpful_votes: r.numberOfHelpful || r.helpfulVoteCount || 0,
-    scraped_at: new Date().toISOString(),
-  }));
+  const rows = actualReviews.map(r => {
+    // Parse rating — axesso returns "5.0 out of 5 stars" or plain number
+    let rating = r.rating || null;
+    if (typeof rating === 'string') {
+      const match = rating.match(/[\d.]+/);
+      rating = match ? parseFloat(match[0]) : null;
+    }
+    return {
+      asin: r.asin || asin,
+      keyword: keyword || null,
+      reviewer_name: r.userName || r.profileName || null,
+      rating,
+      title: r.title || r.reviewTitle || null,
+      body: r.text || r.reviewText || null,
+      review_date: r.date || r.reviewDate || null,
+      verified_purchase: r.verified === true || r.verifiedPurchase === true,
+      helpful_votes: r.numberOfHelpful || r.helpfulVoteCount || 0,
+      scraped_at: new Date().toISOString(),
+    };
+  });
 
   // Insert reviews (no review_id column in schema — use plain insert)
   const res = await fetch(`${SUPABASE_URL}/rest/v1/dovive_reviews`, {
