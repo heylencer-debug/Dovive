@@ -216,23 +216,23 @@ const PHASES = [
   },
   {
     num: 5, name: 'Deep Research', description: 'Top 10 BSR + Top 10 New Brands — Grok 4.2 deep reasoning per product',
-    run: async () => runScript('phase5-deep-research.js', ['--keyword', KEYWORD])
+    run: async () => runScript('phase5-deep-research.js', ['--keyword', KEYWORD, ...(FORCE ? ['--force'] : [])])
   },
   {
     num: 6, name: 'Product Intelligence', description: 'Per-product AI scoring — powers Formula Landscape, Extract Types, Dosage, Certs, Threat Levels, Top 10 (9 dashboard sections)',
-    run: async () => runScript('phase6-product-intelligence.js', ['--keyword', KEYWORD])
+    run: async () => runScript('phase6-product-intelligence.js', ['--keyword', KEYWORD, ...(FORCE ? ['--force'] : [])])
   },
   {
     num: 7, name: 'Market Intelligence', description: 'Category-level Grok market report — powers Market tab analysis',
-    run: async () => runScript('phase6-market-analysis.js', ['--keyword', KEYWORD])
+    run: async () => runScript('phase6-market-analysis.js', ['--keyword', KEYWORD, ...(FORCE ? ['--force'] : [])])
   },
   {
     num: 8, name: 'Packaging Intelligence', description: 'Claims, badges, color signals, market gaps',
-    run: async () => runScript('phase7-packaging-intelligence.js', ['--keyword', KEYWORD])
+    run: async () => runScript('phase7-packaging-intelligence.js', ['--keyword', KEYWORD, ...(FORCE ? ['--force'] : [])])
   },
   {
     num: 9, name: 'Formula Brief', description: 'CMO-ready formula specification',
-    run: async () => runScript('phase8-formula-brief.js', ['--keyword', KEYWORD, ...(USE_AI ? ['--ai'] : [])])
+    run: async () => runScript('phase8-formula-brief.js', ['--keyword', KEYWORD, ...(FORCE ? ['--force'] : []), ...(USE_AI ? ['--ai'] : [])])
   },
   {
     num: 10, name: 'Formula QA', description: 'QA specialist: dose validation, competitor head-to-head, formula adjustments',
