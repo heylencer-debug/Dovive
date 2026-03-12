@@ -225,6 +225,92 @@ async function compileMarketData(categoryId) {
     .sort((a, b) => b[1] - a[1])
     .map(([form]) => form);
 
+  // ── Serving size distribution ──────────────────────────────────────────────
+  const servingSizeMap = {};
+  for (const p of allProducts || []) {
+    if (p.serving_size) {
+      const ss = String(p.serving_size).toLowerCase().trim();
+      servingSizeMap[ss] = (servingSizeMap[ss] || 0) + 1;
+    }
+  }
+  const servingSizeDistribution = Object.entries(servingSizeMap)
+    .sort((a, b) => b[1] - a[1]).slice(0, 8)
+    .map(([ss, count]) => `"${ss}": ${count} products`).join('\n');
+
+  // ── Ingredient dosage ranges from OCR (all_nutrients) ─────────────────────
+  const dosageRangeMap = {}; // ingredient → [amounts]
+  for (const p of (top20 || [])) {
+    const nutrients = p.all_nutrients;
+    if (!Array.isArray(nutrients)) continue;
+    for (const n of nutrients) {
+      const name = (n.name || n.ingredient || '').trim();
+      const amt = parseFloat((n.amount || n.quantity || '').toString().replace(/[^0-9.]/g, ''));
+      if (name && !isNaN(amt) && amt > 0) {
+        if (!dosageRangeMap[name]) dosageRangeMap[name] = [];
+        dosageRangeMap[name].push(amt);
+      }
+    }
+  }
+  const dosageRanges = Object.entries(dosageRangeMap)
+    .filter(([, vals]) => vals.length >= 2)
+    .sort((a, b) => b[1].length - a[1].length)
+    .slice(0, 20)
+    .map(([ing, vals]) => {
+      const min = Math.min(...vals), max = Math.max(...vals), avg = Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
+      return `${ing}: min ${min} / avg ${avg} / max ${max} (${vals.length} products)`;
+    }).join('\n');
+
+  // ── Price-per-serving from top competitors ────────────────────────────────
+  const pricePerServing = (top20 || [])
+    .filter(p => p.price && p.servings_per_container)
+    .map(p => {
+      const pps = (p.price / p.servings_per_container).toFixed(3);
+      return `${p.brand} (BSR ${p.bsr_current?.toLocaleString()}): $${p.price}/${p.servings_per_container} servings = $${pps}/serving`;
+    }).join('\n') || 'Price-per-serving data not available';
+
+  // ── Positive ingredient signals from reviews ──────────────────────────────
+  const positiveIngredientSignals = {};
+  const negativeIngredientSignals = {};
+  for (const p of allProducts || []) {
+    const ra = p.review_analysis;
+    if (!ra) continue;
+    // Pull loved/praised ingredients from review analysis
+    const praised = ra.praised_ingredients || ra.top_ingredients || ra.loved_ingredients || [];
+    const criticized = ra.criticized_ingredients || ra.disliked_ingredients || [];
+    for (const ing of praised) {
+      const key = typeof ing === 'string' ? ing : (ing.ingredient || ing.name || '');
+      if (key) positiveIngredientSignals[key] = (positiveIngredientSignals[key] || 0) + 1;
+    }
+    for (const ing of criticized) {
+      const key = typeof ing === 'string' ? ing : (ing.ingredient || ing.name || '');
+      if (key) negativeIngredientSignals[key] = (negativeIngredientSignals[key] || 0) + 1;
+    }
+  }
+  const topPositiveIngredients = Object.entries(positiveIngredientSignals)
+    .sort((a,b)=>b[1]-a[1]).slice(0,10)
+    .map(([ing, n]) => `${ing}: praised in ${n} product reviews`).join('\n') || 'Insufficient review data';
+  const topNegativeIngredients = Object.entries(negativeIngredientSignals)
+    .sort((a,b)=>b[1]-a[1]).slice(0,10)
+    .map(([ing, n]) => `${ing}: criticized in ${n} product reviews`).join('\n') || 'None flagged';
+
+  // ── Pull actual raw review text from dovive_reviews ───────────────────────
+  let rawReviewText = { positive: [], negative: [] };
+  try {
+    const allAsins = (top20 || []).map(p => p.asin).filter(Boolean);
+    if (allAsins.length) {
+      const { data: rawPos } = await DOVIVE.from('dovive_reviews')
+        .select('asin, rating, title, body').in('asin', allAsins)
+        .gte('rating', 4).not('body', 'is', null).limit(30);
+      const { data: rawNeg } = await DOVIVE.from('dovive_reviews')
+        .select('asin, rating, title, body').in('asin', allAsins)
+        .lte('rating', 2).not('body', 'is', null).limit(30);
+      rawReviewText.positive = (rawPos || []).sort(() => Math.random()-0.5).slice(0,20)
+        .map(r => `[★${r.rating}] "${r.title || ''}" — ${(r.body||'').slice(0,250)}`);
+      rawReviewText.negative = (rawNeg || []).sort(() => Math.random()-0.5).slice(0,20)
+        .map(r => `[★${r.rating}] "${r.title || ''}" — ${(r.body||'').slice(0,250)}`);
+    }
+  } catch(e) { /* reviews optional */ }
+
   return {
     category_summary: {
       total_products: total,
@@ -234,6 +320,13 @@ async function compileMarketData(categoryId) {
       top_pain_points: topPainPoints,
       top_claims: topClaims,
       top_ingredients: topIngredients,
+      serving_size_distribution: servingSizeDistribution,
+      dosage_ranges: dosageRanges,
+      price_per_serving: pricePerServing,
+      positive_ingredient_signals: topPositiveIngredients,
+      negative_ingredient_signals: topNegativeIngredients,
+      raw_reviews_positive: rawReviewText.positive,
+      raw_reviews_negative: rawReviewText.negative,
       top_performers: (top5 || []).map(p => ({
         ...p,
         nutrients: p.all_nutrients,
@@ -448,41 +541,6 @@ Your job:
 
 ---
 
-## ⚠️ DOVIVE MANUFACTURING CONSTRAINTS — NON-NEGOTIABLE
-
-These are HARD limits. If you exceed them, the formula cannot be manufactured. Do NOT ignore these.
-
-### Gummy Form Factor Constraints
-| Constraint | Limit | Reason |
-|-----------|-------|--------|
-| Max total actives per gummy | **350mg** | Gummy matrix cannot hold more — will collapse/weep |
-| Magnesium glycinate | **Max 50mg cosmetic only** | Hygroscopic — absorbs moisture, causes sticky/unstable gummies |
-| Ashwagandha extract | **Max 150mg/gummy** | Bitter masking limit in gummy matrix |
-| Probiotics | **Not recommended** | Heat-sensitive — destroyed in gummy processing |
-| Omega-3 / Fish oil | **Not in gummies** | Rancidity + oxidation in gummy matrix |
-
-### Banned / Problematic Ingredients in Gummies
-- ❌ Magnesium glycinate >50mg (hygroscopic, sticky)
-- ❌ High-dose magnesium in any form >100mg (moisture issues)
-- ❌ Live probiotics (heat processing kills them)
-- ❌ Fish oil / omega-3 (oxidation, fishy taste)
-- ❌ Iron supplements (taste, interaction with gummy base)
-- ❌ Vitamin B12 >1000mcg (no clinical benefit, wasteful)
-
-### Target Manufacturing Profile
-- Serving size: **2 gummies** (industry standard for compliance)
-- Total active load per 2-gummy serving: **max 700mg combined**
-- Gummy weight: ~3-4g per gummy (standard)
-- Shelf life target: **24 months at room temperature**
-
-### DOVIVE Brand Positioning
-- **Always premium** — never compete on price alone
-- Target price: **$24.99–$34.99** range
-- Certifications to pursue: Non-GMO, Gluten-Free, Third-Party Tested
-- No artificial colors, no high-fructose corn syrup
-
----
-
 ---
 
 ${marketIntelSection}
@@ -534,6 +592,41 @@ STRATEGIC INSIGHT: 50%+ = MUST-HAVE. 20-50% = Differentiator. <20% = Unique sell
 - Average Ingredient Count: ${cs.avg_ingredients_count || 'N/A'}
 - Common Dosage Forms: ${cs.common_forms?.join(', ') || 'N/A'}
 - Average Price Point: ${cs.avg_price || 'N/A'}
+
+---
+
+## SERVING SIZE DISTRIBUTION (what the market actually uses)
+${cs.serving_size_distribution || 'Not available'}
+
+---
+
+## PRICE-PER-SERVING ANALYSIS (value benchmark)
+${cs.price_per_serving || 'Not available'}
+
+---
+
+## COMPETITOR INGREDIENT DOSAGE RANGES (from OCR supplement facts)
+These are real dosage ranges across all top competitors — min, average, and max per ingredient.
+Use these to understand what the market currently uses, and where to position DOVIVE.
+${cs.dosage_ranges || 'OCR data not yet available'}
+
+---
+
+## VOICE OF CUSTOMER — WHAT PEOPLE LOVE (Positive Reviews)
+Real customer quotes from top competitor products. Study what outcomes and ingredients they praise.
+${(cs.raw_reviews_positive && cs.raw_reviews_positive.length) ? cs.raw_reviews_positive.join('\n') : 'Reviews not yet available — run P3 first'}
+
+---
+
+## VOICE OF CUSTOMER — WHAT PEOPLE HATE (Critical Reviews)  
+Real 1-2 star reviews. Study what problems your formula must solve.
+${(cs.raw_reviews_negative && cs.raw_reviews_negative.length) ? cs.raw_reviews_negative.join('\n') : 'Reviews not yet available'}
+
+---
+
+## INGREDIENT REVIEW SENTIMENT
+Ingredients customers PRAISE: ${cs.positive_ingredient_signals || 'Insufficient data'}
+Ingredients customers CRITICIZE: ${cs.negative_ingredient_signals || 'None flagged'}
 
 ---
 
