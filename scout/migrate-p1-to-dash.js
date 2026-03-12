@@ -128,7 +128,7 @@ async function run() {
       image_urls: imageUrls,
       main_image_url: mainImageUrl,
       format_type: p.format_type || null,
-      bsr_rank: p.bsr_rank || null,
+      bsr_current: p.bsr_rank || null,
       scraped_at: p.scraped_at || new Date().toISOString(),
     };
 
