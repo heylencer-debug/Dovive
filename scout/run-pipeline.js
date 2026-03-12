@@ -166,8 +166,12 @@ async function checkPhaseStatus(phaseNum, categoryId) {
 const PHASES = [
   {
     num: 1, name: 'Amazon Scrape', description: 'Scrape Amazon search results for keyword',
-    // human-bsr.js reads process.argv[2] as the keyword (positional, not --keyword)
-    run: async () => runScript('human-bsr.js', [KEYWORD])
+    run: async () => {
+      // human-bsr.js reads process.argv[2] as keyword (positional, not --keyword)
+      await runScript('human-bsr.js', [KEYWORD]);
+      console.log('\n→ Creating DASH category + migrating P1 products (migrate-p1-to-dash.js)...');
+      await runScript('migrate-p1-to-dash.js', [KEYWORD]);
+    }
   },
   {
     num: 2, name: 'Keepa Enrichment', description: 'Fetch BSR history, sales & revenue from Keepa',
@@ -178,9 +182,10 @@ const PHASES = [
     }
   },
   {
-    num: 3, name: 'Reviews', description: 'Scrape and analyze customer reviews',
+    num: 3, name: 'Reviews', description: 'Scrape and analyze customer reviews (Apify)',
     run: async () => {
-      await runScript('human-reviews.js', ['--keyword', KEYWORD]);
+      // Use Apify scraper — avoids Amazon CAPTCHA blocks
+      await runScript('apify-reviews.js', [KEYWORD]);
       console.log('\n→ Syncing reviews to dashboard (migrate-reviews-to-dash.js)...');
       await runScript('migrate-reviews-to-dash.js', [KEYWORD]);
     }
