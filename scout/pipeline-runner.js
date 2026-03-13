@@ -55,12 +55,16 @@ function saveQueue(q) {
   fs.writeFileSync(QUEUE_FILE, JSON.stringify(q, null, 2));
 }
 
+// Queue entries can be:
+//   "keyword string"  → { keyword, fromPhase: 1, force: false }
+//   { keyword, fromPhase, force }  → used as-is
 function dequeue() {
   const q = loadQueue();
   if (!q.length) return null;
   const next = q.shift();
   saveQueue(q);
-  return next;
+  if (typeof next === 'string') return { keyword: next, fromPhase: 1, force: false };
+  return { keyword: next.keyword, fromPhase: next.fromPhase || 1, force: !!next.force };
 }
 
 // ─── Clear stale lock files ────────────────────────────────────────────────────
@@ -80,7 +84,7 @@ function log(msg) {
 }
 
 // ─── Run pipeline for a keyword (with stall detection + retries) ──────────────
-async function runKeyword(keyword) {
+async function runKeyword({ keyword, fromPhase = 1, force = false }) {
   const slug = keyword.replace(/\s+/g, '-');
   const logFile = path.join(LOG_DIR, `pipeline-${slug}.log`);
 
@@ -91,14 +95,21 @@ async function runKeyword(keyword) {
       await sleep(30_000);
     }
 
-    log(`▶️  Starting pipeline: "${keyword}" (attempt ${attempt})`);
-    if (attempt === 1) await telegram(`▶️ Scout pipeline starting: "${keyword}"\nAttempt ${attempt}/${MAX_RETRIES + 1}`);
+    const fromLabel = fromPhase > 1 ? ` from P${fromPhase}` : '';
+    const forceLabel = force ? ' --force' : '';
+    log(`▶️  Starting pipeline: "${keyword}"${fromLabel}${forceLabel} (attempt ${attempt})`);
+    if (attempt === 1) await telegram(`▶️ Scout pipeline starting: "${keyword}"${fromLabel}${forceLabel}\nAttempt ${attempt}/${MAX_RETRIES + 1}`);
 
     // Clear any stale lock before spawning
     clearLocks();
 
+    // Build args
+    const args = ['run-pipeline.js', '--keyword', keyword];
+    if (fromPhase > 1) args.push('--from', `P${fromPhase}`);
+    if (force) args.push('--force');
+
     const logStream = fs.createWriteStream(logFile, { flags: attempt === 1 ? 'w' : 'a' });
-    const child = spawn('node', ['run-pipeline.js', '--keyword', keyword], {
+    const child = spawn('node', args, {
       cwd: __dirname,
       env: { ...process.env },
       stdio: ['ignore', 'pipe', 'pipe'],
