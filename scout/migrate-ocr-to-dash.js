@@ -117,8 +117,14 @@ async function main() {
     const confidence = calcConfidence(facts);
     const nutrientsCount = facts.length;
 
+    // Build supplement_facts_raw as a human-readable text string (used by phase tracker + formula prompt)
+    const sfRaw = facts.length > 0
+      ? facts.map(f => `${f.name}: ${f.amount || '?'}${f.dv_percent ? ` (${f.dv_percent}% DV)` : ''}`).join('\n')
+      : null;
+
     const updateData = {
       all_nutrients: facts.length > 0 ? facts : null,
+      supplement_facts_raw: sfRaw,
       nutrients_count: nutrientsCount,
       ocr_confidence: confidence,
     };

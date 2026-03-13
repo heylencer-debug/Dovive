@@ -1172,15 +1172,20 @@ async function run() {
   }
   console.log(`Category: ${cat.name} (${cat.id})\n`);
 
-  // Check if brief already exists
+  // Check if brief already exists WITH actual AI content (not just a market intel stub)
   if (!FORCE) {
     const { data: existing } = await DASH.from('formula_briefs')
-      .select('id, created_at')
+      .select('id, created_at, ingredients')
       .eq('category_id', cat.id)
       .limit(1);
-    if (existing?.length) {
-      console.log(`Brief already exists (${existing[0].created_at?.split('T')[0]}). Use --force to regenerate.`);
+    const hasActualBrief = existing?.[0]?.ingredients?.ai_generated_brief ||
+                           existing?.[0]?.ingredients?.ai_generated_brief_grok;
+    if (hasActualBrief) {
+      console.log(`Brief already exists with AI content (${existing[0].created_at?.split('T')[0]}). Use --force to regenerate.`);
       process.exit(0);
+    }
+    if (existing?.length) {
+      console.log(`formula_briefs record exists but has no AI brief — regenerating...`);
     }
   }
 
