@@ -153,6 +153,63 @@ function revenuePerReviewLabel(rpr) {
   return '🔴 Low (<$200/review)';
 }
 
+// ─── Generic primary active detection helpers ─────────────────────────────────
+
+function detectPrimaryActive(facts) {
+  if (!facts) return 'Unknown';
+  const f = facts.toLowerCase();
+  if (f.includes('vitamin c') || f.includes('ascorbic acid')) return 'Vitamin C';
+  if (f.includes('collagen')) return 'Collagen Peptides';
+  if (f.includes('magnesium')) return 'Magnesium';
+  if (f.includes('melatonin')) return 'Melatonin';
+  if (f.includes('creatine')) return 'Creatine';
+  if (f.includes('elderberry') || f.includes('sambucus')) return 'Elderberry Extract';
+  if (f.includes('ashwagandha') || f.includes('withania')) return 'Ashwagandha';
+  if (f.includes('vitamin d3') || f.includes('cholecalciferol')) return 'Vitamin D3';
+  if (f.includes('biotin')) return 'Biotin';
+  if (f.includes('zinc')) return 'Zinc';
+  if (f.includes('iron')) return 'Iron';
+  if (f.includes('b12') || f.includes('cobalamin')) return 'Vitamin B12';
+  if (f.includes('berberine')) return 'Berberine';
+  if (f.includes("lion's mane") || f.includes('hericium')) return "Lion's Mane";
+  if (f.includes('turmeric') || f.includes('curcumin')) return 'Turmeric/Curcumin';
+  return 'Unknown';
+}
+
+function detectPrimaryActiveMg(facts) {
+  if (!facts) return null;
+  // Try to extract the first numeric mg/mcg value from supplement facts
+  const patterns = [
+    /(\d+(?:,\d+)?(?:\.\d+)?)\s*mg/i,
+    /(\d+(?:\.\d+)?)\s*mcg/i,
+    /(\d+(?:\.\d+)?)\s*iu/i,
+  ];
+  for (const p of patterns) {
+    const m = facts.match(p);
+    if (m) return parseFloat(m[1].replace(',', ''));
+  }
+  return null;
+}
+
+function detectPrimaryForm(facts) {
+  if (!facts) return 'Unknown';
+  const f = facts.toLowerCase();
+  if (f.includes('liposomal')) return 'Liposomal';
+  if (f.includes('hydrolyzed collagen')) return 'Hydrolyzed Collagen';
+  if (f.includes('collagen peptide')) return 'Collagen Peptides';
+  if (f.includes('magnesium glycinate')) return 'Magnesium Glycinate';
+  if (f.includes('magnesium citrate')) return 'Magnesium Citrate';
+  if (f.includes('creatine monohydrate')) return 'Creatine Monohydrate';
+  if (f.includes('ksm-66')) return 'KSM-66';
+  if (f.includes('sensoril')) return 'Sensoril';
+  if (f.includes('shoden')) return 'Shoden';
+  if (f.includes('methylcobalamin')) return 'Methylcobalamin';
+  if (f.includes('cyanocobalamin')) return 'Cyanocobalamin';
+  if (f.includes('ascorbic acid')) return 'Ascorbic Acid';
+  if (f.includes('cholecalciferol')) return 'Cholecalciferol (D3)';
+  return 'Unknown';
+}
+
 // ─── Rule-based fallback ──────────────────────────────────────────────────────
 
 function extractAmountRule(facts) {
@@ -235,7 +292,15 @@ function ruleBasedAnalysis(product, marketMetrics) {
   const bsr = product.bsr_current;
   const rating = product.rating_value;
   const threat = !bsr ? 'Low' : bsr < 1000 ? 'Very High' : bsr < 5000 && (formulaScore >= 7 || rating >= 4.5) ? 'High' : bsr < 20000 ? 'Medium' : 'Low';
+  // Generic primary active fields (derived from rule-based detection)
+  const primaryActiveIngredient = ashwagandhaAmt ? 'Ashwagandha' : (facts ? detectPrimaryActive(facts) : 'Unknown');
+  const primaryActiveAmountMg = ashwagandhaAmt || detectPrimaryActiveMg(facts);
+  const primaryActiveForm = ashwagandhaAmt ? extractType : (facts ? detectPrimaryForm(facts) : 'Unknown');
+
   return {
+    primary_active_ingredient: primaryActiveIngredient,
+    primary_active_amount_mg: primaryActiveAmountMg,
+    primary_active_form: primaryActiveForm,
     ashwagandha_amount_mg: ashwagandhaAmt,
     ashwagandha_extract_type: extractType,
     withanolide_percentage: null,
@@ -284,9 +349,11 @@ Feature Bullets: ${(p.feature_bullets_text || '').substring(0, 250) || 'N/A'}
 Supplement Facts (OCR): ${(p.supplement_facts_raw || '').substring(0, 500) || 'Not available'}`;
   }).join('\n═══\n');
 
-  const prompt = `You are a supplement industry expert analyzing competitor ashwagandha gummy products for DOVIVE brand's product development team.
+  const prompt = `You are a supplement industry expert analyzing competitor supplement products for DOVIVE brand's product development team.
 
-The market signals (BSR velocity, price tier, revenue efficiency) have already been computed. Your job is to analyze the FORMULA quality and competitive positioning.
+The market signals (BSR velocity, price tier, revenue efficiency) have already been computed. Your job is to analyze the FORMULA quality and competitive positioning for each product.
+
+IMPORTANT: These products may be for ANY supplement category (Vitamin C, Collagen, Magnesium, Melatonin, Creatine, Elderberry, etc.) — NOT necessarily Ashwagandha. Detect the PRIMARY ACTIVE INGREDIENT from the supplement facts and analyze accordingly.
 
 ${productList}
 
@@ -294,7 +361,10 @@ Return ONLY a valid JSON array with exactly ${products.length} objects:
 [
   {
     "asin": "string",
-    "ashwagandha_amount_mg": number or null,
+    "primary_active_ingredient": "the main active ingredient name (e.g. Vitamin C, Collagen Peptides, Magnesium Glycinate, Melatonin, Creatine Monohydrate, Ashwagandha, etc.)",
+    "primary_active_amount_mg": number or null (amount in mg/mcg — use the numeric value from supplement facts),
+    "primary_active_form": "the specific form or grade (e.g. Liposomal Ascorbic Acid, Hydrolyzed Collagen Type I&III, Magnesium Glycinate, KSM-66 Ashwagandha, Creatine Monohydrate, etc.) — 'Unknown' if not specified",
+    "ashwagandha_amount_mg": number or null (only if ashwagandha is present),
     "ashwagandha_extract_type": "KSM-66"|"Sensoril"|"Shoden"|"Organic Extract"|"Generic Extract"|"10:1 Extract"|"Root Powder"|"Unknown",
     "withanolide_percentage": "e.g. 5%" or null,
     "is_sugar_free": boolean,
@@ -303,23 +373,29 @@ Return ONLY a valid JSON array with exactly ${products.length} objects:
     "is_non_gmo": boolean,
     "is_cgmp": boolean,
     "is_third_party_tested": boolean,
-    "certifications": ["array"],
-    "bonus_ingredients": ["ingredients beyond ashwagandha"],
+    "certifications": ["array of detected certifications"],
+    "bonus_ingredients": ["secondary active ingredients beyond the primary active"],
     "artificial_colors": boolean,
     "proprietary_blend": boolean,
     "formula_quality_score": 1-10,
     "competitor_threat_level": "Very High"|"High"|"Medium"|"Low",
-    "key_strengths": ["max 3"],
-    "key_weaknesses": ["max 3"],
-    "form_factor_notes": "1 line: what makes this unique or generic",
-    "market_opportunity_gap": "1 line: what this product is missing that DOVIVE could exploit"
+    "key_strengths": ["max 3 specific strengths"],
+    "key_weaknesses": ["max 3 specific weaknesses"],
+    "form_factor_notes": "1 line: what makes this formula unique or generic",
+    "market_opportunity_gap": "1 line: what DOVIVE could do better with this category"
   }
 ]
 
-Scoring rules:
-- formula_quality_score: start at 5. KSM-66/Shoden +3, Sensoril +2.5, clinical dose ≥600mg +1, 3rd-party tested +1, NSF/USP +0.5, proprietary blend -0.5, unknown extract -1
+Scoring rules (generic — applies to ANY supplement category):
+- formula_quality_score: start at 5
+  +3: branded/premium ingredient form (KSM-66, Liposomal, Magnesium Glycinate, Creatine Monohydrate, Type I&III Hydrolyzed, etc.)
+  +2: clinical/effective dose of primary active (relative to category norms)
+  +1: 3rd-party tested (NSF, USP, Informed Sport, etc.)
+  +0.5: additional meaningful certifications
+  -0.5: proprietary blend (hides doses)
+  -1: unknown/unspecified primary active form
 - competitor_threat_level: BSR<1000 = Very High; BSR<5000 AND score≥7 = High; BSR<20000 = Medium; else Low
-- market_opportunity_gap: be specific — e.g. "No KSM-66, no 3rd-party testing, sugar-heavy formula — ripe for premium clean alternative"
+- market_opportunity_gap: be specific to this category — what formula gap can DOVIVE exploit?
 - Return ONLY the JSON array. No other text.`;
 
   const response = await callGrok(prompt, 4096);
@@ -412,9 +488,14 @@ async function run() {
             const mm = marketMetricsMap[batch[i].asin];
             const ashwagandhaAmt = gr.ashwagandha_amount_mg;
             const pps = mm.price_per_serving;
+            // Ensure generic primary_active fields are always set
+            const facts = batch[i].supplement_facts_raw || '';
             analyses.push({
               product: batch[i],
               intel: {
+                primary_active_ingredient: gr.primary_active_ingredient || detectPrimaryActive(facts),
+                primary_active_amount_mg: gr.primary_active_amount_mg || detectPrimaryActiveMg(facts),
+                primary_active_form: gr.primary_active_form || detectPrimaryForm(facts),
                 ...gr,
                 price_per_serving: pps,
                 price_per_mg_ashwagandha: (pps && ashwagandhaAmt) ? Math.round(pps / ashwagandhaAmt * 10000) / 10000 : null,
