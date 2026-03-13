@@ -131,18 +131,27 @@ async function clearPhaseData(phaseNum, categoryId) {
       case 5: // deep research
         await DOVIVE.from('dovive_phase5_research').delete().ilike('keyword', `%${KEYWORD.split(' ')[0]}%`);
         break;
-      case 6: // product intelligence
-        await DASH.from('products').update({ marketing_analysis: null }).eq('category_id', categoryId);
+      case 6: // product intelligence — only clear product_intelligence key, preserve packaging_intelligence
+        {
+          const { data: prods } = await DASH.from('products').select('id, marketing_analysis').eq('category_id', categoryId);
+          for (const p of prods || []) {
+            const existing = p.marketing_analysis || {};
+            const { product_intelligence, ...rest } = existing; // remove only product_intelligence
+            await DASH.from('products').update({ marketing_analysis: Object.keys(rest).length ? rest : null }).eq('id', p.id);
+          }
+        }
         break;
-      case 7: // market intelligence
-        // Clear market intel from formula_briefs.ingredients
-        await DASH.from('formula_briefs').update({
-          ingredients: DASH.rpc ? null : null
-        }).eq('category_id', categoryId);
-        // Safer: just let phase overwrite (upsert handles it)
+      case 7: // market intelligence — let P7 upsert handle it
         break;
-      case 8: // packaging
-        await DASH.from('products').update({ marketing_analysis: null }).eq('category_id', categoryId);
+      case 8: // packaging — only clear packaging_intelligence key, preserve product_intelligence
+        {
+          const { data: prods } = await DASH.from('products').select('id, marketing_analysis').eq('category_id', categoryId);
+          for (const p of prods || []) {
+            const existing = p.marketing_analysis || {};
+            const { packaging_intelligence, ...rest } = existing; // remove only packaging_intelligence
+            await DASH.from('products').update({ marketing_analysis: Object.keys(rest).length ? rest : null }).eq('id', p.id);
+          }
+        }
         break;
       case 9: // formula brief
         await DASH.from('formula_briefs').delete().eq('category_id', categoryId);
