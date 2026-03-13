@@ -86,6 +86,91 @@ async function callClaudeSonnet(prompt) {
   console.log(`  ✅ Claude Sonnet 4.6 done (${Math.round((Date.now()-start)/1000)}s, ${Math.round((output?.length||0)/1000)}k chars)`);
   return output;
 }
+// ─── P5 Deep Research Fetch ───────────────────────────────────────────────────
+async function fetchP5DeepResearch(keyword) {
+  try {
+    const firstWord = keyword.split(' ')[0].toLowerCase();
+    const { data } = await DOVIVE.from('dovive_phase5_research')
+      .select('asin, brand, title, bsr, monthly_revenue, research_type, ai_analysis, key_findings, formula_insights, competitive_strengths, competitive_weaknesses, market_opportunity, recommended_positioning')
+      .or(`keyword.ilike.%${firstWord}%,keyword.ilike.%${keyword}%`)
+      .order('bsr', { ascending: true })
+      .limit(20);
+    return data || [];
+  } catch (e) {
+    console.warn('  ⚠️ P5 data fetch failed (non-fatal):', e.message);
+    return [];
+  }
+}
+
+// ─── Full Packaging Intelligence Fetch ───────────────────────────────────────
+function extractPackagingIntelligence(allProducts) {
+  const colorSignals = {};
+  const whiteSpaceGaps = [];
+  const visualPatterns = {};
+  const differentiationOpps = [];
+  const competitorWeaknesses = [];
+  const labelHierarchyPatterns = [];
+
+  for (const p of allProducts || []) {
+    const pk = p.marketing_analysis?.packaging_intelligence;
+    if (!pk) continue;
+
+    // Color signals
+    if (pk.color_signals || pk.dominant_colors) {
+      const colors = pk.color_signals || pk.dominant_colors || [];
+      const colorArr = Array.isArray(colors) ? colors : [colors];
+      for (const c of colorArr) {
+        const key = typeof c === 'string' ? c : (c.color || c.name || JSON.stringify(c));
+        if (key) colorSignals[key] = (colorSignals[key] || 0) + 1;
+      }
+    }
+
+    // Whitespace gaps
+    if (pk.whitespace_gaps || pk.market_gaps || pk.gaps) {
+      const gaps = pk.whitespace_gaps || pk.market_gaps || pk.gaps || [];
+      const gapArr = Array.isArray(gaps) ? gaps : [gaps];
+      whiteSpaceGaps.push(...gapArr.filter(g => g && typeof g === 'string'));
+    }
+
+    // Visual differentiation opportunities
+    if (pk.differentiation_opportunities || pk.visual_differentiation) {
+      const opps = pk.differentiation_opportunities || pk.visual_differentiation || [];
+      const oppArr = Array.isArray(opps) ? opps : [opps];
+      differentiationOpps.push(...oppArr.filter(o => o && typeof o === 'string'));
+    }
+
+    // Competitor weaknesses from packaging
+    if (pk.competitor_weaknesses || pk.weaknesses) {
+      const wks = pk.competitor_weaknesses || pk.weaknesses || [];
+      const wkArr = Array.isArray(wks) ? wks : [wks];
+      competitorWeaknesses.push(...wkArr.filter(w => w && typeof w === 'string'));
+    }
+
+    // Label hierarchy patterns
+    if (pk.label_hierarchy || pk.hierarchy) {
+      const h = pk.label_hierarchy || pk.hierarchy;
+      if (h) labelHierarchyPatterns.push(typeof h === 'string' ? h : JSON.stringify(h));
+    }
+  }
+
+  // Deduplicate and count
+  const topColorSignals = Object.entries(colorSignals)
+    .sort((a, b) => b[1] - a[1]).slice(0, 10)
+    .map(([color, count]) => `${color}: ${count} products`).join('\n');
+
+  const uniqueGaps = [...new Set(whiteSpaceGaps)].slice(0, 15);
+  const uniqueOpps = [...new Set(differentiationOpps)].slice(0, 10);
+  const uniqueWeaknesses = [...new Set(competitorWeaknesses)].slice(0, 10);
+
+  return {
+    topColorSignals,
+    whiteSpaceGaps: uniqueGaps,
+    differentiationOpps: uniqueOpps,
+    competitorWeaknesses: uniqueWeaknesses,
+    labelHierarchyPatterns: labelHierarchyPatterns.slice(0, 5),
+  };
+}
+
 async function compileMarketData(categoryId) {
   // Pull P6 market intelligence doc (new single-doc market analysis)
   const { data: marketIntelDocs } = await DASH.from('market_intelligence')
@@ -293,6 +378,16 @@ async function compileMarketData(categoryId) {
     .sort((a,b)=>b[1]-a[1]).slice(0,10)
     .map(([ing, n]) => `${ing}: criticized in ${n} product reviews`).join('\n') || 'None flagged';
 
+  // ── P5 Deep Research ──────────────────────────────────────────────────────
+  console.log('  Fetching P5 deep research...');
+  const p5Research = await fetchP5DeepResearch(KEYWORD);
+  console.log(`  P5 records: ${p5Research.length}`);
+
+  // ── Full Packaging Intelligence from P8 ──────────────────────────────────
+  console.log('  Extracting full P8 packaging intelligence...');
+  const packagingIntel = extractPackagingIntelligence(allProducts);
+  console.log(`  P8 packaging: ${packagingIntel.whiteSpaceGaps.length} gaps, ${packagingIntel.differentiationOpps.length} opps`);
+
   // ── Pull actual raw review text from dovive_reviews ───────────────────────
   let rawReviewText = { positive: [], negative: [] };
   try {
@@ -349,6 +444,10 @@ async function compileMarketData(categoryId) {
       generated_at: marketIntelDoc.generated_at,
       has_data: true,
     } : { has_data: false },
+    // P5 deep research — top 20 BSR + new brands AI analysis
+    p5_deep_research: p5Research,
+    // P8 full packaging intelligence
+    packaging_intelligence: packagingIntel,
     // NEW: Top 20 competitor formulas with full detail
     top20_competitors: (top20 || []).map((p, idx) => {
       const pi = p.marketing_analysis?.product_intelligence || {};
@@ -394,6 +493,40 @@ function buildPrompt(marketData) {
   const refs = marketData.formula_references;
   const mi = marketData.market_intelligence;
   const top20 = marketData.top20_competitors || [];
+  const p5 = marketData.p5_deep_research || [];
+  const pkgIntel = marketData.packaging_intelligence || {};
+
+  // ── P5 Deep Research Section ──────────────────────────────────────────────
+  const p5Section = p5.length > 0
+    ? p5.map((r, i) => `
+### P5 Research #${i + 1}: ${r.brand} — BSR ${r.bsr?.toLocaleString()} | $${(r.monthly_revenue || 0).toLocaleString()}/mo [${r.research_type || 'bsr'}]
+**AI Analysis:** ${r.ai_analysis || 'N/A'}
+**Key Findings:** ${Array.isArray(r.key_findings) ? r.key_findings.join('; ') : (r.key_findings || 'N/A')}
+**Formula Insights:** ${r.formula_insights || 'N/A'}
+**Competitive Strengths:** ${Array.isArray(r.competitive_strengths) ? r.competitive_strengths.join('; ') : (r.competitive_strengths || 'N/A')}
+**Competitive Weaknesses:** ${Array.isArray(r.competitive_weaknesses) ? r.competitive_weaknesses.join('; ') : (r.competitive_weaknesses || 'N/A')}
+**Market Opportunity:** ${r.market_opportunity || 'N/A'}
+**Recommended Positioning:** ${r.recommended_positioning || 'N/A'}
+`).join('\n---\n')
+    : '⚠️ P5 deep research not yet run for this keyword. Run phase5-deep-research.js first.';
+
+  // ── P8 Packaging Intelligence Section ────────────────────────────────────
+  const packagingSection = `
+### Dominant Color Signals (what competitors use — AVOID to differentiate):
+${pkgIntel.topColorSignals || 'Not available'}
+
+### Packaging Whitespace Gaps (unmet visual needs — EXPLOIT these):
+${pkgIntel.whiteSpaceGaps?.map(g => `- ${g}`).join('\n') || 'Not available'}
+
+### Differentiation Opportunities (from packaging AI analysis):
+${pkgIntel.differentiationOpps?.map(o => `- ${o}`).join('\n') || 'Not available'}
+
+### Competitor Packaging Weaknesses (exploit in your design brief):
+${pkgIntel.competitorWeaknesses?.map(w => `- ${w}`).join('\n') || 'Not available'}
+
+### Label Hierarchy Patterns (what the market emphasizes):
+${pkgIntel.labelHierarchyPatterns?.join('\n') || 'Not available'}
+`;
 
   // P6 market intelligence section â€" full report from phase6-market-analysis.js
   const marketIntelSection = mi?.has_data
@@ -530,6 +663,17 @@ ${p.other_ingredients || 'Not specified'}
 
   return `You are a senior supplement formulation specialist and CMO consultant creating a FORMULA SPECIFICATION to BEAT the #1 market leader for DOVIVE brand.
 
+# DATA SOURCES FEEDING THIS BRIEF (ALL must be used):
+- P1: Amazon scrape — ${cs.total_products} products (titles, BSR, prices, bullets, claims)
+- P2: Keepa enrichment — revenue, monthly sales, BSR trends per product
+- P3: Customer reviews — raw VOC quotes, sentiment, pain points, ingredient signals
+- P4: OCR supplement facts — exact dosages, serving sizes, certifications across competitors
+- P5: Deep AI research — ${p5.length} products researched (top BSR + new winners)
+- P6: Product intelligence scores — formula quality, threat levels, market gaps
+- P7: Market intelligence report — category-level AI analysis
+- P8: Packaging intelligence — color signals, whitespace gaps, differentiation opportunities
+
+
 # MISSION: DECONSTRUCT TOP COMPETITORS' FORMULAS → IDENTIFY MARKET DEMAND → BUILD A BETTER FORMULA
 
 Your job:
@@ -544,6 +688,14 @@ Your job:
 ---
 
 ${marketIntelSection}
+
+---
+
+## 🔬 P5 DEEP RESEARCH — AI ANALYSIS OF TOP BSR + NEW WINNERS
+Per-product deep research covering formula advantages, weaknesses, and market gaps.
+USE THIS to understand WHY top products win and where to attack.
+
+${p5Section}
 
 ---
 
@@ -646,6 +798,13 @@ ${allPainPoints}
 ## ðŸ·ï¸ CLAIMS ANALYSIS
 
 ${claimsAnalysis}
+
+---
+
+## 📦 P8 PACKAGING INTELLIGENCE — EXPLOIT THESE GAPS
+AI analysis of competitor packaging. Use to design DOVIVE packaging that stands out and captures whitespace.
+
+${packagingSection}
 
 ---
 
