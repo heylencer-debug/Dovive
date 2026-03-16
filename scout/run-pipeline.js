@@ -124,8 +124,9 @@ async function clearPhaseData(phaseNum, categoryId) {
         await DASH.from('products').update({ review_analysis: null }).eq('category_id', categoryId);
         break;
       case 4: // OCR
-        await DASH.from('products').update({ supplement_facts_raw: null }).eq('category_id', categoryId);
-        // Also clear dovive_ocr for this keyword
+        // IMPORTANT: do NOT wipe existing supplement_facts_raw before rerun.
+        // Keep prior OCR visible in DASH while reprocessing to avoid temporary 0/X coverage in UI.
+        // We only clear raw source rows so Phase 4 can repopulate fresh data.
         await DOVIVE.from('dovive_ocr').delete().eq('keyword', KEYWORD);
         break;
       case 5: // deep research
