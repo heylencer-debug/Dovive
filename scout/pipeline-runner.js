@@ -19,6 +19,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { createClient } = require('@supabase/supabase-js');
 
 const QUEUE_FILE  = path.join(__dirname, 'pipeline-queue.json');
 const LOG_DIR     = path.join(__dirname, 'logs');
@@ -29,8 +30,57 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '1424637649';
 const MAX_RETRIES      = 2;
 const POLL_INTERVAL_MS = 30_000;       // 30s between queue checks
 const STALL_TIMEOUT_MS = 10 * 60_000; // 10 min no output = stall
+const AUTO_FIX_MAX_ATTEMPTS = parseInt(process.env.AUTO_FIX_MAX_ATTEMPTS || '2', 10);
+
+// Auto-fix: if P4 completion < threshold after a full run, auto-queue re-run from P4.
+const AUTO_FIX_P4_THRESHOLD = parseInt(process.env.AUTO_FIX_P4_THRESHOLD || '95', 10);
 
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
+
+// DASH client for post-run coverage checks
+const DASH = createClient(
+  process.env.DASH_URL || 'https://jwkitkfufigldpldqtbq.supabase.co',
+  process.env.DASH_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3a2l0a2Z1ZmlnbGRwbGRxdGJxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTA0NTY0NSwiZXhwIjoyMDc2NjIxNjQ1fQ.FjLFaMPE4VO5vVwFEAAvLiub3Xc1hhjsv9fd2jWFIAc'
+);
+
+async function lookupCategoryId(keyword) {
+  const words = keyword.toLowerCase().split(' ');
+  const { data: cats } = await DASH.from('categories').select('id,name').ilike('name', `%${words[0]}%`).limit(40);
+  if (!cats?.length) return null;
+  const scored = cats.map(c => {
+    const lower = c.name.toLowerCase();
+    const score = words.filter(w => lower.includes(w)).length;
+    return { ...c, score };
+  }).filter(c => c.score >= words.length);
+  if (!scored.length) return null;
+  const topScore = Math.max(...scored.map(s => s.score));
+  const tied = scored.filter(s => s.score === topScore);
+  if (tied.length === 1) return tied[0].id;
+  let best = tied[0];
+  let bestCount = -1;
+  for (const c of tied) {
+    const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
+    if ((count || 0) > bestCount) { bestCount = count || 0; best = c; }
+  }
+  return best.id;
+}
+
+async function getP4Coverage(keyword) {
+  const categoryId = await lookupCategoryId(keyword);
+  if (!categoryId) return null;
+  const { count: total } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', categoryId);
+  if (!total) return { categoryId, total: 0, p4: 0, pct: 0 };
+  const { count: p4 } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', categoryId).not('supplement_facts_raw', 'is', null);
+  const pct = Math.round(((p4 || 0) / total) * 100);
+  return { categoryId, total, p4: p4 || 0, pct };
+}
+
+function enqueueFront(item) {
+  const q = loadQueue();
+  q.unshift(item);
+  saveQueue(q);
+}
+
 
 // ─── Telegram ─────────────────────────────────────────────────────────────────
 async function telegram(msg) {
@@ -153,8 +203,45 @@ async function runKeyword({ keyword, fromPhase = 1, force = false }) {
     logStream.end();
 
     if (exitCode === 0) {
+      // Post-run auto-fix check: verify P4 coverage and auto-queue from P4 if low.
+      let autoFixQueued = false;
+      try {
+        const c = await getP4Coverage(keyword);
+        if (c && c.total > 0) {
+          log(`📊 P4 coverage for "${keyword}": ${c.p4}/${c.total} (${c.pct}%)`);
+          if (c.pct < AUTO_FIX_P4_THRESHOLD) {
+            const qNow = loadQueue();
+            const priorAttempts = qNow.filter(e => {
+              const obj = typeof e === 'string' ? { keyword: e } : e;
+              return (obj.keyword || '').toLowerCase() === keyword.toLowerCase() && String(obj.reason || '').startsWith('auto-fix:p4<');
+            }).length;
+
+            if (priorAttempts < AUTO_FIX_MAX_ATTEMPTS) {
+              const fixItem = {
+                keyword,
+                fromPhase: 4,
+                force: true,
+                reason: `auto-fix:p4<${AUTO_FIX_P4_THRESHOLD}`,
+                autoFixAttempt: priorAttempts + 1,
+              };
+              enqueueFront(fixItem);
+              autoFixQueued = true;
+              const msg = `🛠️ Auto-fix queued for "${keyword}"\nP4 coverage ${c.p4}/${c.total} (${c.pct}%) below threshold ${AUTO_FIX_P4_THRESHOLD}%\nQueued rerun: --from P4 --force (attempt ${priorAttempts + 1}/${AUTO_FIX_MAX_ATTEMPTS})`;
+              log(msg.replace(/\n/g, ' | '));
+              await telegram(msg);
+            } else {
+              const msg = `⚠️ Auto-fix limit reached for "${keyword}"\nP4 coverage still ${c.p4}/${c.total} (${c.pct}%) below ${AUTO_FIX_P4_THRESHOLD}% after ${AUTO_FIX_MAX_ATTEMPTS} auto-fix attempts.`;
+              log(msg.replace(/\n/g, ' | '));
+              await telegram(msg);
+            }
+          }
+        }
+      } catch (e) {
+        log(`⚠️ Auto-fix check failed for "${keyword}": ${e.message}`);
+      }
+
       log(`✅ Pipeline complete: "${keyword}"`);
-      await telegram(`✅ Scout pipeline COMPLETE: "${keyword}"\nAll phases done. Check DASH for results.`);
+      await telegram(`✅ Scout pipeline COMPLETE: "${keyword}"\nAll phases done. Check DASH for results.${autoFixQueued ? '\nAuto-fix from P4 has been queued.' : ''}`);
       return true; // success
     } else {
       log(`❌ Pipeline failed (code ${exitCode}): "${keyword}"`);
