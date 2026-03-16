@@ -323,6 +323,32 @@ async function saveToDashProduct(asin, research) {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
+async function lookupCategoryId(keyword) {
+  const words = keyword.toLowerCase().split(' ');
+  const { data: cats } = await DASH.from('categories').select('id,name').ilike('name', `%${words[0]}%`).limit(40);
+  if (!cats?.length) throw new Error(`No category found for keyword "${keyword}"`);
+
+  const scored = cats.map(c => {
+    const lower = c.name.toLowerCase();
+    const score = words.filter(w => lower.includes(w)).length;
+    return { ...c, score };
+  }).filter(c => c.score >= words.length);
+
+  if (!scored.length) throw new Error(`No category matched all words for "${keyword}"`);
+
+  const topScore = scored[0].score;
+  const tied = scored.filter(c => c.score === topScore);
+  if (tied.length === 1) return tied[0];
+
+  const withCounts = await Promise.all(tied.map(async c => {
+    const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
+    return { ...c, count: count || 0 };
+  }));
+
+  withCounts.sort((a, b) => b.count - a.count);
+  return withCounts[0];
+}
+
 async function run() {
   console.log(`\n${'═'.repeat(60)}`);
   console.log(`🔎 PHASE 5: DEEP RESEARCH — "${KEYWORD}"`);
@@ -330,17 +356,8 @@ async function run() {
   console.log(`Model: grok-4-1-fast-non-reasoning (deep thinking)`);
   console.log(`${'═'.repeat(60)}\n`);
 
-  // Get category
-  const { data: cats } = await DASH.from('categories')
-    .select('id, name')
-    .ilike('name', `%${KEYWORD.split(' ')[0]}%`)
-    .limit(5);
-  if (!cats?.length) { console.error('Category not found'); process.exit(1); }
-  const counts = await Promise.all(cats.map(async c => {
-    const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
-    return { ...c, count };
-  }));
-  const cat = counts.sort((a, b) => b.count - a.count)[0];
+  // Get category (strict keyword match + largest product count on ties)
+  const cat = await lookupCategoryId(KEYWORD);
   console.log(`Category: ${cat.name} (${cat.id})`);
 
   // Fetch products
