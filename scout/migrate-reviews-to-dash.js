@@ -34,30 +34,19 @@ const KEYWORD = _kwIdx >= 0
   ? process.argv[_kwIdx + 1]
   : (process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : 'ashwagandha gummies');
 
+const { resolveCategory } = require('./category-resolver');
+
 async function lookupCategoryId(keyword) {
-  const words = keyword.toLowerCase().split(' ');
-  const { data: cats } = await DASH.from('categories').select('id,name').ilike('name', `%${words[0]}%`).limit(30);
-  if (!cats?.length) throw new Error(`No category found for keyword "${keyword}"`);
-  const scored = cats.map(c => {
-    const lower = c.name.toLowerCase();
-    const score = words.filter(w => lower.includes(w)).length;
-    return { ...c, score };
-  }).filter(c => c.score >= words.length).sort((a, b) => b.score - a.score);
-  if (!scored.length) throw new Error(`No category found for keyword "${keyword}"`);
-  const topScore = scored[0].score;
-  const tied = scored.filter(c => c.score === topScore);
-  if (tied.length === 1) {
-    console.log(`  → Resolved category: "${tied[0].name}" (${tied[0].id})`);
-    return tied[0].id;
+  try {
+    const category = await resolveCategory(keyword);
+    console.log(`  → Resolved category: "${category.name}" (${category.id})`);
+    return category.id;
+  } catch (e) {
+    console.error(`Category resolution error: ${e.message}`);
+    throw e;
   }
-  const counts = await Promise.all(tied.map(async c => {
-    const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
-    return { ...c, count: count || 0 };
-  }));
-  counts.sort((a, b) => b.count - a.count);
-  console.log(`  → Resolved category (largest): "${counts[0].name}" (${counts[0].id}) — ${counts[0].count} products`);
-  return counts[0].id;
 }
+
 
 function buildReviewAnalysis(reviews) {
   const total = reviews.length;

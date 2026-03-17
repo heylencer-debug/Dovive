@@ -24,6 +24,14 @@ const KEYWORD_ARG = _kwIdx >= 0
   : (process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : 'ashwagandha gummies');
 
 async function lookupCategoryId(keyword) {
+  // 1) exact search_term match first (authoritative for pipeline keyword)
+  const { data: exact } = await DASH.from('categories').select('id,name,search_term').eq('search_term', keyword).limit(1);
+  if (exact?.length) {
+    console.log(`  → Resolved category by search_term: "${exact[0].name}" (${exact[0].id})`);
+    return exact[0].id;
+  }
+
+  // 2) fallback: name-based resolver
   const words = keyword.toLowerCase().split(' ');
   const { data: cats } = await DASH.from('categories').select('id,name').ilike('name', `%${words[0]}%`).limit(30);
   if (!cats?.length) throw new Error(`No category found for keyword "${keyword}"`);
@@ -39,7 +47,6 @@ async function lookupCategoryId(keyword) {
     console.log(`  → Resolved category: "${tied[0].name}" (${tied[0].id})`);
     return tied[0].id;
   }
-  // Tie-break: pick largest category by product count
   const counts = await Promise.all(tied.map(async c => {
     const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
     return { ...c, count: count || 0 };
