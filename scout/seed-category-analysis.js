@@ -1,5 +1,6 @@
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
+const { resolveCategory } = require('./utils/category-resolver');
 
 const DASH = createClient(
   'https://jwkitkfufigldpldqtbq.supabase.co',
@@ -11,15 +12,9 @@ const CAT_ID_ARG  = process.argv.includes('--cat-id')  ? process.argv[process.ar
 
 async function resolveCatId() {
   if (CAT_ID_ARG) return CAT_ID_ARG;
-  // Dynamic lookup by keyword
-  const { data: cats } = await DASH.from('categories').select('id,name').ilike('name', `%${KEYWORD_ARG}%`).order('created_at', { ascending: true }).limit(5);
-  if (!cats?.length) throw new Error(`No category found for "${KEYWORD_ARG}"`);
-  if (cats.length === 1) return cats[0].id;
-  const counts = await Promise.all(cats.map(async c => {
-    const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
-    return { ...c, count: count || 0 };
-  }));
-  return counts.sort((a, b) => b.count - a.count)[0].id;
+  const cat = await resolveCategory(DASH, KEYWORD_ARG);
+  console.log(`  → Resolved category (${cat.method}): "${cat.name}" (${cat.id})`);
+  return cat.id;
 }
 
 const buildRecord = (catId, keyword) => ({

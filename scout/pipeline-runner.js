@@ -20,6 +20,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
+const { resolveCategory } = require('./utils/category-resolver');
 
 const QUEUE_FILE  = path.join(__dirname, 'pipeline-queue.json');
 const LOG_DIR     = path.join(__dirname, 'logs');
@@ -44,25 +45,12 @@ const DASH = createClient(
 );
 
 async function lookupCategoryId(keyword) {
-  const words = keyword.toLowerCase().split(' ');
-  const { data: cats } = await DASH.from('categories').select('id,name').ilike('name', `%${words[0]}%`).limit(40);
-  if (!cats?.length) return null;
-  const scored = cats.map(c => {
-    const lower = c.name.toLowerCase();
-    const score = words.filter(w => lower.includes(w)).length;
-    return { ...c, score };
-  }).filter(c => c.score >= words.length);
-  if (!scored.length) return null;
-  const topScore = Math.max(...scored.map(s => s.score));
-  const tied = scored.filter(s => s.score === topScore);
-  if (tied.length === 1) return tied[0].id;
-  let best = tied[0];
-  let bestCount = -1;
-  for (const c of tied) {
-    const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
-    if ((count || 0) > bestCount) { bestCount = count || 0; best = c; }
+  try {
+    const cat = await resolveCategory(DASH, keyword);
+    return cat.id;
+  } catch {
+    return null;
   }
-  return best.id;
 }
 
 async function getP4Coverage(keyword) {

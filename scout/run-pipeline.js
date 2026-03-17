@@ -19,6 +19,7 @@ require('dotenv').config();
 const { execSync, spawn } = require('child_process');
 const { createClient } = require('@supabase/supabase-js');
 const path = require('path');
+const { resolveCategory } = require('./utils/category-resolver');
 
 const DASH = createClient(
   'https://jwkitkfufigldpldqtbq.supabase.co',
@@ -44,6 +45,7 @@ const ONLY_PHASES = process.argv.includes('--phases')
   : null;
 const USE_AI = process.argv.includes('--ai');
 const FORCE = process.argv.includes('--force');
+const RECOVER_SYNC = process.argv.includes('--recover') && process.argv[process.argv.indexOf('--recover') + 1] === 'sync';
 
 if (!KEYWORD) {
   console.error('Usage: node run-pipeline.js --keyword "ashwagandha gummies" [--from P3] [--ai] [--force]');
@@ -170,37 +172,14 @@ async function clearPhaseData(phaseNum, categoryId) {
 // ─── Phase Status Checks ──────────────────────────────────────────────────────
 
 async function getCategoryId() {
-  const words = KEYWORD.toLowerCase().split(' ');
-  // Get all candidate categories
-  const { data: cats } = await DASH.from('categories').select('id, name').ilike('name', `%${words[0]}%`).limit(30);
-  if (!cats?.length) return null;
-
-  // Score by word match count
-  const scored = cats.map(c => {
-    const lower = c.name.toLowerCase();
-    const score = words.filter(w => lower.includes(w)).length;
-    return { ...c, score };
-  }).filter(c => c.score >= words.length) // must match ALL words
-    .sort((a, b) => b.score - a.score);
-
-  if (!scored.length) return null;
-
-  // If multiple exact-word matches, pick the one with the most products
-  const topScore = scored[0].score;
-  const tied = scored.filter(c => c.score === topScore);
-  if (tied.length === 1) {
-    console.log(`  → Category resolved: "${tied[0].name}" (${tied[0].id})`);
-    return tied[0].id;
+  try {
+    const cat = await resolveCategory(DASH, KEYWORD);
+    console.log(`  → Category resolved (${cat.method}): "${cat.name}" (${cat.id})`);
+    return cat.id;
+  } catch (e) {
+    console.error(`Category resolve error for "${KEYWORD}": ${e.message}`);
+    return null;
   }
-
-  // Tie-break: pick category with most products
-  const counts = await Promise.all(tied.map(async c => {
-    const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
-    return { ...c, count: count || 0 };
-  }));
-  counts.sort((a, b) => b.count - a.count);
-  console.log(`  → Category resolved (largest): "${counts[0].name}" (${counts[0].id}) — ${counts[0].count} products`);
-  return counts[0].id;
 }
 
 async function checkPhaseStatus(phaseNum, categoryId) {
@@ -344,6 +323,39 @@ const PHASES = [
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
+async function runFinalVerifier(categoryId) {
+  const { count: total } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', categoryId);
+  const q = async (col) => (await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', categoryId).not(col, 'is', null)).count || 0;
+
+  const p2 = await q('monthly_sales');
+  const p3 = await q('review_analysis');
+  const p4 = await q('supplement_facts_raw');
+  const p5 = (await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', categoryId).filter('marketing_analysis->p5_research', 'not.is', null)).count || 0;
+  const p6 = await q('marketing_analysis');
+  const p8 = (await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', categoryId).filter('marketing_analysis->packaging_intelligence', 'not.is', null)).count || 0;
+
+  const { data: top20 } = await DASH.from('products').select('supplement_facts_raw').eq('category_id', categoryId).not('bsr_current', 'is', null).order('bsr_current', { ascending: true }).limit(20);
+  const top20P4 = (top20 || []).filter(x => !!x.supplement_facts_raw).length;
+
+  const { data: fb } = await DASH.from('formula_briefs').select('ingredients').eq('category_id', categoryId).single();
+  const p7 = !!(fb?.ingredients?.market_intelligence?.ai_market_analysis);
+  const p9 = !!(fb?.ingredients?.ai_generated_brief);
+  const p10 = !!(fb?.ingredients?.qa_report);
+
+  const failures = [];
+  if (!(p2 >= total * 0.9)) failures.push(`P2 ${p2}/${total} < 90%`);
+  if (!(p3 >= total * 0.5)) failures.push(`P3 ${p3}/${total} < 50%`);
+  if (!((p4 >= total * 0.8) || (top20P4 === 20))) failures.push(`P4 ${p4}/${total} and Top20 ${top20P4}/20`);
+  if (!(p5 >= 20)) failures.push(`P5 ${p5}/20`);
+  if (!(p6 >= total * 0.9)) failures.push(`P6 ${p6}/${total} < 90%`);
+  if (!p7) failures.push('P7 market_intelligence missing');
+  if (!(p8 >= total * 0.9)) failures.push(`P8 ${p8}/${total} < 90%`);
+  if (!p9) failures.push('P9 ai_generated_brief missing');
+  if (!p10) failures.push('P10 qa_report missing');
+
+  return { pass: failures.length === 0, failures, metrics: { total, p2, p3, p4, p5, p6, p7, p8, p9, p10, top20P4 } };
+}
+
 async function run() {
   console.log(`\n${'═'.repeat(60)}`);
   console.log(`🔍 SCOUT PIPELINE — "${KEYWORD}"`);
@@ -351,7 +363,7 @@ async function run() {
 
   // Get category
   const categoryId = await getCategoryId();
-  if (!categoryId && FROM_PHASE > 1) {
+  if (!categoryId && (FROM_PHASE > 1 || RECOVER_SYNC)) {
     console.error('ERROR: Category not found. Run P1 first.');
     process.exit(1);
   }
@@ -361,6 +373,26 @@ async function run() {
   const phasesToRun = ONLY_PHASES || PHASES.map(p => p.num);
 
   await notify(`🔍 Scout pipeline started for "${KEYWORD}"\nPhases: P${phasesToRun.join(', P')} | ${USE_AI ? 'AI-Enhanced' : 'Rule-Based'}`);
+
+  if (RECOVER_SYNC) {
+    console.log('\\n🔧 Recover mode: sync (keepa/reviews/ocr) + verifier');
+    try {
+      await runScript('migrate-keepa-to-dash.js', [KEYWORD]);
+      await runScript('migrate-reviews-to-dash.js', [KEYWORD]);
+      await runScript('migrate-ocr-to-dash.js', [KEYWORD]);
+      const v = await runFinalVerifier(categoryId);
+      console.log('Verifier metrics:', v.metrics);
+      if (!v.pass) {
+        console.error('❌ Verifier FAIL in recover sync:', v.failures.join(' | '));
+        process.exit(2);
+      }
+      console.log('✅ Recover sync PASS');
+      return;
+    } catch (e) {
+      console.error(`❌ Recover sync failed: ${e.message}`);
+      process.exit(2);
+    }
+  }
 
   for (const phase of PHASES) {
     if (!phasesToRun.includes(phase.num)) continue;
@@ -441,18 +473,29 @@ async function run() {
     }
   }
 
-  console.log(`\n${'═'.repeat(60)}`);
-  console.log(`PIPELINE COMPLETE — "${KEYWORD}"`);
-  console.log(`${'═'.repeat(60)}`);
-  console.log(`Total time: ${Math.floor(totalElapsed / 60)}m ${totalElapsed % 60}s`);
-  console.log(`Results: ${completed} complete | ${skipped} skipped | ${failed} failed\n`);
-  results.forEach(r => {
-    const icon = r.status === 'complete' ? '✅' : r.status === 'skipped' ? '⏭️ ' : '❌';
-    console.log(`  ${icon} P${r.phase}: ${r.name} — ${r.status}${r.elapsed ? ` (${r.elapsed}s)` : ''}${r.msg ? ` — ${r.msg}` : ''}${r.error ? ` — ${r.error}` : ''}`);
-  });
+  const verifier = categoryId ? await runFinalVerifier(categoryId) : { pass: false, failures: ['category not resolved'], metrics: {} };
 
-  const summary = `🔍 Scout Pipeline Done: "${KEYWORD}"\n✅ ${completed} complete | ⏭️ ${skipped} skipped | ❌ ${failed} failed\nTotal: ${Math.floor(totalElapsed / 60)}m ${totalElapsed % 60}s\n\nPhases:\n${results.map(r => `${r.status === 'complete' ? '✅' : r.status === 'skipped' ? '⏭️' : '❌'} P${r.phase}: ${r.name}`).join('\n')}`;
-  await notify(summary);
+  if (verifier.pass && failed === 0) {
+    console.log(`\n${'═'.repeat(60)}`);
+    console.log(`PIPELINE COMPLETE — "${KEYWORD}"`);
+    console.log(`${'═'.repeat(60)}`);
+    console.log(`Total time: ${Math.floor(totalElapsed / 60)}m ${totalElapsed % 60}s`);
+    console.log(`Results: ${completed} complete | ${skipped} skipped | ${failed} failed\n`);
+    results.forEach(r => {
+      const icon = r.status === 'complete' ? '✅' : r.status === 'skipped' ? '⏭️ ' : '❌';
+      console.log(`  ${icon} P${r.phase}: ${r.name} — ${r.status}${r.elapsed ? ` (${r.elapsed}s)` : ''}${r.msg ? ` — ${r.msg}` : ''}${r.error ? ` — ${r.error}` : ''}`);
+    });
+
+    const summary = `🔍 Scout Pipeline Done: "${KEYWORD}"\n✅ ${completed} complete | ⏭️ ${skipped} skipped | ❌ ${failed} failed\nTotal: ${Math.floor(totalElapsed / 60)}m ${totalElapsed % 60}s\n\nPhases:\n${results.map(r => `${r.status === 'complete' ? '✅' : r.status === 'skipped' ? '⏭️' : '❌'} P${r.phase}: ${r.name}`).join('\n')}`;
+    await notify(summary);
+  } else {
+    console.log(`\n${'═'.repeat(60)}`);
+    console.log(`PIPELINE INCOMPLETE — "${KEYWORD}"`);
+    console.log(`${'═'.repeat(60)}`);
+    console.log('Verifier FAIL:', verifier.failures.join(' | '));
+    await notify(`❌ Pipeline incomplete for "${KEYWORD}"\nVerifier FAIL:\n- ${verifier.failures.join('\n- ')}`);
+    process.exitCode = 2;
+  }
 }
 
 run().catch(async (e) => {

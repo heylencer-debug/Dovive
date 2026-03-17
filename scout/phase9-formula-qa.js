@@ -23,6 +23,7 @@
 
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
+const { resolveCategory } = require('./utils/category-resolver');
 const fs = require('fs');
 const path = require('path');
 
@@ -606,18 +607,19 @@ async function run() {
 
 
   // Dynamic category lookup - no hardcoded CAT_ID
-  const { data: catMatches } = await DASH.from('categories')
-    .select('id, name').ilike('name', `%${KEYWORD}%`).order('created_at', { ascending: true }).limit(5);
-  if (!catMatches?.length) { console.error(`ERROR: No category found for "${KEYWORD}"`); setTimeout(() => process.exit(1), 100); return; }
-  let CAT_ID = catMatches[0].id;
-  if (catMatches.length > 1) {
-    const counts = await Promise.all(catMatches.map(async c => {
-      const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
-      return { ...c, count: count || 0 };
-    }));
-    CAT_ID = counts.sort((a, b) => b.count - a.count)[0].id;
+  let CAT_ID;
+  let catName;
+  try {
+    const cat = await resolveCategory(DASH, KEYWORD);
+    CAT_ID = cat.id;
+    catName = cat.name;
+    console.log(`  → Resolved category (${cat.method}): "${cat.name}" (${cat.id})`);
+  } catch (e) {
+    console.error(`ERROR: ${e.message}`);
+    setTimeout(() => process.exit(1), 100);
+    return;
   }
-  console.log(`Category: ${catMatches.find(c => c.id === CAT_ID)?.name} (${CAT_ID})\n`);
+  console.log(`Category: ${catName} (${CAT_ID})\n`);
 
   // Check if already done
   if (!FORCE) {

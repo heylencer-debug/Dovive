@@ -1,6 +1,7 @@
 require('dotenv').config();
 const fetch = require('node-fetch');
 const { createClient } = require('@supabase/supabase-js');
+const { resolveCategory } = require('./utils/category-resolver');
 
 const KEYWORD = process.argv[2] || 'melatonin gummies';
 const LIMIT = Number(process.argv[3] || 12); // token-safe batch
@@ -16,14 +17,10 @@ const OPENAI_KEY = process.env.OPENAI_API_KEY;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function resolveCategory(keyword) {
-  const words = keyword.toLowerCase().split(' ');
-  const { data: cats } = await DASH.from('categories').select('id,name').ilike('name', `%${words[0]}%`).limit(30);
-  const scored = (cats || []).map(c => ({ ...c, score: words.filter(w => c.name.toLowerCase().includes(w)).length }))
-    .filter(c => c.score >= words.length)
-    .sort((a, b) => b.score - a.score);
-  if (!scored.length) throw new Error('Category not found');
-  return scored[0].id;
+async function resolveCategoryId(keyword) {
+  const cat = await resolveCategory(DASH, keyword);
+  console.log(`  → Resolved category (${cat.method}): "${cat.name}" (${cat.id})`);
+  return cat.id;
 }
 
 async function callVision(imageUrl, asin, title) {
@@ -47,7 +44,7 @@ async function callVision(imageUrl, asin, title) {
 (async () => {
   if (!OPENAI_KEY) throw new Error('Missing OPENAI_API_KEY');
 
-  const cat = await resolveCategory(KEYWORD);
+  const cat = await resolveCategoryId(KEYWORD);
   const { data: miss } = await DASH.from('products').select('asin,title,image_urls,main_image_url').eq('category_id', cat).is('supplement_facts_raw', null);
   const missing = miss || [];
   const asins = missing.map(x => x.asin);

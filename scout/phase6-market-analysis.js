@@ -19,6 +19,7 @@
 
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
+const { resolveCategory } = require('./utils/category-resolver');
 const fs = require('fs');
 const path = require('path');
 
@@ -32,27 +33,11 @@ const KEYWORD = process.argv.includes('--keyword')
   : 'ashwagandha gummies';
 const FORCE   = process.argv.includes('--force');
 
-// Dynamic category lookup - resolves keyword → DASH category_id (picks largest on tie)
+// Dynamic category lookup
 async function lookupCategoryId(keyword) {
-  const words = keyword.toLowerCase().split(' ');
-  const { data: cats } = await DASH.from('categories').select('id,name').ilike('name', `%${words[0]}%`).limit(30);
-  if (!cats?.length) throw new Error(`No category found for keyword "${keyword}"`);
-  const scored = cats.map(c => {
-    const lower = c.name.toLowerCase();
-    const score = words.filter(w => lower.includes(w)).length;
-    return { ...c, score };
-  }).filter(c => c.score >= words.length).sort((a, b) => b.score - a.score);
-  if (!scored.length) throw new Error(`No category found for keyword "${keyword}"`);
-  const topScore = scored[0].score;
-  const tied = scored.filter(c => c.score === topScore);
-  if (tied.length === 1) return tied[0].id;
-  const counts = await Promise.all(tied.map(async c => {
-    const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
-    return { ...c, count: count || 0 };
-  }));
-  counts.sort((a, b) => b.count - a.count);
-  console.log(`  → Resolved category (largest): "${counts[0].name}" (${counts[0].id}) - ${counts[0].count} products`);
-  return counts[0].id;
+  const cat = await resolveCategory(DASH, keyword);
+  console.log(`  → Resolved category (${cat.method}): "${cat.name}" (${cat.id})`);
+  return cat.id;
 }
 
 // â"€â"€â"€ xAI Key â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€

@@ -12,6 +12,7 @@
 
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
+const { resolveCategory } = require('./utils/category-resolver');
 
 const DASH = createClient(
   'https://jwkitkfufigldpldqtbq.supabase.co',
@@ -1145,31 +1146,9 @@ async function run() {
   console.log(`ðŸ§ª PHASE 8: FORMULA BRIEF â€" "${KEYWORD}"`);
   console.log(`${'â•'.repeat(60)}\n`);
 
-  // Get category â€" match full keyword first, fall back to first word
-  let cats = null;
-  const { data: exact } = await DASH.from('categories')
-    .select('id, name')
-    .ilike('name', `%${KEYWORD}%`)
-    .limit(5);
-  if (exact?.length) {
-    cats = exact;
-  } else {
-    const { data: partial } = await DASH.from('categories')
-      .select('id, name')
-      .ilike('name', `%${KEYWORD.split(' ')[0]}%`)
-      .limit(10);
-    cats = partial;
-  }
-  if (!cats?.length) { console.log('ERROR: Category not found'); process.exit(1); }
-  // Pick the one with the most products if multiple matches
-  let cat = cats[0];
-  if (cats.length > 1) {
-    const counts = await Promise.all(cats.map(async c => {
-      const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
-      return { ...c, count };
-    }));
-    cat = counts.sort((a, b) => b.count - a.count)[0];
-  }
+  // Get category
+  const cat = await resolveCategory(DASH, KEYWORD);
+  console.log(`  → Resolved category (${cat.method}): "${cat.name}" (${cat.id})`);
   console.log(`Category: ${cat.name} (${cat.id})\n`);
 
   // Check if brief already exists WITH actual AI content (not just a market intel stub)

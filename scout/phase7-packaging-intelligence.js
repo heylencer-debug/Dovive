@@ -14,6 +14,7 @@
 
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
+const { resolveCategory } = require('./utils/category-resolver');
 
 const DASH = createClient(
   'https://jwkitkfufigldpldqtbq.supabase.co',
@@ -28,25 +29,9 @@ const TOP_N = process.argv.includes('--top')
 
 // Dynamic category lookup
 async function lookupCategoryId(keyword) {
-  const words = keyword.toLowerCase().split(' ');
-  const { data: cats } = await DASH.from('categories').select('id,name').ilike('name', `%${words[0]}%`).limit(30);
-  if (!cats?.length) throw new Error(`No category found for keyword "${keyword}"`);
-  const scored = cats.map(c => {
-    const lower = c.name.toLowerCase();
-    const score = words.filter(w => lower.includes(w)).length;
-    return { ...c, score };
-  }).filter(c => c.score >= words.length).sort((a, b) => b.score - a.score);
-  if (!scored.length) throw new Error(`No category found for keyword "${keyword}"`);
-  const topScore = scored[0].score;
-  const tied = scored.filter(c => c.score === topScore);
-  if (tied.length === 1) return tied[0].id;
-  const counts = await Promise.all(tied.map(async c => {
-    const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
-    return { ...c, count: count || 0 };
-  }));
-  counts.sort((a, b) => b.count - a.count);
-  console.log(`  → Resolved category: "${counts[0].name}" (${counts[0].id}) — ${counts[0].count} products`);
-  return counts[0].id;
+  const cat = await resolveCategory(DASH, keyword);
+  console.log(`  → Resolved category (${cat.method}): "${cat.name}" (${cat.id})`);
+  return cat.id;
 }
 
 // ─── Claim Patterns ───────────────────────────────────────────────────────────
@@ -221,12 +206,12 @@ function buildPackagingSummary(products, analyses) {
     claims_to_avoid: saturatedClaims.slice(0, 3).map(c => c.label + ' (' + c.pct + '% of competitors use this)'),
     claims_to_own: unusedBenefits.slice(0, 3),
     badges_to_feature: unusedBadges.filter(b => ['Third-Party Tested','Clinically Studied','Doctor Formulated','Made in USA'].includes(b)).slice(0, 3),
-    color_direction: sortedColors[1]?.[0] || 'Purple / Violet',  // go for second most common — familiar but not dominant
+    color_direction: sortedColors[1]?.[0] || 'Purple / Violet',  // go for second most common - familiar but not dominant
     color_rationale: `${dominantColor} dominates the category (${Math.round((colorFreq[dominantColor]||0)/total*100)}% of products). Use ${sortedColors[1]?.[0] || 'Purple / Violet'} to stand out while staying on-brand.`,
     packaging_headline_formula: 'Premium KSM-66 + [unique benefit] + [differentiation badge]',
     key_insight: saturatedClaims.length > 0
-      ? `"${saturatedClaims[0]?.label}" is used by ${saturatedClaims[0]?.pct}% of competitors — owning "${unusedBenefits[0] || topBenefits[1]}" creates clear differentiation.`
-      : `Lead with clinically-backed claims. Only ${Math.round((badgeFreq['Clinically Studied']||0)/total*100)}% of products mention clinical studies — high trust signal opportunity.`,
+      ? `"${saturatedClaims[0]?.label}" is used by ${saturatedClaims[0]?.pct}% of competitors - owning "${unusedBenefits[0] || topBenefits[1]}" creates clear differentiation.`
+      : `Lead with clinically-backed claims. Only ${Math.round((badgeFreq['Clinically Studied']||0)/total*100)}% of products mention clinical studies - high trust signal opportunity.`,
   };
 
   return {
@@ -307,7 +292,7 @@ async function run() {
     .upsert({ keyword: KEYWORD, intelligence: summary, generated_at: summary.generated_at, products_analyzed: summary.products_analyzed }, { onConflict: 'keyword' });
 
   if (catErr) {
-    console.log('⚠️  dovive_packaging_intelligence table not found — showing summary only\n');
+    console.log('⚠️  dovive_packaging_intelligence table not found - showing summary only\n');
   } else {
     console.log('✅ Category packaging intelligence saved\n');
   }
@@ -331,11 +316,11 @@ async function run() {
   });
 
   console.log('\n⚠️  SATURATED CLAIMS (avoid these):');
-  s.saturated_claims.forEach(c => console.log(`  • ${c.label} — ${c.pct}% of competitors`));
+  s.saturated_claims.forEach(c => console.log(`  • ${c.label} - ${c.pct}% of competitors`));
 
   console.log('\n💡 MARKET GAPS (opportunity):');
-  s.market_gaps.benefit_gaps.slice(0, 3).forEach(g => console.log(`  • ${g.label} — only ${g.pct}% using it`));
-  s.market_gaps.badge_gaps.slice(0, 3).forEach(g => console.log(`  • ${g.label} (badge) — only ${g.pct}% using it`));
+  s.market_gaps.benefit_gaps.slice(0, 3).forEach(g => console.log(`  • ${g.label} - only ${g.pct}% using it`));
+  s.market_gaps.badge_gaps.slice(0, 3).forEach(g => console.log(`  • ${g.label} (badge) - only ${g.pct}% using it`));
 
   console.log('\n🎯 DOVIVE PACKAGING STRATEGY:');
   const strat = s.dovive_packaging_strategy;

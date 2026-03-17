@@ -1,5 +1,5 @@
 ﻿/**
- * phase6-product-intelligence.js — v2 (Market Trends Edition)
+ * phase6-product-intelligence.js - v2 (Market Trends Edition)
  * P6: AI-powered product intelligence via xAI Grok
  *
  * Per-product data sent to Grok:
@@ -22,6 +22,7 @@
 
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
+const { resolveCategory } = require('./utils/category-resolver');
 const fs = require('fs');
 const path = require('path');
 
@@ -37,25 +38,9 @@ const BATCH_SIZE = process.argv.includes('--batch') ? parseInt(process.argv[proc
 
 // Dynamic category lookup
 async function lookupCategoryId(keyword) {
-  const words = keyword.toLowerCase().split(' ');
-  const { data: cats } = await DASH.from('categories').select('id,name').ilike('name', `%${words[0]}%`).limit(30);
-  if (!cats?.length) throw new Error(`No category found for keyword "${keyword}"`);
-  const scored = cats.map(c => {
-    const lower = c.name.toLowerCase();
-    const score = words.filter(w => lower.includes(w)).length;
-    return { ...c, score };
-  }).filter(c => c.score >= words.length).sort((a, b) => b.score - a.score);
-  if (!scored.length) throw new Error(`No category found for keyword "${keyword}"`);
-  const topScore = scored[0].score;
-  const tied = scored.filter(c => c.score === topScore);
-  if (tied.length === 1) return tied[0].id;
-  const counts = await Promise.all(tied.map(async c => {
-    const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
-    return { ...c, count: count || 0 };
-  }));
-  counts.sort((a, b) => b.count - a.count);
-  console.log(`  → Resolved category: "${counts[0].name}" (${counts[0].id}) — ${counts[0].count} products`);
-  return counts[0].id;
+  const cat = await resolveCategory(DASH, keyword);
+  console.log(`  → Resolved category (${cat.method}): "${cat.name}" (${cat.id})`);
+  return cat.id;
 }
 
 // ─── xAI Key ─────────────────────────────────────────────────────────────────
@@ -120,9 +105,9 @@ function computePriceTier(price, medianPrice) {
   if (!price || !medianPrice) return 'unknown';
   const ratio = price / medianPrice;
   if (ratio >= 1.5)      return 'premium';       // ≥150% of median
-  else if (ratio >= 1.15) return 'above_average'; // 115–150%
-  else if (ratio >= 0.85) return 'mid_market';    // 85–115% (sweet spot)
-  else if (ratio >= 0.60) return 'value';         // 60–85%
+  else if (ratio >= 1.15) return 'above_average'; // 115-150%
+  else if (ratio >= 0.85) return 'mid_market';    // 85-115% (sweet spot)
+  else if (ratio >= 0.60) return 'value';         // 60-85%
   else                    return 'budget';         // <60%
 }
 
@@ -132,7 +117,7 @@ const TIER_LABELS = {
   mid_market:    '🟢 Mid-Market',
   value:         '🟡 Value',
   budget:        '🔴 Budget',
-  unknown:       '— Unknown',
+  unknown:       '- Unknown',
 };
 
 /**
@@ -335,7 +320,7 @@ async function analyzeWithGrok(products, marketMetricsMap, categoryMedianPrice) 
     const pricePerServing = (price && servings) ? (price / servings).toFixed(2) : 'N/A';
     return `
 PRODUCT ${i + 1} [ASIN: ${p.asin}]
-Brand/Title: ${p.brand || '?'} — ${(p.title || '').substring(0, 80)}
+Brand/Title: ${p.brand || '?'} - ${(p.title || '').substring(0, 80)}
 BSR: ${p.bsr_current?.toLocaleString() || 'N/A'} | Price: $${price || 'N/A'} | Rating: ${p.rating_value || 'N/A'} ⭐ (${(p.rating_count || 0).toLocaleString()} reviews)
 Revenue: $${(p.monthly_revenue || 0).toLocaleString()}/mo | Sales: ${(p.monthly_sales || 0).toLocaleString()}/mo
 Servings: ${servings || 'N/A'} | Price/Serving: $${pricePerServing}
@@ -353,7 +338,7 @@ Supplement Facts (OCR): ${(p.supplement_facts_raw || '').substring(0, 500) || 'N
 
 The market signals (BSR velocity, price tier, revenue efficiency) have already been computed. Your job is to analyze the FORMULA quality and competitive positioning for each product.
 
-IMPORTANT: These products may be for ANY supplement category (Vitamin C, Collagen, Magnesium, Melatonin, Creatine, Elderberry, etc.) — NOT necessarily Ashwagandha. Detect the PRIMARY ACTIVE INGREDIENT from the supplement facts and analyze accordingly.
+IMPORTANT: These products may be for ANY supplement category (Vitamin C, Collagen, Magnesium, Melatonin, Creatine, Elderberry, etc.) - NOT necessarily Ashwagandha. Detect the PRIMARY ACTIVE INGREDIENT from the supplement facts and analyze accordingly.
 
 ${productList}
 
@@ -362,8 +347,8 @@ Return ONLY a valid JSON array with exactly ${products.length} objects:
   {
     "asin": "string",
     "primary_active_ingredient": "the main active ingredient name (e.g. Vitamin C, Collagen Peptides, Magnesium Glycinate, Melatonin, Creatine Monohydrate, Ashwagandha, etc.)",
-    "primary_active_amount_mg": number or null (amount in mg/mcg — use the numeric value from supplement facts),
-    "primary_active_form": "the specific form or grade (e.g. Liposomal Ascorbic Acid, Hydrolyzed Collagen Type I&III, Magnesium Glycinate, KSM-66 Ashwagandha, Creatine Monohydrate, etc.) — 'Unknown' if not specified",
+    "primary_active_amount_mg": number or null (amount in mg/mcg - use the numeric value from supplement facts),
+    "primary_active_form": "the specific form or grade (e.g. Liposomal Ascorbic Acid, Hydrolyzed Collagen Type I&III, Magnesium Glycinate, KSM-66 Ashwagandha, Creatine Monohydrate, etc.) - 'Unknown' if not specified",
     "ashwagandha_amount_mg": number or null (only if ashwagandha is present),
     "ashwagandha_extract_type": "KSM-66"|"Sensoril"|"Shoden"|"Organic Extract"|"Generic Extract"|"10:1 Extract"|"Root Powder"|"Unknown",
     "withanolide_percentage": "e.g. 5%" or null,
@@ -386,7 +371,7 @@ Return ONLY a valid JSON array with exactly ${products.length} objects:
   }
 ]
 
-Scoring rules (generic — applies to ANY supplement category):
+Scoring rules (generic - applies to ANY supplement category):
 - formula_quality_score: start at 5
   +3: branded/premium ingredient form (KSM-66, Liposomal, Magnesium Glycinate, Creatine Monohydrate, Type I&III Hydrolyzed, etc.)
   +2: clinical/effective dose of primary active (relative to category norms)
@@ -395,7 +380,7 @@ Scoring rules (generic — applies to ANY supplement category):
   -0.5: proprietary blend (hides doses)
   -1: unknown/unspecified primary active form
 - competitor_threat_level: BSR<1000 = Very High; BSR<5000 AND score≥7 = High; BSR<20000 = Medium; else Low
-- market_opportunity_gap: be specific to this category — what formula gap can DOVIVE exploit?
+- market_opportunity_gap: be specific to this category - what formula gap can DOVIVE exploit?
 - Return ONLY the JSON array. No other text.`;
 
   const response = await callGrok(prompt, 4096);
@@ -409,11 +394,11 @@ Scoring rules (generic — applies to ANY supplement category):
 
 async function run() {
   console.log(`\n${'═'.repeat(62)}`);
-  console.log(`P6: PRODUCT INTELLIGENCE v2 — Market Trends Edition`);
+  console.log(`P6: PRODUCT INTELLIGENCE v2 - Market Trends Edition`);
   console.log(`${'═'.repeat(62)}\n`);
 
   const xaiKey = getXaiKey();
-  console.log(`AI: ${xaiKey ? '✅ xAI Grok (grok-3-mini)' : '⚠️  No key — rule-based fallback'}`);
+  console.log(`AI: ${xaiKey ? '✅ xAI Grok (grok-3-mini)' : '⚠️  No key - rule-based fallback'}`);
 
   const CAT_ID = await lookupCategoryId(KEYWORD);
 

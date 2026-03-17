@@ -27,6 +27,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
+const { resolveCategory } = require('./utils/category-resolver');
 
 const DASH   = createClient('https://jwkitkfufigldpldqtbq.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3a2l0a2Z1ZmlnbGRwbGRxdGJxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTA0NTY0NSwiZXhwIjoyMDc2NjIxNjQ1fQ.FjLFaMPE4VO5vVwFEAAvLiub3Xc1hhjsv9fd2jWFIAc');
 const DOVIVE = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
@@ -324,29 +325,9 @@ async function saveToDashProduct(asin, research) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function lookupCategoryId(keyword) {
-  const words = keyword.toLowerCase().split(' ');
-  const { data: cats } = await DASH.from('categories').select('id,name').ilike('name', `%${words[0]}%`).limit(40);
-  if (!cats?.length) throw new Error(`No category found for keyword "${keyword}"`);
-
-  const scored = cats.map(c => {
-    const lower = c.name.toLowerCase();
-    const score = words.filter(w => lower.includes(w)).length;
-    return { ...c, score };
-  }).filter(c => c.score >= words.length);
-
-  if (!scored.length) throw new Error(`No category matched all words for "${keyword}"`);
-
-  const topScore = scored[0].score;
-  const tied = scored.filter(c => c.score === topScore);
-  if (tied.length === 1) return tied[0];
-
-  const withCounts = await Promise.all(tied.map(async c => {
-    const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
-    return { ...c, count: count || 0 };
-  }));
-
-  withCounts.sort((a, b) => b.count - a.count);
-  return withCounts[0];
+  const cat = await resolveCategory(DASH, keyword);
+  console.log(`  → Resolved category (${cat.method}): "${cat.name}" (${cat.id})`);
+  return { id: cat.id, name: cat.name };
 }
 
 async function run() {

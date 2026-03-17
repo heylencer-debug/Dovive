@@ -10,6 +10,7 @@
 
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
+const { resolveCategory } = require('./utils/category-resolver');
 
 const DOVIVE = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const DASH = createClient(
@@ -24,36 +25,9 @@ const KEYWORD_ARG = _kwIdx >= 0
   : (process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : 'ashwagandha gummies');
 
 async function lookupCategoryId(keyword) {
-  // 1) exact search_term match first (authoritative for pipeline keyword)
-  const { data: exact } = await DASH.from('categories').select('id,name,search_term').eq('search_term', keyword).limit(1);
-  if (exact?.length) {
-    console.log(`  → Resolved category by search_term: "${exact[0].name}" (${exact[0].id})`);
-    return exact[0].id;
-  }
-
-  // 2) fallback: name-based resolver
-  const words = keyword.toLowerCase().split(' ');
-  const { data: cats } = await DASH.from('categories').select('id,name').ilike('name', `%${words[0]}%`).limit(30);
-  if (!cats?.length) throw new Error(`No category found for keyword "${keyword}"`);
-  const scored = cats.map(c => {
-    const lower = c.name.toLowerCase();
-    const score = words.filter(w => lower.includes(w)).length;
-    return { ...c, score };
-  }).filter(c => c.score >= words.length).sort((a, b) => b.score - a.score);
-  if (!scored.length) throw new Error(`No category found for keyword "${keyword}"`);
-  const topScore = scored[0].score;
-  const tied = scored.filter(c => c.score === topScore);
-  if (tied.length === 1) {
-    console.log(`  → Resolved category: "${tied[0].name}" (${tied[0].id})`);
-    return tied[0].id;
-  }
-  const counts = await Promise.all(tied.map(async c => {
-    const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', c.id);
-    return { ...c, count: count || 0 };
-  }));
-  counts.sort((a, b) => b.count - a.count);
-  console.log(`  → Resolved category (largest): "${counts[0].name}" (${counts[0].id}) — ${counts[0].count} products`);
-  return counts[0].id;
+  const cat = await resolveCategory(DASH, keyword);
+  console.log(`  → Resolved category (${cat.method}): "${cat.name}" (${cat.id})`);
+  return cat.id;
 }
 
 function avgBSR(history) {

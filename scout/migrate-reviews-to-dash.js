@@ -21,6 +21,7 @@
 
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
+const { resolveCategory } = require('./utils/category-resolver');
 
 const DOVIVE = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const DASH = createClient(
@@ -34,17 +35,10 @@ const KEYWORD = _kwIdx >= 0
   ? process.argv[_kwIdx + 1]
   : (process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : 'ashwagandha gummies');
 
-const { resolveCategory } = require('./category-resolver');
-
 async function lookupCategoryId(keyword) {
-  try {
-    const category = await resolveCategory(keyword);
-    console.log(`  → Resolved category: "${category.name}" (${category.id})`);
-    return category.id;
-  } catch (e) {
-    console.error(`Category resolution error: ${e.message}`);
-    throw e;
-  }
+  const cat = await resolveCategory(DASH, keyword);
+  console.log(`  → Resolved category (${cat.method}): "${cat.name}" (${cat.id})`);
+  return cat.id;
 }
 
 
