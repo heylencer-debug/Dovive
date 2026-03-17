@@ -222,7 +222,24 @@ async function checkPhaseStatus(phaseNum, categoryId) {
     }
     case 4: {
       const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', categoryId).not('supplement_facts_raw', 'is', null);
-      return { done: count >= total * 0.8, count, total, msg: `${count}/${total} have OCR data` };
+
+      // Directive: if full completion isn't possible, top-20 BSR formula coverage is acceptable to proceed.
+      const { data: top20 } = await DASH.from('products')
+        .select('supplement_facts_raw')
+        .eq('category_id', categoryId)
+        .not('bsr_current', 'is', null)
+        .order('bsr_current', { ascending: true })
+        .limit(20);
+      const top20Done = (top20 || []).filter(p => !!p.supplement_facts_raw).length;
+
+      const doneByCoverage = count >= total * 0.8;
+      const doneByTop20 = top20Done >= 20;
+      return {
+        done: doneByCoverage || doneByTop20,
+        count,
+        total,
+        msg: `${count}/${total} have OCR data | Top20: ${top20Done}/20`
+      };
     }
     case 5: {
       const { count } = await DOVIVE.from('dovive_phase5_research').select('*', { count: 'exact', head: true }).ilike('keyword', `%${KEYWORD.split(' ')[0]}%`);
