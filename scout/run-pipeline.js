@@ -200,16 +200,17 @@ async function checkPhaseStatus(phaseNum, categoryId) {
       return { done: count >= total * 0.5, count, total, msg: `${count}/${total} have review analysis` };
     }
     case 4: {
-      const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', categoryId).not('supplement_facts_raw', 'is', null);
+      // Strict P4 quality gate: only count rows with actual nutrients extracted.
+      const { count } = await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', categoryId).gt('nutrients_count', 0);
 
       // Directive: if full completion isn't possible, top-20 BSR formula coverage is acceptable to proceed.
       const { data: top20 } = await DASH.from('products')
-        .select('supplement_facts_raw')
+        .select('nutrients_count')
         .eq('category_id', categoryId)
         .not('bsr_current', 'is', null)
         .order('bsr_current', { ascending: true })
         .limit(20);
-      const top20Done = (top20 || []).filter(p => !!p.supplement_facts_raw).length;
+      const top20Done = (top20 || []).filter(p => (p.nutrients_count || 0) > 0).length;
 
       const doneByCoverage = count >= total * 0.8;
       const doneByTop20 = top20Done >= 20;
@@ -217,7 +218,7 @@ async function checkPhaseStatus(phaseNum, categoryId) {
         done: doneByCoverage || doneByTop20,
         count,
         total,
-        msg: `${count}/${total} have OCR data | Top20: ${top20Done}/20`
+        msg: `${count}/${total} have VALID OCR facts | Top20: ${top20Done}/20`
       };
     }
     case 5: {
@@ -329,13 +330,13 @@ async function runFinalVerifier(categoryId) {
 
   const p2 = await q('monthly_sales');
   const p3 = await q('review_analysis');
-  const p4 = await q('supplement_facts_raw');
+  const p4 = (await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', categoryId).gt('nutrients_count', 0)).count || 0;
   const p5 = (await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', categoryId).filter('marketing_analysis->p5_research', 'not.is', null)).count || 0;
   const p6 = await q('marketing_analysis');
   const p8 = (await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', categoryId).filter('marketing_analysis->packaging_intelligence', 'not.is', null)).count || 0;
 
-  const { data: top20 } = await DASH.from('products').select('supplement_facts_raw').eq('category_id', categoryId).not('bsr_current', 'is', null).order('bsr_current', { ascending: true }).limit(20);
-  const top20P4 = (top20 || []).filter(x => !!x.supplement_facts_raw).length;
+  const { data: top20 } = await DASH.from('products').select('nutrients_count').eq('category_id', categoryId).not('bsr_current', 'is', null).order('bsr_current', { ascending: true }).limit(20);
+  const top20P4 = (top20 || []).filter(x => (x.nutrients_count || 0) > 0).length;
 
   const { data: fb } = await DASH.from('formula_briefs').select('ingredients').eq('category_id', categoryId).single();
   const p7 = !!(fb?.ingredients?.market_intelligence?.ai_market_analysis);

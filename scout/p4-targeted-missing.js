@@ -2,6 +2,7 @@ require('dotenv').config();
 const fetch = require('node-fetch');
 const { createClient } = require('@supabase/supabase-js');
 const { resolveCategory } = require('./utils/category-resolver');
+const { parseModelJson, normalizeFacts, isValidFacts, scoreImageUrl } = require('./utils/ocr-utils');
 
 const KEYWORD = process.argv[2] || 'melatonin gummies';
 const LIMIT = Number(process.argv[3] || 12); // token-safe batch
@@ -37,8 +38,9 @@ async function callVision(imageUrl, asin, title) {
   if (!res.ok) throw new Error(`OpenAI ${res.status}`);
   const data = await res.json();
   const txt = data.choices?.[0]?.message?.content || '{}';
-  const m = txt.match(/\{[\s\S]*\}/);
-  return JSON.parse(m ? m[0] : txt);
+  const parsedResult = parseModelJson(txt);
+  if (!parsedResult.parsed) throw new Error(`parse_failed:${parsedResult.method}`);
+  return { parsed: parsedResult.parsed, parseMethod: parsedResult.method };
 }
 
 (async () => {
@@ -49,44 +51,54 @@ async function callVision(imageUrl, asin, title) {
   const missing = miss || [];
   const asins = missing.map(x => x.asin);
 
-  const { data: existing } = await DOV.from('dovive_ocr').select('asin').eq('keyword', KEYWORD).in('asin', asins);
-  const hasAny = new Set((existing || []).map(r => r.asin));
-  const targets = missing.filter(p => !hasAny.has(p.asin)).slice(0, LIMIT);
+  const { data: existing } = await DOV.from('dovive_ocr').select('asin,supplement_facts').eq('keyword', KEYWORD).in('asin', asins);
+  const hasValid = new Set((existing || []).filter(r => isValidFacts(r.supplement_facts)).map(r => r.asin));
+  const targets = missing.filter(p => !hasValid.has(p.asin)).slice(0, LIMIT);
 
-  console.log(`Missing P4: ${missing.length} | No OCR rows: ${targets.length} (processing batch limit ${LIMIT})`);
+  console.log(`Missing P4: ${missing.length} | No VALID OCR rows: ${targets.length} (processing batch limit ${LIMIT})`);
 
-  let saved = 0, failed = 0;
+  let saved = 0, failed = 0, recovered = 0;
+  const telemetry = { parse_failed: 0, empty_facts: 0, api_error: 0 };
+
   for (let i = 0; i < targets.length; i++) {
     const p = targets[i];
     const imgs = (Array.isArray(p.image_urls) ? p.image_urls : []).filter(Boolean);
     if (p.main_image_url && !imgs.includes(p.main_image_url)) imgs.unshift(p.main_image_url);
-    const useImgs = imgs.slice(0, MAX_IMAGES);
-    if (!useImgs.length) continue;
 
-    console.log(`[${i + 1}/${targets.length}] ${p.asin} imgs:${useImgs.length}`);
+    const ranked = imgs
+      .map(u => ({ url: u, score: scoreImageUrl(u) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, MAX_IMAGES)
+      .map(x => x.url);
 
-    for (let idx = 0; idx < useImgs.length; idx++) {
+    if (!ranked.length) continue;
+
+    console.log(`[${i + 1}/${targets.length}] ${p.asin} imgs:${ranked.length}`);
+    let successForAsin = false;
+
+    for (let idx = 0; idx < ranked.length; idx++) {
       try {
-        const parsed = await callVision(useImgs[idx], p.asin, p.title || '');
-        const facts = Array.isArray(parsed.supplement_facts) && parsed.supplement_facts.length ? parsed.supplement_facts : null;
+        const { parsed, parseMethod } = await callVision(ranked[idx], p.asin, p.title || '');
+        const factsNorm = normalizeFacts(parsed.supplement_facts);
+        const hasFacts = isValidFacts(factsNorm);
+
         await DOV.from('dovive_ocr').upsert({
           asin: p.asin,
           keyword: KEYWORD,
-          image_url: useImgs[idx],
+          image_url: ranked[idx],
           image_index: idx,
           serving_size: parsed.serving_size || null,
           servings_per_container: parsed.servings_per_container || null,
-          supplement_facts: facts,
+          supplement_facts: hasFacts ? factsNorm : null,
           other_ingredients: parsed.other_ingredients || null,
           health_claims: Array.isArray(parsed.health_claims) && parsed.health_claims.length ? parsed.health_claims : null,
           certifications: Array.isArray(parsed.certifications) && parsed.certifications.length ? parsed.certifications : null,
           raw_text: parsed.raw_text || null,
-          gpt_model: 'gpt-4o',
+          gpt_model: `gpt-4o:${parseMethod}`,
           processed_at: new Date().toISOString()
         }, { onConflict: 'asin,image_index' });
 
-        // If facts exist, also write a text-extract marker row (image_index=99) so migrate-ocr-to-dash reliably picks this ASIN.
-        if (facts) {
+        if (hasFacts) {
           await DOV.from('dovive_ocr').upsert({
             asin: p.asin,
             keyword: KEYWORD,
@@ -94,22 +106,34 @@ async function callVision(imageUrl, asin, title) {
             image_index: 99,
             serving_size: parsed.serving_size || null,
             servings_per_container: parsed.servings_per_container || null,
-            supplement_facts: facts,
+            supplement_facts: factsNorm,
             other_ingredients: parsed.other_ingredients || null,
             health_claims: Array.isArray(parsed.health_claims) && parsed.health_claims.length ? parsed.health_claims : null,
             certifications: Array.isArray(parsed.certifications) && parsed.certifications.length ? parsed.certifications : null,
             raw_text: parsed.raw_text || null,
-            gpt_model: 'gpt-4o',
+            gpt_model: `gpt-4o:${parseMethod}`,
             processed_at: new Date().toISOString()
           }, { onConflict: 'asin,image_index' });
+          saved++;
+          recovered++;
+          successForAsin = true;
+          break; // stop-on-success
+        } else {
+          telemetry.empty_facts++;
         }
-        saved++;
       } catch (e) {
+        const msg = String(e?.message || '');
+        if (msg.startsWith('parse_failed')) telemetry.parse_failed++;
+        else telemetry.api_error++;
         failed++;
       }
       await sleep(1200);
     }
+
+    if (!successForAsin) {
+      console.log(`  ⚠ no valid facts recovered for ${p.asin}`);
+    }
   }
 
-  console.log({ saved, failed });
+  console.log({ saved, failed, recovered, telemetry });
 })();

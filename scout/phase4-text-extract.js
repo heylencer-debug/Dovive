@@ -15,6 +15,7 @@
 require('dotenv').config();
 const fetch = require('node-fetch');
 const { createClient } = require('@supabase/supabase-js');
+const { parseModelJson, normalizeFacts, isValidFacts } = require('./utils/ocr-utils');
 
 // Support both: node phase4-text-extract.js "keyword" AND node phase4-text-extract.js --keyword "keyword"
 const _kwIdx = process.argv.indexOf('--keyword');
@@ -91,13 +92,9 @@ Return ONLY valid JSON, no markdown.`;
 
       const data = await res.json();
       const content = data.choices?.[0]?.message?.content || '';
-      try {
-        return JSON.parse(content);
-      } catch {
-        const match = content.match(/\{[\s\S]*\}/);
-        if (match) return JSON.parse(match[0]);
-        throw new Error('Could not parse GPT response');
-      }
+      const parsed = parseModelJson(content);
+      if (!parsed.parsed) throw new Error(`Could not parse GPT response (${parsed.method})`);
+      return parsed.parsed;
     } catch (err) {
       const isRateLimit = err.message.includes('429') || err.message.toLowerCase().includes('rate limit');
       if (isRateLimit && attempt < retries) {
@@ -161,7 +158,8 @@ async function main() {
 
       const extracted = await extractFromText(p.asin, p.title, p.bullet_points);
 
-      const hasFacts = extracted.supplement_facts && extracted.supplement_facts.length > 0;
+      const facts = normalizeFacts(extracted.supplement_facts);
+      const hasFacts = isValidFacts(facts);
       const hasClaims = extracted.health_claims && extracted.health_claims.length > 0;
 
       if (!hasFacts && !hasClaims) {
@@ -175,7 +173,7 @@ async function main() {
           image_index: 99, // marker: text extraction, not image OCR
           serving_size: extracted.serving_size || null,
           servings_per_container: extracted.servings_per_container || null,
-          supplement_facts: hasFacts ? extracted.supplement_facts : null,
+          supplement_facts: hasFacts ? facts : null,
           other_ingredients: extracted.other_ingredients || null,
           health_claims: hasClaims ? extracted.health_claims : null,
           certifications: extracted.certifications?.length ? extracted.certifications : null,
