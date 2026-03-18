@@ -82,21 +82,23 @@ async function main() {
   // 2. Load all products from DASH
   const { data: products, error: prodErr } = await DASH
     .from('products')
-    .select('id,asin')
+    .select('id,asin,title,bsr_current')
     .eq('category_id', DASH_CAT_ID);
 
   if (prodErr) { console.error('Products fetch error:', prodErr.message); return; }
   console.log(`Products in DASH: ${products.length}\n`);
 
-  const dashByAsin = new Map(products.map(p => [p.asin, p.id]));
+  const dashByAsin = new Map(products.map(p => [p.asin, p]));
 
   let updated = 0, skipped = 0, errors = 0;
+  const weakRows = [];
 
   for (const [asin, ocr] of byAsin) {
-    const productId = dashByAsin.get(asin);
-    if (!productId) { skipped++; continue; }
+    const product = dashByAsin.get(asin);
+    if (!product) { skipped++; continue; }
 
-    const facts = ocr.supplement_facts || [];
+    const productId = product.id;
+    const facts = Array.isArray(ocr.supplement_facts) ? ocr.supplement_facts.filter(f => f && f.name) : [];
     const confidence = calcConfidence(facts);
     const nutrientsCount = facts.length;
 
@@ -125,6 +127,9 @@ async function main() {
       errors++;
     } else {
       updated++;
+      if (nutrientsCount === 0) {
+        weakRows.push({ asin, title: product.title || '', bsr: product.bsr_current || null, reason: 'empty_supplement_facts' });
+      }
       if (updated % 20 === 0) console.log(`  ${updated} updated...`);
     }
   }
@@ -134,6 +139,16 @@ async function main() {
   console.log(`Skipped (ASIN not in DASH): ${skipped}`);
   console.log(`Errors: ${errors}`);
   console.log(`\nFields now populated: all_nutrients, nutrients_count, ocr_confidence, serving_size, servings_per_container`);
+
+  if (weakRows.length) {
+    weakRows.sort((a, b) => (a.bsr || 9999999) - (b.bsr || 9999999));
+    const top20Weak = weakRows.filter(r => r.bsr && r.bsr <= 20).length;
+    console.log(`\n⚠ OCR weak rows (0 nutrients): ${weakRows.length} | top20 affected: ${top20Weak}`);
+    console.log('Top weak rows by BSR:');
+    weakRows.slice(0, 20).forEach(r => {
+      console.log(`  - ${r.asin} | BSR ${r.bsr ?? 'NA'} | ${r.title.substring(0, 90)}`);
+    });
+  }
 }
 
 main().catch(console.error);
