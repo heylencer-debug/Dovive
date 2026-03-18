@@ -490,13 +490,12 @@ Compare DOVIVE's formula against the top competitors for every active ingredient
 
 **Category Flavor Intelligence:**
 - Top competitor flavors: [from data above]
-- Ashwagandha masking challenge: ashwagandha has an earthy/bitter/slightly sulfuric note at 600mg - this MUST be aggressively masked
 - What 1-star reviews say: [common taste complaints in supplement gummy category]
 
 **Recommended Flavor Strategy for DOVIVE ${keyword}:**
 | Element | Recommendation | Reason |
 |---|---|---|
-| Primary flavor | [specific flavor name] | [why it masks ashwagandha best] |
+| Primary flavor | [specific flavor name] | [why this flavor aligns with category demand and masking needs] |
 | Flavor intensity | [mild/medium/bold] | [balance with active taste] |
 | Sweetener system | [stevia / monk fruit / erythritol blend + amounts] | [sugar-free, no aftertaste] |
 | Masking agent | [citric acid / natural flavor blend] | [cuts bitterness] |
@@ -505,6 +504,29 @@ Compare DOVIVE's formula against the top competitors for every active ingredient
 
 **Pilot Testing Priority:** [what to test first in CMO pilot runs]
 **Risk:** [main taste risk and how to mitigate]
+
+## FLAVOR_RECOMMENDATIONS_JSON
+Return ONLY a valid JSON array with 5 to 7 items. Use this exact schema per item:
+[
+  {
+    "flavor_name": "string",
+    "rank": 1,
+    "evidence": {
+      "competitor_presence": "high|medium|low",
+      "review_signal": "string",
+      "market_fit_reason": "string"
+    },
+    "formulation_notes": {
+      "masking_strategy": "string",
+      "sweetener_system": "string",
+      "color_direction": "string"
+    }
+  }
+]
+Rules:
+- Must return 5-7 flavors only (not less than 5, not more than 7).
+- Must be grounded in provided competitor flavors + market context.
+- No hardcoded generic list without evidence.
 
 ## COMPETITOR_NOTES_JSON
 Return ONLY a valid JSON object. One entry per ASIN. One sentence comparing their formula to ours. Focus on the most important difference (dose, ingredient quality, or certification).
@@ -521,12 +543,23 @@ async function runCall2(keyword, grokBrief, claudeBrief, adjustedFormula, compet
 
   // Parse sections from call 2
   const comparisonMatch = result.match(/## COMPREHENSIVE INGREDIENT COMPARISON([\s\S]*?)(?:\n## FLAVOR|$)/);
-  const flavorMatch     = result.match(/## FLAVOR & TASTE QA([\s\S]*?)(?:\n## COMPETITOR_NOTES_JSON|$)/);
+  const flavorMatch     = result.match(/## FLAVOR & TASTE QA([\s\S]*?)(?:\n## FLAVOR_RECOMMENDATIONS_JSON|$)/);
+  const flavorJsonMatch = result.match(/## FLAVOR_RECOMMENDATIONS_JSON([\s\S]*?)(?:\n## COMPETITOR_NOTES_JSON|$)/);
   const notesMatch      = result.match(/## COMPETITOR_NOTES_JSON([\s\S]*)/);
 
   const comprehensiveComparison = comparisonMatch?.[1]?.trim() || null;
   const flavorQA                = flavorMatch?.[1]?.trim() || null;
+  const flavorRaw               = flavorJsonMatch?.[1]?.trim() || '';
   const notesRaw                = notesMatch?.[1]?.trim() || '';
+
+  // Parse flavor recommendations JSON
+  let flavorRecommendations = [];
+  try {
+    const cleanFlavor = flavorRaw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const arr = cleanFlavor.match(/\[[\s\S]*\]/)?.[0];
+    const parsed = arr ? JSON.parse(arr) : [];
+    flavorRecommendations = Array.isArray(parsed) ? parsed : [];
+  } catch {}
 
   // Parse competitor notes JSON
   const jsonBlock = notesRaw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
@@ -538,9 +571,10 @@ async function runCall2(keyword, grokBrief, claudeBrief, adjustedFormula, compet
 
   console.log(`  Comprehensive comparison: ${comprehensiveComparison ? Math.round(comprehensiveComparison.length/1000)+'k chars OK' : 'MISSING'}`);
   console.log(`  Flavor QA: ${flavorQA ? Math.round(flavorQA.length/1000)+'k chars OK' : 'MISSING'}`);
+  console.log(`  Flavor recommendations: ${flavorRecommendations.length} items`);
   console.log(`  Competitor notes: ${Object.keys(competitorNotes).length} ASINs`);
 
-  return { comprehensiveComparison, flavorQA, competitorNotes };
+  return { comprehensiveComparison, flavorQA, flavorRecommendations, competitorNotes };
 }
 
 // ── Call 3: Competitor Notes ONLY - tiny focused JSON call ────────────────────
@@ -735,9 +769,16 @@ async function run() {
   // â"€â"€ Save competitor notes to products â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
     // ── Call 2 invocation ──────────────────────────────────────────────────────
   const marketIntelText = marketIntel || '';
-  const { comprehensiveComparison, flavorQA, competitorNotes: call2Notes } = await runCall2(
+  const { comprehensiveComparison, flavorQA, flavorRecommendations, competitorNotes: call2Notes } = await runCall2(
     KEYWORD, grokBrief, claudeBrief, adjustedFormula, competitors, marketIntelText
   );
+
+  const flavorCount = Array.isArray(flavorRecommendations) ? flavorRecommendations.length : 0;
+  if (flavorCount < 5 || flavorCount > 7) {
+    console.warn(`⚠ Flavor recommendation count out of contract: ${flavorCount} (required 5-7)`);
+  } else {
+    console.log(`✅ Flavor recommendation contract met: ${flavorCount}/5-7`);
+  }
 
   // Call 3: dedicated JSON-only competitor notes (always runs, always completes)
   const call3Notes = await runCall3CompetitorNotes(KEYWORD, adjustedFormula, competitors);
@@ -755,9 +796,11 @@ async function run() {
           ...updatedIngredients,
           comprehensive_comparison: comprehensiveComparison,
           flavor_qa: flavorQA,
+          flavor_recommendations: flavorRecommendations,
           qa_report: updatedIngredients.qa_report
             + (comprehensiveComparison ? '\n\n## COMPREHENSIVE INGREDIENT COMPARISON\n' + comprehensiveComparison : '')
-            + (flavorQA ? '\n\n## FLAVOR & TASTE QA\n' + flavorQA : ''),
+            + (flavorQA ? '\n\n## FLAVOR & TASTE QA\n' + flavorQA : '')
+            + (flavorCount ? `\n\n## FLAVOR RECOMMENDATIONS (${flavorCount})\n` + JSON.stringify(flavorRecommendations, null, 2) : ''),
         }
       })
       .eq('id', briefRow.id);
@@ -768,7 +811,7 @@ async function run() {
   if (finalNoteCount > 0) {
     console.log('Saving ' + finalNoteCount + ' competitor notes to products...');
     let notesSaved = 0;
-    for (const [asin, note] of Object.entries(finalNotes)) {
+    for (const [asin, note] of Object.entries(finalNotes || {})) {
       const { data: prod } = await DASH.from('products')
         .select('marketing_analysis').eq('asin', asin).maybeSingle();
       if (!prod) continue;
