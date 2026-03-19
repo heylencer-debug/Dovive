@@ -864,6 +864,11 @@ async function run() {
       + (flavorQA ? '\n\n## FLAVOR & TASTE QA\n' + flavorQA : '')
       + flavorSection;
 
+    const finalFormulaBriefWithFlavors = (updatedIngredients.final_formula_brief || '')
+      + (flavorRecommendations.length > 0
+        ? `\n\n## FLAVOR RECOMMENDATIONS (${flavorRecommendations.length})\n${JSON.stringify(flavorRecommendations, null, 2)}`
+        : '');
+
     const { error: c2Err } = await DASH.from('formula_briefs')
       .update({
         ingredients: {
@@ -871,6 +876,7 @@ async function run() {
           comprehensive_comparison: comprehensiveComparison,
           flavor_qa: flavorQA,
           flavor_recommendations: flavorRecommendations,
+          final_formula_brief: finalFormulaBriefWithFlavors,
           qa_report: mergedQaReport,
         }
       })
