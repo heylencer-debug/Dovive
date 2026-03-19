@@ -403,6 +403,30 @@ function parseQAVerdict(qaReport) {
   };
 }
 
+function renderFlavorRecommendationsTable(flavorRecommendations = []) {
+  if (!Array.isArray(flavorRecommendations) || flavorRecommendations.length === 0) return '';
+
+  const header = [
+    `## FLAVOR RECOMMENDATIONS (${flavorRecommendations.length})`,
+    '',
+    '| Rank | Flavor | Competitor Presence | Market Fit Rationale | Masking Strategy | Sweetener System | Color Direction |',
+    '|---:|---|---|---|---|---|---|'
+  ];
+
+  const rows = flavorRecommendations.map((f, idx) => {
+    const rank = f?.rank || idx + 1;
+    const name = (f?.flavor_name || 'N/A').toString().replace(/\|/g, '\\|');
+    const presence = (f?.evidence?.competitor_presence || 'N/A').toString().replace(/\|/g, '\\|');
+    const reason = (f?.evidence?.market_fit_reason || f?.evidence?.review_signal || 'N/A').toString().replace(/\|/g, '\\|');
+    const masking = (f?.formulation_notes?.masking_strategy || 'N/A').toString().replace(/\|/g, '\\|');
+    const sweetener = (f?.formulation_notes?.sweetener_system || 'N/A').toString().replace(/\|/g, '\\|');
+    const color = (f?.formulation_notes?.color_direction || 'N/A').toString().replace(/\|/g, '\\|');
+    return `| ${rank} | ${name} | ${presence} | ${reason} | ${masking} | ${sweetener} | ${color} |`;
+  });
+
+  return [...header, ...rows].join('\n');
+}
+
 // â"€â"€â"€ Main â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 
@@ -856,18 +880,15 @@ async function run() {
   // Save call2 sections into formula_briefs.ingredients
   {
     // Always append FLAVOR RECOMMENDATIONS section whenever flavor_recommendations exists
-    const flavorSection = flavorRecommendations.length > 0
-      ? `\n\n## FLAVOR RECOMMENDATIONS (${flavorRecommendations.length})\n${JSON.stringify(flavorRecommendations, null, 2)}`
-      : '';
+    const flavorSectionBody = renderFlavorRecommendationsTable(flavorRecommendations);
+    const flavorSection = flavorSectionBody ? `\n\n${flavorSectionBody}` : '';
     const mergedQaReport = updatedIngredients.qa_report
       + (comprehensiveComparison ? '\n\n## COMPREHENSIVE INGREDIENT COMPARISON\n' + comprehensiveComparison : '')
       + (flavorQA ? '\n\n## FLAVOR & TASTE QA\n' + flavorQA : '')
       + flavorSection;
 
     const finalFormulaBriefWithFlavors = (updatedIngredients.final_formula_brief || '')
-      + (flavorRecommendations.length > 0
-        ? `\n\n## FLAVOR RECOMMENDATIONS (${flavorRecommendations.length})\n${JSON.stringify(flavorRecommendations, null, 2)}`
-        : '');
+      + (flavorSectionBody ? `\n\n${flavorSectionBody}` : '');
 
     const { error: c2Err } = await DASH.from('formula_briefs')
       .update({
