@@ -403,28 +403,43 @@ function parseQAVerdict(qaReport) {
   };
 }
 
-function renderFlavorRecommendationsTable(flavorRecommendations = []) {
+function renderFlavorRecommendationsTable(flavorRecommendations = [], flavorSummary = null) {
   if (!Array.isArray(flavorRecommendations) || flavorRecommendations.length === 0) return '';
 
   const header = [
     `## FLAVOR RECOMMENDATIONS (${flavorRecommendations.length})`,
     '',
-    '| Rank | Flavor | Competitor Presence | Market Fit Rationale | Masking Strategy | Sweetener System | Color Direction |',
-    '|---:|---|---|---|---|---|---|'
+    '| Rank | Flavor | Confidence | Source Brand | Source ASIN | Source Field | Competitor Presence | Market Fit Rationale | Masking Strategy | Sweetener System | Color Direction |',
+    '|---:|---|---:|---|---|---|---|---|---|---|---|'
   ];
 
   const rows = flavorRecommendations.map((f, idx) => {
-    const rank = f?.rank || idx + 1;
-    const name = (f?.flavor_name || 'N/A').toString().replace(/\|/g, '\\|');
-    const presence = (f?.evidence?.competitor_presence || 'N/A').toString().replace(/\|/g, '\\|');
-    const reason = (f?.evidence?.market_fit_reason || f?.evidence?.review_signal || 'N/A').toString().replace(/\|/g, '\\|');
-    const masking = (f?.formulation_notes?.masking_strategy || 'N/A').toString().replace(/\|/g, '\\|');
-    const sweetener = (f?.formulation_notes?.sweetener_system || 'N/A').toString().replace(/\|/g, '\\|');
-    const color = (f?.formulation_notes?.color_direction || 'N/A').toString().replace(/\|/g, '\\|');
-    return `| ${rank} | ${name} | ${presence} | ${reason} | ${masking} | ${sweetener} | ${color} |`;
+    const rank       = f?.rank || idx + 1;
+    const name       = (f?.flavor_name || 'N/A').toString().replace(/\|/g, '\\|');
+    const confidence = f?.confidence != null ? String(f.confidence) : 'N/A';
+    const srcBrand   = (f?.provenance?.source_brand || '').toString().replace(/\|/g, '\\|') || 'N/A';
+    const srcAsin    = (f?.provenance?.source_asin  || '').toString().replace(/\|/g, '\\|') || 'N/A';
+    const srcField   = (f?.provenance?.source_field || '').toString().replace(/\|/g, '\\|') || 'N/A';
+    const presence   = (f?.evidence?.competitor_presence || 'N/A').toString().replace(/\|/g, '\\|');
+    const reason     = (f?.evidence?.market_fit_reason || f?.evidence?.review_signal || 'N/A').toString().replace(/\|/g, '\\|');
+    const masking    = (f?.formulation_notes?.masking_strategy || 'N/A').toString().replace(/\|/g, '\\|');
+    const sweetener  = (f?.formulation_notes?.sweetener_system || 'N/A').toString().replace(/\|/g, '\\|');
+    const color      = (f?.formulation_notes?.color_direction  || 'N/A').toString().replace(/\|/g, '\\|');
+    return `| ${rank} | ${name} | ${confidence} | ${srcBrand} | ${srcAsin} | ${srcField} | ${presence} | ${reason} | ${masking} | ${sweetener} | ${color} |`;
   });
 
-  return [...header, ...rows].join('\n');
+  const parts = [...header, ...rows];
+
+  if (flavorSummary) {
+    if (flavorSummary.what_worked) {
+      parts.push('', '### WHAT WORKED', flavorSummary.what_worked);
+    }
+    if (flavorSummary.what_didnt) {
+      parts.push('', "### WHAT DIDN'T", flavorSummary.what_didnt);
+    }
+  }
+
+  return parts.join('\n');
 }
 
 // â"€â"€â"€ Main â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -535,6 +550,12 @@ Return ONLY a valid JSON array with 5 to 7 items. Use this exact schema per item
   {
     "flavor_name": "string",
     "rank": 1,
+    "confidence": 75,
+    "provenance": {
+      "source_brand": "exact brand name from competitor data above, or empty string",
+      "source_asin": "exact ASIN from competitor data above, or empty string",
+      "source_field": "title|supplement_facts_raw|marketing_analysis.other_ingredients|derived"
+    },
     "evidence": {
       "competitor_presence": "high|medium|low",
       "review_signal": "string",
@@ -551,6 +572,15 @@ Rules:
 - Must return 5-7 flavors only (not less than 5, not more than 7).
 - Must be grounded in provided competitor flavors + market context.
 - No hardcoded generic list without evidence.
+- confidence: 0-100 integer reflecting signal strength (80-100 = multiple top competitors confirmed, 50-79 = single competitor or indirect signal, 20-49 = category inference, 10-19 = sparse/emergency fallback).
+- provenance: cite the specific competitor brand + ASIN + field where the flavor signal was found; use empty strings if derived from category context.
+
+## FLAVOR_SUMMARY_JSON
+Return ONLY a valid JSON object with exactly two fields:
+{
+  "what_worked": "Paragraph describing which competitor signals clearly drove the recommendations and why those flavors ranked highest.",
+  "what_didnt": "Paragraph describing which competitor signals were weak, ambiguous, or absent, and why those flavors were ranked lower or excluded."
+}
 
 ## COMPETITOR_NOTES_JSON
 Return ONLY a valid JSON object. One entry per ASIN. One sentence comparing their formula to ours. Focus on the most important difference (dose, ingredient quality, or certification).
@@ -566,14 +596,16 @@ async function runCall2(keyword, grokBrief, claudeBrief, adjustedFormula, compet
   console.log(`  Call 2 done: ${Math.round(result.length / 1000)}k chars`);
 
   // Parse sections from call 2
-  const comparisonMatch = result.match(/## COMPREHENSIVE INGREDIENT COMPARISON([\s\S]*?)(?:\n## FLAVOR|$)/);
-  const flavorMatch     = result.match(/## FLAVOR & TASTE QA([\s\S]*?)(?:\n## FLAVOR_RECOMMENDATIONS_JSON|$)/);
-  const flavorJsonMatch = result.match(/## FLAVOR_RECOMMENDATIONS_JSON([\s\S]*?)(?:\n## COMPETITOR_NOTES_JSON|$)/);
-  const notesMatch      = result.match(/## COMPETITOR_NOTES_JSON([\s\S]*)/);
+  const comparisonMatch    = result.match(/## COMPREHENSIVE INGREDIENT COMPARISON([\s\S]*?)(?:\n## FLAVOR|$)/);
+  const flavorMatch        = result.match(/## FLAVOR & TASTE QA([\s\S]*?)(?:\n## FLAVOR_RECOMMENDATIONS_JSON|$)/);
+  const flavorJsonMatch    = result.match(/## FLAVOR_RECOMMENDATIONS_JSON([\s\S]*?)(?:\n## FLAVOR_SUMMARY_JSON|\n## COMPETITOR_NOTES_JSON|$)/);
+  const flavorSummaryMatch = result.match(/## FLAVOR_SUMMARY_JSON([\s\S]*?)(?:\n## COMPETITOR_NOTES_JSON|$)/);
+  const notesMatch         = result.match(/## COMPETITOR_NOTES_JSON([\s\S]*)/);
 
   const comprehensiveComparison = comparisonMatch?.[1]?.trim() || null;
   const flavorQA                = flavorMatch?.[1]?.trim() || null;
   const flavorRaw               = flavorJsonMatch?.[1]?.trim() || '';
+  const flavorSummaryRaw        = flavorSummaryMatch?.[1]?.trim() || '';
   const notesRaw                = notesMatch?.[1]?.trim() || '';
 
   // Parse flavor recommendations JSON
@@ -583,6 +615,14 @@ async function runCall2(keyword, grokBrief, claudeBrief, adjustedFormula, compet
     const arr = cleanFlavor.match(/\[[\s\S]*\]/)?.[0];
     const parsed = arr ? JSON.parse(arr) : [];
     flavorRecommendations = Array.isArray(parsed) ? parsed : [];
+  } catch {}
+
+  // Parse flavor summary JSON
+  let flavorSummary = null;
+  try {
+    const cleanSummary = flavorSummaryRaw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const obj = cleanSummary.match(/\{[\s\S]*\}/)?.[0];
+    flavorSummary = obj ? JSON.parse(obj) : null;
   } catch {}
 
   // Parse competitor notes JSON
@@ -596,9 +636,10 @@ async function runCall2(keyword, grokBrief, claudeBrief, adjustedFormula, compet
   console.log(`  Comprehensive comparison: ${comprehensiveComparison ? Math.round(comprehensiveComparison.length/1000)+'k chars OK' : 'MISSING'}`);
   console.log(`  Flavor QA: ${flavorQA ? Math.round(flavorQA.length/1000)+'k chars OK' : 'MISSING'}`);
   console.log(`  Flavor recommendations: ${flavorRecommendations.length} items`);
+  console.log(`  Flavor summary: ${flavorSummary ? 'OK' : 'MISSING'}`);
   console.log(`  Competitor notes: ${Object.keys(competitorNotes).length} ASINs`);
 
-  return { comprehensiveComparison, flavorQA, flavorRecommendations, competitorNotes };
+  return { comprehensiveComparison, flavorQA, flavorRecommendations, flavorSummary, competitorNotes };
 }
 
 // ── Call 3: Competitor Notes ONLY - tiny focused JSON call ────────────────────
@@ -796,6 +837,7 @@ async function run() {
   let comprehensiveComparison = null;
   let flavorQA = null;
   let flavorRecommendations = [];
+  let flavorSummary = null;
   let call2Notes = {};
 
   try {
@@ -803,6 +845,7 @@ async function run() {
     comprehensiveComparison = c2.comprehensiveComparison;
     flavorQA = c2.flavorQA;
     flavorRecommendations = Array.isArray(c2.flavorRecommendations) ? c2.flavorRecommendations : [];
+    flavorSummary = c2.flavorSummary || null;
     call2Notes = c2.competitorNotes || {};
   } catch (e) {
     console.error(`Call 2 failed: ${e.message}`);
@@ -811,13 +854,24 @@ async function run() {
   let flavorCount = Array.isArray(flavorRecommendations) ? flavorRecommendations.length : 0;
   if (flavorCount < 5 || flavorCount > 7) {
     console.warn(`⚠ Flavor recommendation count out of contract: ${flavorCount} (required 5-7)`);
-    // Derive candidate flavors from competitor signals first, then pad with category defaults
-    const detectedFlavors = [];
+    // Derive candidate flavors with provenance from competitor signals, then pad with category defaults
+    const flavorList = ['apple','mixed berry','blackberry','raspberry','strawberry','lemon','citrus','tropical','mango','peach','cherry','watermelon'];
+    const detectedFlavorMap = new Map(); // flavor_name -> { brand, asin, field }
     for (const c of (competitors || []).slice(0, 20)) {
-      const raw = `${c?.title || ''} ${c?.supplement_facts_raw || ''} ${c?.marketing_analysis?.other_ingredients || ''}`.toLowerCase();
-      ['apple','mixed berry','blackberry','raspberry','strawberry','lemon','citrus','tropical','mango','peach','cherry','watermelon']
-        .forEach(f => { if (raw.includes(f) && !detectedFlavors.includes(f)) detectedFlavors.push(f); });
+      const fields = [
+        { key: 'title',                                 text: (c?.title || '').toLowerCase() },
+        { key: 'supplement_facts_raw',                  text: (c?.supplement_facts_raw || '').toLowerCase() },
+        { key: 'marketing_analysis.other_ingredients',  text: (c?.marketing_analysis?.other_ingredients || '').toLowerCase() },
+      ];
+      for (const { key, text } of fields) {
+        for (const f of flavorList) {
+          if (text.includes(f) && !detectedFlavorMap.has(f)) {
+            detectedFlavorMap.set(f, { brand: c.brand || '', asin: c.asin || '', field: key });
+          }
+        }
+      }
     }
+    const detectedFlavors = Array.from(detectedFlavorMap.keys());
     const categoryDefaults = ['apple','mixed berry','blackberry','raspberry','strawberry','lemon','citrus'];
     const existingNames = new Set(flavorRecommendations.map(r => (r.flavor_name || '').toLowerCase()));
     const candidates = [...new Set([...detectedFlavors, ...categoryDefaults])].filter(n => !existingNames.has(n));
@@ -825,22 +879,31 @@ async function run() {
     if (flavorCount < 5) {
       // Pad to minimum 5 using competitor signals then category defaults
       const needed = 5 - flavorCount;
-      const padEntries = candidates.slice(0, needed).map((name, i) => ({
-        flavor_name: name,
-        rank: flavorCount + i + 1,
-        evidence: {
-          competitor_presence: detectedFlavors.includes(name) ? 'high' : 'medium',
-          review_signal: detectedFlavors.includes(name)
-            ? 'Detected in top competitor supplement facts / titles'
-            : 'Category-relevant default for gummy supplements',
-          market_fit_reason: 'Matches observed category flavor trend and positioning'
-        },
-        formulation_notes: {
-          masking_strategy: 'acid + natural flavor blend balancing active notes',
-          sweetener_system: 'erythritol + stevia/monk fruit blend',
-          color_direction: 'natural fruit-aligned color'
-        }
-      }));
+      const padEntries = candidates.slice(0, needed).map((name, i) => {
+        const prov = detectedFlavorMap.get(name);
+        return {
+          flavor_name: name,
+          rank: flavorCount + i + 1,
+          confidence: prov ? 55 : 25,
+          provenance: {
+            source_brand: prov?.brand || 'category-default',
+            source_asin:  prov?.asin  || '',
+            source_field: prov?.field || 'derived',
+          },
+          evidence: {
+            competitor_presence: prov ? 'high' : 'medium',
+            review_signal: prov
+              ? `Detected in ${prov.brand} (${prov.asin}) ${prov.field}`
+              : 'Category-relevant default for gummy supplements',
+            market_fit_reason: 'Matches observed category flavor trend and positioning'
+          },
+          formulation_notes: {
+            masking_strategy: 'acid + natural flavor blend balancing active notes',
+            sweetener_system: 'erythritol + stevia/monk fruit blend',
+            color_direction: 'natural fruit-aligned color'
+          }
+        };
+      });
       flavorRecommendations = [...flavorRecommendations, ...padEntries];
       console.log(`  Padded flavor recommendations to ${flavorRecommendations.length} (added ${padEntries.length} from competitor/category signals)`);
     }
@@ -863,6 +926,8 @@ async function run() {
     const name = emergencyFlavors[flavorRecommendations.length] || `flavor-${flavorRecommendations.length + 1}`;
     flavorRecommendations.push({
       flavor_name: name, rank: flavorRecommendations.length + 1,
+      confidence: 10,
+      provenance: { source_brand: 'emergency-fallback', source_asin: '', source_field: 'derived' },
       evidence: { competitor_presence: 'medium', review_signal: 'Emergency category fallback', market_fit_reason: 'Category default for gummy supplements' },
       formulation_notes: { masking_strategy: 'natural flavor blend', sweetener_system: 'stevia blend', color_direction: 'natural' }
     });
@@ -880,7 +945,7 @@ async function run() {
   // Save call2 sections into formula_briefs.ingredients
   {
     // Always append FLAVOR RECOMMENDATIONS section whenever flavor_recommendations exists
-    const flavorSectionBody = renderFlavorRecommendationsTable(flavorRecommendations);
+    const flavorSectionBody = renderFlavorRecommendationsTable(flavorRecommendations, flavorSummary);
     const flavorSection = flavorSectionBody ? `\n\n${flavorSectionBody}` : '';
     const mergedQaReport = updatedIngredients.qa_report
       + (comprehensiveComparison ? '\n\n## COMPREHENSIVE INGREDIENT COMPARISON\n' + comprehensiveComparison : '')
