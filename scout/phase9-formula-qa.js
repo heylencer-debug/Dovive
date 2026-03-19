@@ -430,14 +430,29 @@ function renderFlavorRecommendationsTable(flavorRecommendations = [], flavorSumm
 
   const parts = [...header, ...rows];
 
-  if (flavorSummary) {
-    if (flavorSummary.what_worked) {
-      parts.push('', '### WHAT WORKED', flavorSummary.what_worked);
-    }
-    if (flavorSummary.what_didnt) {
-      parts.push('', "### WHAT DIDN'T", flavorSummary.what_didnt);
-    }
-  }
+  const workedFromRows = flavorRecommendations
+    .filter(f => (f?.confidence ?? 0) >= 50)
+    .slice(0, 3)
+    .map(f => `${f.flavor_name} (${f.provenance?.source_brand || 'signal-derived'} ${f.provenance?.source_asin || ''})`)
+    .join(', ');
+  const didntFromRows = flavorRecommendations
+    .filter(f => (f?.confidence ?? 0) < 50)
+    .slice(0, 3)
+    .map(f => `${f.flavor_name} (lower-confidence / inferred signal)`)
+    .join(', ');
+
+  const whatWorked = flavorSummary?.what_worked
+    || (workedFromRows
+      ? `Highest-confidence flavor signals came from competitor-observed patterns: ${workedFromRows}. These ranked highest due to direct market evidence from competitor listings and ingredient context.`
+      : 'No strong direct competitor flavor signals were available in this run; recommendations rely on best-available category evidence.');
+
+  const whatDidnt = flavorSummary?.what_didnt
+    || (didntFromRows
+      ? `Lower-confidence signals were limited or indirect: ${didntFromRows}. These were kept lower-ranked or used as fallback to maintain a complete 5-7 flavor strategy.`
+      : 'Weak/absent signals were excluded where possible; remaining gaps were filled using category defaults to preserve manufacturing decision coverage.');
+
+  parts.push('', '### WHAT WORKED', whatWorked);
+  parts.push('', "### WHAT DIDN'T", whatDidnt);
 
   return parts.join('\n');
 }
