@@ -37,6 +37,9 @@ const KEYWORD = process.argv.includes('--keyword')
   : 'ashwagandha gummies';
 const FORCE   = process.argv.includes('--force');
 
+// Token usage log — populated by every API call in this run
+const tokenLog = [];
+
 // CAT_ID is resolved dynamically in run() - no hardcoding
 
 // â"€â"€â"€ xAI Key â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -63,6 +66,7 @@ async function callClaudeSonnetQA(prompt, maxTokens = 12000) {
     if (j.error) throw new Error(`Claude Sonnet QA error: ${j.error.message || JSON.stringify(j.error)}`);
     if (j.usage) {
       console.log(`  Tokens: ${j.usage.prompt_tokens}→${j.usage.completion_tokens} (total: ${j.usage.total_tokens})`);
+      tokenLog.push({ call: tokenLog.length + 1, prompt_tokens: j.usage.prompt_tokens, completion_tokens: j.usage.completion_tokens, total_tokens: j.usage.total_tokens, ts: new Date().toISOString() });
     }
     return j.choices?.[0]?.message?.content || null;
   } finally {
@@ -660,7 +664,25 @@ async function runCall2(keyword, grokBrief, claudeBrief, adjustedFormula, compet
   console.log(`  Flavor summary: ${flavorSummary ? 'OK' : 'MISSING'}`);
   console.log(`  Competitor notes: ${Object.keys(competitorNotes).length} ASINs`);
 
-  return { comprehensiveComparison, flavorQA, flavorRecommendations, flavorSummary, competitorNotes, elapsed: call2Elapsed };
+  const call2ParseStatus = {
+    comprehensive_comparison: !!comprehensiveComparison,
+    flavor_qa: !!flavorQA,
+    flavor_recommendations_count: flavorRecommendations.length,
+    flavor_summary: !!flavorSummary,
+    competitor_notes_count: Object.keys(competitorNotes).length,
+    missing_sections: [
+      !comprehensiveComparison && 'comprehensive_comparison',
+      !flavorQA && 'flavor_qa',
+      flavorRecommendations.length === 0 && 'flavor_recommendations_json',
+      !flavorSummary && 'flavor_summary_json',
+      Object.keys(competitorNotes).length === 0 && 'competitor_notes_json',
+    ].filter(Boolean),
+  };
+  if (call2ParseStatus.missing_sections.length > 0) {
+    console.warn(`  ⚠ Call 2 parse failures: ${call2ParseStatus.missing_sections.join(', ')}`);
+  }
+
+  return { comprehensiveComparison, flavorQA, flavorRecommendations, flavorSummary, competitorNotes, elapsed: call2Elapsed, parseStatus: call2ParseStatus };
 }
 
 // ── Call 3: Competitor Notes ONLY - tiny focused JSON call ────────────────────
@@ -710,6 +732,7 @@ Replace each "one sentence" with your comparison. Focus on the most important di
     const parsed = JSON.parse(text);
     if (parsed.usage) {
       console.log(`  Call 3 tokens: ${parsed.usage.prompt_tokens}→${parsed.usage.completion_tokens}`);
+      tokenLog.push({ call: tokenLog.length + 1, prompt_tokens: parsed.usage.prompt_tokens, completion_tokens: parsed.usage.completion_tokens, total_tokens: parsed.usage.total_tokens, ts: new Date().toISOString() });
     }
     const raw = parsed.choices?.[0]?.message?.content?.trim() || '';
     // Try to extract JSON - handle if Claude adds any wrapping text
@@ -725,6 +748,36 @@ Replace each "one sentence" with your comparison. Focus on the most important di
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+// ── Build run audit markdown section ──────────────────────────────────────────────────────
+function buildRunAuditMarkdown(audit) {
+  const missing = audit.call2ParseStatus?.missing_sections || [];
+  const call2Desc = audit.call2Status === 'success'
+    ? '✅ success (' + (audit.call2Elapsed ?? 'N/A') + 's)'
+    : audit.call2Status === 'partial'
+      ? '⚠ partial — missing: ' + missing.join(', ') + ' (' + (audit.call2Elapsed ?? 'N/A') + 's)'
+      : '❌ failed';
+  return [
+    '',
+    '---',
+    '',
+    '## P10 RUN AUDIT',
+    '*Generated: ' + audit.timestamp + '*',
+    '',
+    '| Field | Value |',
+    '|---|---|',
+    '| Keyword | ' + audit.keyword + ' |',
+    '| Model | ' + audit.model + ' |',
+    '| Call 1 | ' + (audit.call1Status === 'success' ? '✅ success' : '❌ failed') + ' (' + (audit.call1Elapsed ?? 'N/A') + 's) |',
+    '| Call 2 | ' + call2Desc + ' |',
+    '| Call 3 | ' + (audit.call3Status === 'success' ? '✅ success' : '❌ failed') + ' |',
+    '| Flavor Count | ' + audit.flavorCount + '/5-7 |',
+    '| Flavor Fallback Used | ' + audit.flavorFallbackUsed + ' |',
+    '| Flavor Summary Present | ' + audit.flavorSummaryPresent + ' |',
+    '| Total Tokens | ' + (audit.totalTokens || 0).toLocaleString() + ' |',
+    '| Estimated Cost USD | $' + (audit.estimatedCostUsd ?? 'N/A') + ' |',
+  ].join('\n');
 }
 
 async function run() {
@@ -866,6 +919,8 @@ async function run() {
   let flavorSummary = null;
   let call2Notes = {};
   let call2Elapsed = null;
+  let call2Status = 'not_started';
+  let call2ParseStatus = null;
 
   try {
     const c2 = await runCall2(KEYWORD, grokBrief, claudeBrief, adjustedFormula, competitors, marketIntelText);
@@ -875,12 +930,17 @@ async function run() {
     flavorSummary = c2.flavorSummary || null;
     call2Notes = c2.competitorNotes || {};
     call2Elapsed = c2.elapsed || null;
+    call2ParseStatus = c2.parseStatus || null;
+    call2Status = (call2ParseStatus?.missing_sections?.length === 0) ? 'success' : 'partial';
   } catch (e) {
     console.error(`Call 2 failed: ${e.message}`);
+    call2Status = 'failed';
   }
 
   let flavorCount = Array.isArray(flavorRecommendations) ? flavorRecommendations.length : 0;
+  let flavorFallbackUsed = false;
   if (flavorCount < 5 || flavorCount > 7) {
+    flavorFallbackUsed = true;
     console.warn(`⚠ Flavor recommendation count out of contract: ${flavorCount} (required 5-7)`);
     // Derive candidate flavors with provenance from competitor signals, then pad with category defaults
     const flavorList = ['apple','mixed berry','blackberry','raspberry','strawberry','lemon','citrus','tropical','mango','peach','cherry','watermelon'];
@@ -964,6 +1024,7 @@ async function run() {
 
   // Call 3: dedicated JSON-only competitor notes (always runs, always completes)
   const call3Notes = await runCall3CompetitorNotes(KEYWORD, adjustedFormula, competitors);
+  const call3Status = Object.keys(call3Notes).length > 0 ? 'success' : 'failed';
 
   // Merge: call3 > call2 > call1 parsed notes
   const finalNotes = { ...competitorNotes, ...call2Notes, ...call3Notes };
@@ -984,19 +1045,52 @@ async function run() {
     const finalFormulaBriefWithFlavors = (updatedIngredients.final_formula_brief || '')
       + (flavorSectionBody ? `\n\n${flavorSectionBody}` : '');
 
+    // Token cost estimate (claude-sonnet-4-6 via OpenRouter ~$3/1M tokens)
+    const totalTokens = tokenLog.reduce((s, t) => s + (t.total_tokens || 0), 0);
+    const estimatedCostUsd = parseFloat(((totalTokens / 1_000_000) * 3.0).toFixed(4));
+
     const pipelineMetadata = {
       keyword: KEYWORD,
       generated_at: new Date().toISOString(),
       call1_elapsed_s: elapsed,
       call2_elapsed_s: call2Elapsed,
       call1_prompt_chars: Math.round(prompt.length),
+      call1_status: qaReport ? 'success' : 'failed',
+      call2_status: call2Status,
+      call2_parse_status: call2ParseStatus,
+      call3_status: call3Status,
       flavor_count: flavorCount,
+      flavor_fallback_used: flavorFallbackUsed,
+      flavor_summary_present: flavorSummary !== null,
       flavor_source_breakdown: {
         high_confidence: flavorRecommendations.filter(f => (f.confidence ?? 0) >= 50).length,
         low_confidence: flavorRecommendations.filter(f => (f.confidence ?? 0) < 50).length,
         emergency_fallback: flavorRecommendations.filter(f => f.provenance?.source_brand === 'emergency-fallback').length,
       },
+      token_log: tokenLog,
+      total_tokens: totalTokens,
+      estimated_cost_usd: estimatedCostUsd,
     };
+    console.log(`  Token usage: ${totalTokens.toLocaleString()} total | est. cost: $${estimatedCostUsd}`);
+
+    // Append structured run audit to qa_report
+    const runAuditMd = buildRunAuditMarkdown({
+      timestamp: pipelineMetadata.generated_at,
+      keyword: KEYWORD,
+      model: 'anthropic/claude-sonnet-4-6',
+      call1Status: pipelineMetadata.call1_status,
+      call1Elapsed: elapsed,
+      call2Status,
+      call2Elapsed,
+      call2ParseStatus,
+      call3Status,
+      flavorCount,
+      flavorFallbackUsed,
+      flavorSummaryPresent: flavorSummary !== null,
+      totalTokens,
+      estimatedCostUsd,
+    });
+    mergedQaReport = mergedQaReport + runAuditMd;
 
     const { error: c2Err } = await DASH.from('formula_briefs')
       .update({
@@ -1008,11 +1102,25 @@ async function run() {
           final_formula_brief: finalFormulaBriefWithFlavors,
           qa_report: mergedQaReport,
           qa_pipeline_metadata: pipelineMetadata,
+          qa_run_audit: {
+            timestamp: pipelineMetadata.generated_at,
+            model: 'anthropic/claude-sonnet-4-6',
+            call1_status: pipelineMetadata.call1_status,
+            call2_status: call2Status,
+            call2_parse_status: call2ParseStatus,
+            call3_status: call3Status,
+            flavor_count: flavorCount,
+            flavor_fallback_used: flavorFallbackUsed,
+            flavor_summary_present: flavorSummary !== null,
+            total_tokens: totalTokens,
+            estimated_cost_usd: estimatedCostUsd,
+            token_log: tokenLog,
+          },
         }
       })
       .eq('id', briefRow.id);
     if (c2Err) console.error('  Call 2 save error:', c2Err.message);
-    else console.log('  Call 2 results saved (comparison + flavor QA + pipeline metadata) OK');
+    else console.log('  Call 2 results saved (comparison + flavor QA + pipeline metadata + run audit) OK');
   }
 
   if (finalNoteCount > 0) {
