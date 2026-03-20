@@ -16,7 +16,7 @@
  */
 
 require('dotenv').config();
-const { execSync, spawn } = require('child_process');
+const { execSync, spawn, spawnSync } = require('child_process');
 const { createClient } = require('@supabase/supabase-js');
 const path = require('path');
 const { resolveCategory } = require('./utils/category-resolver');
@@ -46,10 +46,21 @@ const ONLY_PHASES = process.argv.includes('--phases')
 const USE_AI = process.argv.includes('--ai');
 const FORCE = process.argv.includes('--force');
 const RECOVER_SYNC = process.argv.includes('--recover') && process.argv[process.argv.indexOf('--recover') + 1] === 'sync';
+const RUN_PHASE0 = process.argv.includes('--phase0');
 
-if (!KEYWORD) {
+if (!KEYWORD && !RUN_PHASE0) {
   console.error('Usage: node run-pipeline.js --keyword "ashwagandha gummies" [--from P3] [--ai] [--force]');
+  console.error('       node run-pipeline.js --phase0              (market opportunity scan, no keyword needed)');
+  console.error('       node run-pipeline.js --keyword "..." --phase0  (scan then run pipeline)');
   process.exit(1);
+}
+
+// Phase 0 standalone mode — scan all categories without running the main pipeline
+if (RUN_PHASE0 && !KEYWORD) {
+  console.log('\n→ Phase 0 standalone: Market Opportunity Scanner');
+  const p0Args = process.argv.slice(2).filter(a => a !== '--phase0');
+  const result = spawnSync('node', [path.join(__dirname, 'phase0-market-opportunity.js'), ...p0Args], { stdio: 'inherit' });
+  process.exit(result.status || 0);
 }
 
 // ─── Pipeline Lock File (prevent duplicate runs) ──────────────────────────────
@@ -375,6 +386,19 @@ async function run() {
   const phasesToRun = ONLY_PHASES || PHASES.map(p => p.num);
 
   await notify(`🔍 Scout pipeline started for "${KEYWORD}"\nPhases: P${phasesToRun.join(', P')} | ${USE_AI ? 'AI-Enhanced' : 'Rule-Based'}`);
+
+  // Phase 0: Market Opportunity Scan — runs before the main pipeline when --phase0 is passed with --keyword
+  if (RUN_PHASE0) {
+    console.log(`\n${'─'.repeat(60)}`);
+    console.log('P0: Market Opportunity Scan (pre-pipeline)');
+    console.log(`${'─'.repeat(60)}`);
+    try {
+      await runScript('phase0-market-opportunity.js', []);
+      console.log('\n→ Phase 0 complete. Continuing pipeline...\n');
+    } catch (e) {
+      console.warn(`\n⚠ Phase 0 failed (non-fatal, pipeline continues): ${e.message}\n`);
+    }
+  }
 
   if (RECOVER_SYNC) {
     console.log('\\n🔧 Recover mode: sync (keepa/reviews/ocr) + verifier');
