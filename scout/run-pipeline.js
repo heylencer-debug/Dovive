@@ -331,7 +331,8 @@ async function runFinalVerifier(categoryId) {
   const p2 = await q('monthly_sales');
   const p3 = await q('review_analysis');
   const p4 = (await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', categoryId).gt('nutrients_count', 0)).count || 0;
-  const p5 = (await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', categoryId).filter('marketing_analysis->p5_research', 'not.is', null)).count || 0;
+  // P5 data lives in dovive_phase5_research (DOVIVE DB), not in DASH products table
+  const p5 = (await DOVIVE.from('dovive_phase5_research').select('*', { count: 'exact', head: true }).ilike('keyword', `%${KEYWORD.split(' ')[0]}%`)).count || 0;
   const p6 = await q('marketing_analysis');
   const p8 = (await DASH.from('products').select('*', { count: 'exact', head: true }).eq('category_id', categoryId).filter('marketing_analysis->packaging_intelligence', 'not.is', null)).count || 0;
 

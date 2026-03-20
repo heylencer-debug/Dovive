@@ -61,6 +61,9 @@ async function callClaudeSonnetQA(prompt, maxTokens = 12000) {
     let j;
     try { j = JSON.parse(raw); } catch (e) { throw new Error(`Bad JSON from OpenRouter (${raw.length} chars): ${raw.slice(0, 200)}`); }
     if (j.error) throw new Error(`Claude Sonnet QA error: ${j.error.message || JSON.stringify(j.error)}`);
+    if (j.usage) {
+      console.log(`  Tokens: ${j.usage.prompt_tokens}→${j.usage.completion_tokens} (total: ${j.usage.total_tokens})`);
+    }
     return j.choices?.[0]?.message?.content || null;
   } finally {
     clearTimeout(timeout);
@@ -349,10 +352,10 @@ Return ONLY a valid JSON object mapping each ASIN to a one-line note:
 {"ASIN1": "Their dose is X vs our Y - we win on Z", "ASIN2": "..."}
 No other text. Pure JSON only.`;
 
+  const key = getOpenRouterKey();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60000);
   try {
-    const key = getOpenRouterKey();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000);
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST', signal: controller.signal,
       headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
@@ -362,7 +365,6 @@ No other text. Pure JSON only.`;
         messages: [{ role: 'user', content: prompt }]
       })
     });
-    clearTimeout(timeout);
     const text = await res.text();
     const json = JSON.parse(text);
     const raw = json.choices?.[0]?.message?.content || '';
@@ -371,6 +373,8 @@ No other text. Pure JSON only.`;
   } catch (e) {
     console.log(`  Competitor notes generation failed: ${e.message}`);
     return {};
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -607,8 +611,10 @@ async function runCall2(keyword, grokBrief, claudeBrief, adjustedFormula, compet
   console.log(`\nRunning Call 2: Comprehensive Comparison + Flavor QA + Competitor Notes...`);
   const prompt = buildCall2Prompt(keyword, grokBrief, claudeBrief, adjustedFormula, competitors, marketIntelText);
   console.log(`  Prompt size: ${Math.round(prompt.length / 1000)}k chars`);
+  const call2Start = Date.now();
   const result = await callClaudeSonnetQA(prompt, 6000);
-  console.log(`  Call 2 done: ${Math.round(result.length / 1000)}k chars`);
+  const call2Elapsed = Math.round((Date.now() - call2Start) / 1000);
+  console.log(`  Call 2 done: ${Math.round(result.length / 1000)}k chars (${call2Elapsed}s)`);
 
   // Parse sections from call 2
   const comparisonMatch    = result.match(/## COMPREHENSIVE INGREDIENT COMPARISON([\s\S]*?)(?:\n## FLAVOR|$)/);
@@ -654,7 +660,7 @@ async function runCall2(keyword, grokBrief, claudeBrief, adjustedFormula, compet
   console.log(`  Flavor summary: ${flavorSummary ? 'OK' : 'MISSING'}`);
   console.log(`  Competitor notes: ${Object.keys(competitorNotes).length} ASINs`);
 
-  return { comprehensiveComparison, flavorQA, flavorRecommendations, flavorSummary, competitorNotes };
+  return { comprehensiveComparison, flavorQA, flavorRecommendations, flavorSummary, competitorNotes, elapsed: call2Elapsed };
 }
 
 // ── Call 3: Competitor Notes ONLY - tiny focused JSON call ────────────────────
@@ -686,10 +692,11 @@ Return this exact format - use the EXACT ASIN codes listed above, one entry per 
 
 Replace each "one sentence" with your comparison. Focus on the most important difference (dose, ingredient quality, certification, or price). Return ONLY pure JSON, no markdown.`;
 
+  const key = getOpenRouterKey();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 90000);
+  const call3Start = Date.now();
   try {
-    const key = getOpenRouterKey();
-    const controller = new AbortController();
-    setTimeout(() => controller.abort(), 90000);
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST', signal: controller.signal,
       headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
@@ -701,16 +708,22 @@ Replace each "one sentence" with your comparison. Focus on the most important di
     });
     const text = await res.text();
     const parsed = JSON.parse(text);
+    if (parsed.usage) {
+      console.log(`  Call 3 tokens: ${parsed.usage.prompt_tokens}→${parsed.usage.completion_tokens}`);
+    }
     const raw = parsed.choices?.[0]?.message?.content?.trim() || '';
     // Try to extract JSON - handle if Claude adds any wrapping text
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (!jsonMatch) { console.log(`  No JSON found in response. Raw: ${raw.slice(0, 200)}`); return {}; }
     const notes = JSON.parse(jsonMatch[0]);
-    console.log(`  Competitor notes: ${Object.keys(notes).length} ASINs OK`);
+    const elapsed = Math.round((Date.now() - call3Start) / 1000);
+    console.log(`  Competitor notes: ${Object.keys(notes).length} ASINs OK (${elapsed}s)`);
     return notes;
   } catch (e) {
     console.log(`  Call 3 failed: ${e.message}`);
     return {};
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -837,7 +850,6 @@ async function run() {
     final_formula_brief: finalFormulaBrief,
     adjustments_table: adjustmentsTable,
     formula_validation: validationResult,
-    formula_validation: validationResult,
     qa_generated_at: new Date().toISOString(),
   };
   const { error: saveErr } = await DASH.from('formula_briefs')
@@ -846,14 +858,14 @@ async function run() {
   if (saveErr) console.error(`  âŒ Save error: ${saveErr.message}`);
   else console.log(`  âœ… Saved to formula_briefs.ingredients.qa_report`);
 
-  // â"€â"€ Save competitor notes to products â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
-    // ── Call 2 invocation ──────────────────────────────────────────────────────
+  // ── Call 2 invocation ──────────────────────────────────────────────────────
   const marketIntelText = marketIntel || '';
   let comprehensiveComparison = null;
   let flavorQA = null;
   let flavorRecommendations = [];
   let flavorSummary = null;
   let call2Notes = {};
+  let call2Elapsed = null;
 
   try {
     const c2 = await runCall2(KEYWORD, grokBrief, claudeBrief, adjustedFormula, competitors, marketIntelText);
@@ -862,6 +874,7 @@ async function run() {
     flavorRecommendations = Array.isArray(c2.flavorRecommendations) ? c2.flavorRecommendations : [];
     flavorSummary = c2.flavorSummary || null;
     call2Notes = c2.competitorNotes || {};
+    call2Elapsed = c2.elapsed || null;
   } catch (e) {
     console.error(`Call 2 failed: ${e.message}`);
   }
@@ -958,17 +971,32 @@ async function run() {
   console.log(`Competitor notes total: ${finalNoteCount}`);
 
   // Save call2 sections into formula_briefs.ingredients
+  let mergedQaReport = updatedIngredients.qa_report; // will be updated below, used for vault
   {
     // Always append FLAVOR RECOMMENDATIONS section whenever flavor_recommendations exists
     const flavorSectionBody = renderFlavorRecommendationsTable(flavorRecommendations, flavorSummary);
     const flavorSection = flavorSectionBody ? `\n\n${flavorSectionBody}` : '';
-    const mergedQaReport = updatedIngredients.qa_report
+    mergedQaReport = updatedIngredients.qa_report
       + (comprehensiveComparison ? '\n\n## COMPREHENSIVE INGREDIENT COMPARISON\n' + comprehensiveComparison : '')
       + (flavorQA ? '\n\n## FLAVOR & TASTE QA\n' + flavorQA : '')
       + flavorSection;
 
     const finalFormulaBriefWithFlavors = (updatedIngredients.final_formula_brief || '')
       + (flavorSectionBody ? `\n\n${flavorSectionBody}` : '');
+
+    const pipelineMetadata = {
+      keyword: KEYWORD,
+      generated_at: new Date().toISOString(),
+      call1_elapsed_s: elapsed,
+      call2_elapsed_s: call2Elapsed,
+      call1_prompt_chars: Math.round(prompt.length),
+      flavor_count: flavorCount,
+      flavor_source_breakdown: {
+        high_confidence: flavorRecommendations.filter(f => (f.confidence ?? 0) >= 50).length,
+        low_confidence: flavorRecommendations.filter(f => (f.confidence ?? 0) < 50).length,
+        emergency_fallback: flavorRecommendations.filter(f => f.provenance?.source_brand === 'emergency-fallback').length,
+      },
+    };
 
     const { error: c2Err } = await DASH.from('formula_briefs')
       .update({
@@ -979,11 +1007,12 @@ async function run() {
           flavor_recommendations: flavorRecommendations,
           final_formula_brief: finalFormulaBriefWithFlavors,
           qa_report: mergedQaReport,
+          qa_pipeline_metadata: pipelineMetadata,
         }
       })
       .eq('id', briefRow.id);
     if (c2Err) console.error('  Call 2 save error:', c2Err.message);
-    else console.log('  Call 2 results saved (comparison + flavor QA) OK');
+    else console.log('  Call 2 results saved (comparison + flavor QA + pipeline metadata) OK');
   }
 
   if (finalNoteCount > 0) {
@@ -1012,11 +1041,13 @@ async function run() {
   if (!fs.existsSync(vaultDir)) fs.mkdirSync(vaultDir, { recursive: true });
   const vaultPath = path.join(vaultDir, `${date}-${slug}-qa-report.md`);
   fs.writeFileSync(vaultPath, [
-    `# P9 Formula QA Report â€" ${KEYWORD}`,
+    `# P9 Formula QA Report — ${KEYWORD}`,
     `Generated: ${new Date().toISOString()}`,
     `Verdict: ${verdict.verdict} | Score: ${verdict.score}/10`,
+    `Call 1 elapsed: ${elapsed}s | Call 2 elapsed: ${call2Elapsed ?? 'N/A'}s`,
+    `Flavor recommendations: ${flavorCount} (high-conf: ${flavorRecommendations.filter(f => (f.confidence ?? 0) >= 50).length})`,
     ``,
-    qaReport,
+    mergedQaReport,
   ].join('\n'));
   console.log(`  âœ… ${vaultPath}`);
 
