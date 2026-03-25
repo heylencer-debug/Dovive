@@ -173,6 +173,24 @@ async function clearPhaseData(phaseNum, categoryId) {
       case 10: // QA
         // No separate table — QA updates formula_briefs, let it overwrite
         break;
+      case 11: // competitive benchmarking
+        {
+          const { data: prods } = await DASH.from('formula_briefs').select('id, ingredients').eq('category_id', categoryId).single();
+          if (prods?.ingredients?.competitive_benchmarking) {
+            const { competitive_benchmarking, ...rest } = prods.ingredients;
+            await DASH.from('formula_briefs').update({ ingredients: Object.keys(rest).length ? rest : null }).eq('id', prods.id);
+          }
+        }
+        break;
+      case 12: // FDA compliance
+        {
+          const { data: prods } = await DASH.from('formula_briefs').select('id, ingredients').eq('category_id', categoryId).single();
+          if (prods?.ingredients?.fda_compliance) {
+            const { fda_compliance, ...rest } = prods.ingredients;
+            await DASH.from('formula_briefs').update({ ingredients: Object.keys(rest).length ? rest : null }).eq('id', prods.id);
+          }
+        }
+        break;
     }
     console.log(`  ✅ P${phaseNum} data cleared`);
   } catch (e) {
@@ -259,6 +277,18 @@ async function checkPhaseStatus(phaseNum, categoryId) {
       const hasBrief = !!(data?.[0]?.ingredients?.ai_generated_brief);
       return { done: hasBrief, count: hasBrief ? 1 : 0, total: 1, msg: hasBrief ? `Brief exists (${data[0].created_at?.split('T')[0]})` : 'No brief yet' };
     }
+    case 11: {
+      // P11 = Competitive Formula Benchmarking (phase10-competitive-benchmarking.js)
+      const { data: fb } = await DASH.from('formula_briefs').select('ingredients').eq('category_id', categoryId).single();
+      const hasBenchmarking = !!(fb?.ingredients?.competitive_benchmarking?.grok_draft);
+      return { done: hasBenchmarking, count: hasBenchmarking ? 1 : 0, total: 1, msg: hasBenchmarking ? 'Competitive benchmarking exists' : 'Benchmarking not run yet' };
+    }
+    case 12: {
+      // P12 = FDA Compliance (phase11-fda-compliance.js)
+      const { data: fb } = await DASH.from('formula_briefs').select('ingredients').eq('category_id', categoryId).single();
+      const hasCompliance = !!(fb?.ingredients?.fda_compliance?.opus_analysis);
+      return { done: hasCompliance, count: hasCompliance ? 1 : 0, total: 1, msg: hasCompliance ? `FDA compliance exists (score: ${fb.ingredients.fda_compliance.compliance_score}/100)` : 'FDA compliance not run yet' };
+    }
     default: return { done: false, count: 0, total: 0 };
   }
 }
@@ -331,6 +361,14 @@ const PHASES = [
       await runScript('seed-category-analysis.js', [KEYWORD]);
     }
   },
+  {
+    num: 11, name: 'Competitive Formula Benchmarking', description: 'Ingredient-by-ingredient vs every competitor — Grok drafts, Claude Opus 4.6 validates',
+    run: async () => runScript('phase10-competitive-benchmarking.js', ['--keyword', KEYWORD, ...(FORCE ? ['--force'] : [])])
+  },
+  {
+    num: 12, name: 'FDA Compliance', description: 'FDA/DSHEA compliance with live NIH ODS data — Claude Opus 4.6 primary, Grok validates',
+    run: async () => runScript('phase11-fda-compliance.js', ['--keyword', KEYWORD, ...(FORCE ? ['--force'] : [])])
+  },
 ];
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -354,6 +392,8 @@ async function runFinalVerifier(categoryId) {
   const p7 = !!(fb?.ingredients?.market_intelligence?.ai_market_analysis);
   const p9 = !!(fb?.ingredients?.ai_generated_brief);
   const p10 = !!(fb?.ingredients?.qa_report);
+  const p11 = !!(fb?.ingredients?.competitive_benchmarking?.grok_draft);
+  const p12 = !!(fb?.ingredients?.fda_compliance?.opus_analysis);
 
   const failures = [];
   if (!(p2 >= total * 0.9)) failures.push(`P2 ${p2}/${total} < 90%`);
@@ -365,8 +405,10 @@ async function runFinalVerifier(categoryId) {
   if (!(p8 >= total * 0.9)) failures.push(`P8 ${p8}/${total} < 90%`);
   if (!p9) failures.push('P9 ai_generated_brief missing');
   if (!p10) failures.push('P10 qa_report missing');
+  if (!p11) failures.push('P11 competitive_benchmarking missing');
+  if (!p12) failures.push('P12 fda_compliance missing');
 
-  return { pass: failures.length === 0, failures, metrics: { total, p2, p3, p4, p5, p6, p7, p8, p9, p10, top20P4 } };
+  return { pass: failures.length === 0, failures, metrics: { total, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, top20P4 } };
 }
 
 async function run() {
