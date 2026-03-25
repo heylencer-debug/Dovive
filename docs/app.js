@@ -19,6 +19,9 @@
   // V3.2: Phase coverage data — { keyword: { total, p1, p2, p3, p4, p5 } }
   let phaseCoverage = {};
 
+  // V3.3: Formula pipeline status from DASH — { keyword: { p7, p9, p10, p11, p12 } }
+  let formulaStatus = {};
+
   // Product type filter options
   const PRODUCT_TYPE_FILTERS = [
     'All',
@@ -93,6 +96,7 @@
     await loadProducts();
     await loadPhase5ASINs(); // V3.0: load Phase 5 researched ASINs from Supabase
     await loadPhaseCoverage(); // V3.2: load P1-P5 coverage counts per keyword
+    await loadFormulaStatus(); // V3.3: load P7/P9-P12 formula status from DASH
     await loadFormatFocusData();
     await loadScoutSettings();
     await checkScoutStatus();
@@ -719,6 +723,33 @@
       });
     } catch (e) {
       console.warn('Phase coverage load failed:', e.message);
+    }
+  }
+
+  // V3.3: Load P7/P9–P12 formula pipeline status from DASH (formula_briefs)
+  async function loadFormulaStatus() {
+    try {
+      const [cats, briefs] = await Promise.all([
+        dashFetch('categories', { select: 'id,keyword', limit: 200 }),
+        dashFetch('formula_briefs', { select: 'category_id,ingredients', limit: 200 })
+      ]);
+      const catMap = {};
+      (cats || []).forEach(c => { catMap[c.id] = c.keyword; });
+      formulaStatus = {};
+      (briefs || []).forEach(b => {
+        const kw = catMap[b.category_id];
+        if (!kw) return;
+        const ing = b.ingredients || {};
+        formulaStatus[kw] = {
+          p7:  !!(ing.market_intelligence?.ai_market_analysis),
+          p9:  !!(ing.ai_generated_brief),
+          p10: !!(ing.qa_report),
+          p11: !!(ing.competitive_benchmarking?.sonnet_draft || ing.competitive_benchmarking?.grok_draft),
+          p12: !!(ing.fda_compliance?.opus_analysis),
+        };
+      });
+    } catch (e) {
+      console.warn('Formula status load failed:', e.message);
     }
   }
 
@@ -3829,7 +3860,7 @@
 
         <div class="kw-last-scraped">${lastScrapedText}</div>
 
-        <!-- V3.2: Phase Coverage Bar -->
+        <!-- V3.2: Phase Coverage Bar (P1-P5) -->
         ${(() => {
           const cov = phaseCoverage[kw.keyword];
           if (!cov || !cov.total) return '';
@@ -3853,6 +3884,23 @@
             </div>`;
           }).join('');
           return `<div class="phase-coverage">${bars}</div>`;
+        })()}
+        <!-- V3.3: Formula Pipeline Badges (P7/P9-P12 from DASH) -->
+        ${(() => {
+          const fs = formulaStatus[kw.keyword];
+          if (!fs) return '';
+          const fphases = [
+            { label: 'P7', key: 'p7', title: 'Market Intel' },
+            { label: 'P9', key: 'p9', title: 'AI Brief' },
+            { label: 'P10', key: 'p10', title: 'QA' },
+            { label: 'P11', key: 'p11', title: 'Benchmarking' },
+            { label: 'P12', key: 'p12', title: 'FDA' },
+          ];
+          const badges = fphases.map(p => {
+            const done = !!fs[p.key];
+            return `<span title="${p.title}" style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;background:${done?'#dcfce7':'#f1f5f9'};color:${done?'#16a34a':'#94a3b8'};border:1px solid ${done?'#bbf7d0':'#e2e8f0'};">${done?'✓':'·'} ${p.label}</span>`;
+          }).join('');
+          return `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;">${badges}</div>`;
         })()}
 
         <div class="kw-report-chip ${kw.hasReport ? 'ready' : 'pending'}">
