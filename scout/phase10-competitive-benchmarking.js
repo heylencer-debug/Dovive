@@ -221,7 +221,7 @@ Be surgical and data-driven. If you can't verify a claim from the data provided,
 
 function buildOpusValidationPrompt(adjustedFormula, competitors, grokDraft, keyword) {
   // Build a compact competitor reference for verification
-  const compRef = competitors.slice(0, 20).map(c => {
+  const compRef = competitors.slice(0, 50).map(c => {
     const sf = (c.supplement_facts_raw || '').slice(0, 400);
     return `[${c.asin}] ${c.brand}: ${sf || 'No OCR data'}`;
   }).join('\n');
@@ -354,7 +354,7 @@ async function run() {
     .eq('category_id', CAT_ID)
     .not('bsr_current', 'is', null)
     .order('bsr_current', { ascending: true })
-    .limit(40);
+    .limit(50);
 
   const withFormula = (allProducts || []).filter(p => p.nutrients_count > 0 || p.supplement_facts_raw);
   const withoutFormula = (allProducts || []).filter(p => !p.nutrients_count && !p.supplement_facts_raw);
