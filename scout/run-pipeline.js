@@ -280,7 +280,7 @@ async function checkPhaseStatus(phaseNum, categoryId) {
     case 11: {
       // P11 = Competitive Formula Benchmarking (phase10-competitive-benchmarking.js)
       const { data: fb } = await DASH.from('formula_briefs').select('ingredients').eq('category_id', categoryId).single();
-      const hasBenchmarking = !!(fb?.ingredients?.competitive_benchmarking?.grok_draft);
+      const hasBenchmarking = !!(fb?.ingredients?.competitive_benchmarking?.sonnet_draft);
       return { done: hasBenchmarking, count: hasBenchmarking ? 1 : 0, total: 1, msg: hasBenchmarking ? 'Competitive benchmarking exists' : 'Benchmarking not run yet' };
     }
     case 12: {
@@ -392,7 +392,7 @@ async function runFinalVerifier(categoryId) {
   const p7 = !!(fb?.ingredients?.market_intelligence?.ai_market_analysis);
   const p9 = !!(fb?.ingredients?.ai_generated_brief);
   const p10 = !!(fb?.ingredients?.qa_report);
-  const p11 = !!(fb?.ingredients?.competitive_benchmarking?.grok_draft);
+  const p11 = !!(fb?.ingredients?.competitive_benchmarking?.sonnet_draft);
   const p12 = !!(fb?.ingredients?.fda_compliance?.opus_analysis);
 
   const failures = [];

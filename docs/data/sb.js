@@ -1,5 +1,6 @@
 // Dovive Supabase Configuration
 // Powered by Scout
+// DOVIVE instance: keywords, products, reviews, OCR, reports
 window.DOVIVE_SB = {
   url: 'https://fhfqjcvwcxizbioftvdw.supabase.co',
   anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZoZnFqY3Z3Y3hpemJpb2Z0dmR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNTcxMzgsImV4cCI6MjA4NzkzMzEzOH0.g8K40DjhvxE7u4JdHICqKc1dMxS4eZdMhfA11M8ZMBc'
@@ -74,4 +75,31 @@ window.sbDelete = async function(table, filter) {
   });
   if (!res.ok) throw new Error(`Supabase delete error: ${res.status}`);
   return true;
+};
+
+// ─── DASH Supabase (pipeline data: formula_briefs, categories, products) ───────
+window.DASH_SB = {
+  url: 'https://jwkitkfufigldpldqtbq.supabase.co',
+  anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3a2l0a2Z1ZmlnbGRwbGRxdGJxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTA0NTY0NSwiZXhwIjoyMDc2NjIxNjQ1fQ.FjLFaMPE4VO5vVwFEAAvLiub3Xc1hhjsv9fd2jWFIAc'
+};
+
+window.dashFetch = async function(table, options = {}) {
+  const { url, anonKey } = window.DASH_SB;
+  const { select = '*', filter = '', order = '', limit = '', single = false } = options;
+
+  let endpoint = `${url}/rest/v1/${table}?select=${encodeURIComponent(select)}`;
+  if (filter) endpoint += `&${filter}`;
+  if (order) endpoint += `&order=${order}`;
+  if (limit) endpoint += `&limit=${limit}`;
+
+  const headers = {
+    'apikey': anonKey,
+    'Authorization': `Bearer ${anonKey}`,
+    'Content-Type': 'application/json'
+  };
+  if (single) headers['Accept'] = 'application/vnd.pgrst.object+json';
+
+  const res = await fetch(endpoint, { headers });
+  if (!res.ok) throw new Error(`DASH error: ${res.status}`);
+  return res.json();
 };

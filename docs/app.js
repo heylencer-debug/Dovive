@@ -2969,6 +2969,11 @@
         pageSubtitle.textContent = 'Competitive intelligence across all keywords — Phase 6';
         renderMarketAnalysisPage();
         break;
+      case 'formula':
+        pageTitle.textContent = 'Formula';
+        pageSubtitle.textContent = 'Final formula with FDA compliance & competitive benchmarking';
+        renderFormulaPage();
+        break;
     }
 
     currentView = view;
@@ -4220,6 +4225,230 @@
         </div>
       </div>
     `;
+  }
+
+  // ============================================================
+  // FORMULA PAGE (P11 + P12 — DASH Supabase)
+  // ============================================================
+
+  let formulaPageKeyword = null;
+
+  async function renderFormulaPage() {
+    const container = document.getElementById('formula-page-container');
+    if (!container) return;
+    container.innerHTML = '<div class="ma-loading">⏳ Loading formula data...</div>';
+
+    try {
+      // Load categories from DASH
+      const categories = await dashFetch('categories', { select: 'id,keyword', order: 'keyword.asc', limit: 100 });
+      if (!categories || categories.length === 0) {
+        container.innerHTML = `<div class="ai-report-card empty">
+          <div style="font-size:32px;margin-bottom:12px;">🧪</div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:8px;">No categories found in DASH</div>
+          <div style="font-size:13px;">Run the pipeline first to generate formula data.</div>
+        </div>`;
+        return;
+      }
+
+      // Select current keyword (default to first)
+      if (!formulaPageKeyword || !categories.find(c => c.keyword === formulaPageKeyword)) {
+        formulaPageKeyword = categories[0].keyword;
+      }
+
+      await renderFormulaForKeyword(container, categories, formulaPageKeyword);
+
+    } catch (err) {
+      container.innerHTML = `<div class="ai-report-card empty">
+        <div style="font-size:32px;margin-bottom:12px;">⚠️</div>
+        <div style="font-size:14px;font-weight:600;margin-bottom:8px;">Error loading formula</div>
+        <div style="font-size:13px;">${escapeHtml(err.message)}</div>
+      </div>`;
+    }
+  }
+
+  async function renderFormulaForKeyword(container, categories, keyword) {
+    const cat = categories.find(c => c.keyword === keyword);
+    if (!cat) return;
+
+    container.innerHTML = '<div class="ma-loading">⏳ Loading formula...</div>';
+
+    // Fetch formula_briefs for this category
+    const briefs = await dashFetch('formula_briefs', {
+      select: 'id,ingredients,created_at,updated_at',
+      filter: `category_id=eq.${cat.id}`,
+      single: false,
+      limit: 1
+    });
+    const brief = briefs?.[0];
+    const ing = brief?.ingredients || {};
+
+    // ── Keyword selector ──────────────────────────────────────
+    const kwOptions = categories.map(c =>
+      `<option value="${escapeHtml(c.keyword)}" ${c.keyword === keyword ? 'selected' : ''}>${escapeHtml(c.keyword)}</option>`
+    ).join('');
+
+    // ── Formula data ──────────────────────────────────────────
+    const adjustedFormula = ing.adjusted_formula || null;
+    const finalBrief      = ing.final_formula_brief || null;
+    const qa              = ing.qa_report || null;
+    const benchmarking    = ing.competitive_benchmarking || null;
+    const fda             = ing.fda_compliance || null;
+
+    const hasFormula = adjustedFormula || finalBrief;
+
+    // ── P11 summary ───────────────────────────────────────────
+    const p11Score  = benchmarking?.formula_score ?? null;
+    const p11Result = benchmarking?.validation_result || null;
+    const p11Date   = benchmarking?.generated_at ? new Date(benchmarking.generated_at).toLocaleDateString() : null;
+
+    // ── P12 summary ───────────────────────────────────────────
+    const p12Score  = fda?.compliance_score ?? null;
+    const p12Status = fda?.compliance_status || null;
+    const p12Date   = fda?.generated_at ? new Date(fda.generated_at).toLocaleDateString() : null;
+
+    // ── Score badge colors ────────────────────────────────────
+    const p11Color = p11Score >= 8 ? '#16a34a' : p11Score >= 6 ? '#d97706' : '#dc2626';
+    const p12Color = p12Score >= 80 ? '#16a34a' : p12Score >= 60 ? '#d97706' : '#dc2626';
+
+    container.innerHTML = `
+      <!-- Keyword selector bar -->
+      <div class="ma-keyword-bar" style="margin-bottom:24px;">
+        <span class="ma-keyword-label">Formula for:</span>
+        <select class="ma-keyword-select" id="formula-keyword-select">
+          ${kwOptions}
+        </select>
+      </div>
+
+      ${!hasFormula ? `
+        <div class="ai-report-card empty">
+          <div style="font-size:32px;margin-bottom:12px;">🧪</div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:8px;">No formula found for "${escapeHtml(keyword)}"</div>
+          <div style="font-size:13px;">Run the pipeline through P10 to generate a formula, then run P11 and P12.</div>
+        </div>
+      ` : `
+        <!-- Status bar -->
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px;">
+          <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px 24px;flex:1;min-width:200px;">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#64748b;margin-bottom:6px;">P11 Competitiveness</div>
+            ${p11Score !== null
+              ? `<div style="font-size:28px;font-weight:800;color:${p11Color};">${p11Score}/10</div>
+                 <div style="font-size:12px;color:#64748b;margin-top:2px;">${escapeHtml(p11Result || '')} · ${p11Date || ''}</div>`
+              : `<div style="font-size:13px;color:#94a3b8;">Not run yet</div>`
+            }
+          </div>
+          <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px 24px;flex:1;min-width:200px;">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#64748b;margin-bottom:6px;">P12 FDA Compliance</div>
+            ${p12Score !== null
+              ? `<div style="font-size:28px;font-weight:800;color:${p12Color};">${p12Score}/100</div>
+                 <div style="font-size:12px;color:#64748b;margin-top:2px;">${escapeHtml(p12Status || '')} · ${p12Date || ''}</div>`
+              : `<div style="font-size:13px;color:#94a3b8;">Not run yet</div>`
+            }
+          </div>
+          <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px 24px;display:flex;align-items:center;">
+            <button id="formula-download-btn" style="background:#2563eb;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">
+              ⬇ Download Formula (.md)
+            </button>
+          </div>
+        </div>
+
+        <!-- Final Formula Brief -->
+        ${finalBrief ? `
+          <div class="card" style="margin-bottom:20px;">
+            <div class="card-header"><span class="label">📋 FINAL FORMULA BRIEF</span></div>
+            <div style="padding:16px;font-size:13px;line-height:1.7;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;max-height:400px;overflow-y:auto;background:#f8fafc;border-radius:8px;">${escapeHtml(finalBrief)}</div>
+          </div>
+        ` : ''}
+
+        <!-- Adjusted Formula Table -->
+        ${adjustedFormula ? `
+          <div class="card" style="margin-bottom:20px;">
+            <div class="card-header"><span class="label">🔬 ADJUSTED FORMULA (P10 QA)</span></div>
+            <div style="padding:16px;font-size:12px;line-height:1.7;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;max-height:500px;overflow-y:auto;background:#f8fafc;border-radius:8px;">${escapeHtml(adjustedFormula)}</div>
+          </div>
+        ` : ''}
+
+        <!-- P11 Benchmarking Summary -->
+        ${benchmarking?.opus_validation ? `
+          <div class="card" style="margin-bottom:20px;">
+            <div class="card-header">
+              <span class="label">📊 P11 COMPETITIVE BENCHMARKING</span>
+              ${p11Score !== null ? `<span class="badge" style="background:${p11Color};color:#fff;">${p11Score}/10 · ${escapeHtml(p11Result || '')}</span>` : ''}
+            </div>
+            <div style="padding:16px;font-size:12px;line-height:1.7;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;max-height:500px;overflow-y:auto;background:#f8fafc;border-radius:8px;">${escapeHtml(benchmarking.opus_validation)}</div>
+          </div>
+        ` : ''}
+
+        <!-- P12 FDA Compliance Summary -->
+        ${fda?.opus_analysis ? `
+          <div class="card" style="margin-bottom:20px;">
+            <div class="card-header">
+              <span class="label">⚖️ P12 FDA COMPLIANCE</span>
+              ${p12Score !== null ? `<span class="badge" style="background:${p12Color};color:#fff;">${p12Score}/100 · ${escapeHtml(p12Status || '')}</span>` : ''}
+            </div>
+            <div style="padding:16px;font-size:12px;line-height:1.7;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;max-height:500px;overflow-y:auto;background:#f8fafc;border-radius:8px;">${escapeHtml(fda.opus_analysis)}</div>
+          </div>
+        ` : ''}
+      `}
+    `;
+
+    // ── Keyword select handler ─────────────────────────────────
+    const kwSelect = document.getElementById('formula-keyword-select');
+    if (kwSelect) {
+      kwSelect.addEventListener('change', async () => {
+        formulaPageKeyword = kwSelect.value;
+        await renderFormulaForKeyword(container, categories, formulaPageKeyword);
+      });
+    }
+
+    // ── Download handler ──────────────────────────────────────
+    const dlBtn = document.getElementById('formula-download-btn');
+    if (dlBtn && hasFormula) {
+      dlBtn.addEventListener('click', () => downloadFormula(keyword, ing, p11Score, p11Result, p12Score, p12Status));
+    }
+  }
+
+  function downloadFormula(keyword, ing, p11Score, p11Result, p12Score, p12Status) {
+    const lines = [
+      `# DOVIVE Formula — ${keyword}`,
+      `Generated: ${new Date().toISOString()}`,
+      '',
+      `## Scores`,
+      `- P11 Competitiveness: ${p11Score !== null ? `${p11Score}/10 (${p11Result})` : 'Not run'}`,
+      `- P12 FDA Compliance: ${p12Score !== null ? `${p12Score}/100 (${p12Status})` : 'Not run'}`,
+      '',
+      '---',
+      '',
+    ];
+
+    if (ing.final_formula_brief) {
+      lines.push('## Final Formula Brief', '', ing.final_formula_brief, '', '---', '');
+    }
+    if (ing.adjusted_formula) {
+      lines.push('## Adjusted Formula (P10 QA)', '', ing.adjusted_formula, '', '---', '');
+    }
+    if (ing.competitive_benchmarking?.opus_validation) {
+      lines.push('## P11 Competitive Benchmarking — Claude Opus Validation', '', ing.competitive_benchmarking.opus_validation, '', '---', '');
+    }
+    if (ing.competitive_benchmarking?.sonnet_draft) {
+      lines.push('## P11 Competitive Benchmarking — Claude Sonnet Draft', '', ing.competitive_benchmarking.sonnet_draft, '', '---', '');
+    }
+    if (ing.fda_compliance?.opus_analysis) {
+      lines.push('## P12 FDA Compliance — Claude Opus Analysis', '', ing.fda_compliance.opus_analysis, '', '---', '');
+    }
+    if (ing.fda_compliance?.sonnet_validation) {
+      lines.push('## P12 FDA Compliance — Claude Sonnet Validation', '', ing.fda_compliance.sonnet_validation);
+    }
+
+    const content = lines.join('\n');
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${keyword.replace(/\s+/g, '-').toLowerCase()}-formula.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   // Initialize when DOM is ready

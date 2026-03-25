@@ -7,7 +7,7 @@
  * Anti-hallucination architecture:
  *   1. Fetches actual NIH ODS fact sheets per ingredient at runtime (real UL values)
  *   2. Claude Opus 4.6 (primary) — validates using ONLY fetched data, flags unverifiable claims
- *   3. Grok validates Claude's findings — adversarial cross-check for missed issues
+ *   3. Claude Sonnet 4.6 validates Claude Opus findings — adversarial cross-check for missed issues
  *   4. Every dose limit must cite a fetched URL — "training_data_unverified" if not found
  *   5. No disease claims, only DSHEA-compliant structure/function claims
  *
@@ -100,7 +100,6 @@ const NIH_ODS_MAP = {
 
 // ─── API Helpers ───────────────────────────────────────────────────────────────
 
-function getXaiKey()         { return process.env.XAI_API_KEY || null; }
 function getOpenRouterKey()  { return process.env.OPENROUTER_API_KEY || null; }
 
 async function callClaudeOpus(prompt, maxTokens = 12000) {
@@ -137,26 +136,34 @@ async function callClaudeOpus(prompt, maxTokens = 12000) {
   }
 }
 
-async function callGrok(prompt, maxTokens = 8000) {
-  const key = getXaiKey();
-  if (!key) throw new Error('XAI_API_KEY not set');
+async function callClaudeSonnet(prompt, maxTokens = 8000) {
+  const key = getOpenRouterKey();
+  if (!key) throw new Error('OPENROUTER_API_KEY not set');
   const start = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 300000);
   try {
-    const res = await fetch('https://api.x.ai/v1/chat/completions', {
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST', signal: controller.signal,
-      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+      headers: {
+        'Authorization': `Bearer ${key}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://dovive.com',
+        'X-Title': 'DOVIVE Scout P12 FDA Compliance',
+      },
       body: JSON.stringify({
-        model: 'grok-4-1-fast-non-reasoning',
+        model: 'anthropic/claude-sonnet-4-6',
         max_tokens: maxTokens,
         messages: [{ role: 'user', content: prompt }],
       }),
     });
-    const j = await res.json();
-    if (j.error) throw new Error(`Grok error: ${j.error.message}`);
+    const raw = await res.text();
+    let j;
+    try { j = JSON.parse(raw); } catch { throw new Error(`Bad JSON from OpenRouter: ${raw.slice(0, 200)}`); }
+    if (j.error) throw new Error(`Claude Sonnet error: ${j.error.message || JSON.stringify(j.error)}`);
+    if (j.usage) console.log(`  Tokens: ${j.usage.prompt_tokens}→${j.usage.completion_tokens}`);
     const output = j.choices?.[0]?.message?.content || null;
-    console.log(`  ✅ Grok done (${Math.round((Date.now()-start)/1000)}s, ${Math.round((output?.length||0)/1000)}k chars)`);
+    console.log(`  ✅ Claude Sonnet done (${Math.round((Date.now()-start)/1000)}s, ${Math.round((output?.length||0)/1000)}k chars)`);
     return output;
   } finally {
     clearTimeout(timeout);
@@ -375,9 +382,9 @@ List every item where you wrote REGULATORY_UNCERTAIN and explain:
 [If none: "✅ No uncertain regulatory classifications in this formula"]`;
 }
 
-// ─── Build Grok Validation Prompt ─────────────────────────────────────────────
+// ─── Build Sonnet Validation Prompt ───────────────────────────────────────────
 
-function buildGrokValidationPrompt(adjustedFormula, nihData, opusAnalysis, keyword) {
+function buildSonnetValidationPrompt(adjustedFormula, nihData, opusAnalysis, keyword) {
   const nihSummary = Object.entries(nihData)
     .filter(([, d]) => d.status === 'ok')
     .map(([name, d]) => `${name}: ${d.url} — data available`)
@@ -527,40 +534,40 @@ async function run() {
   console.log(`  Prompt: ${Math.round(opusPrompt.length / 1000)}k chars`);
   const opusAnalysis = await callClaudeOpus(opusPrompt, 10000);
 
-  // ── Call 2: Grok validation ────────────────────────────────────────────────
-  console.log(`\nCall 2: Grok validating Claude Opus findings...`);
-  const grokPrompt = buildGrokValidationPrompt(adjustedFormula, nihData, opusAnalysis, KEYWORD);
-  console.log(`  Prompt: ${Math.round(grokPrompt.length / 1000)}k chars`);
-  const grokValidation = await callGrok(grokPrompt, 6000);
+  // ── Call 2: Claude Sonnet validation ──────────────────────────────────────
+  console.log(`\nCall 2: Claude Sonnet 4.6 validating Claude Opus findings...`);
+  const sonnetPrompt = buildSonnetValidationPrompt(adjustedFormula, nihData, opusAnalysis, KEYWORD);
+  console.log(`  Prompt: ${Math.round(sonnetPrompt.length / 1000)}k chars`);
+  const sonnetValidation = await callClaudeSonnet(sonnetPrompt, 6000);
 
   // ── Parse results ──────────────────────────────────────────────────────────
   const complianceScore  = parseComplianceScore(opusAnalysis);
   const complianceStatus = parseComplianceStatus(opusAnalysis);
-  const validationMatch  = grokValidation?.match(/Overall validation\s*[|│]\s*(PASS WITH MINOR CORRECTIONS|PASS|FAIL)/i);
+  const validationMatch  = sonnetValidation?.match(/Overall validation\s*[|│]\s*(PASS WITH MINOR CORRECTIONS|PASS|FAIL)/i);
   let validationResult   = validationMatch?.[1]?.trim();
   if (!validationResult) {
     // Fallback: scan text
-    if (/PASS WITH MINOR CORRECTIONS/i.test(grokValidation)) validationResult = 'PASS WITH MINOR CORRECTIONS';
-    else if (/VALIDATION PASS|FINAL.*?PASS/i.test(grokValidation)) validationResult = 'PASS';
-    else if (/FAIL/i.test(grokValidation)) validationResult = 'FAIL';
+    if (/PASS WITH MINOR CORRECTIONS/i.test(sonnetValidation)) validationResult = 'PASS WITH MINOR CORRECTIONS';
+    else if (/VALIDATION PASS|FINAL.*?PASS/i.test(sonnetValidation)) validationResult = 'PASS';
+    else if (/FAIL/i.test(sonnetValidation)) validationResult = 'FAIL';
     else validationResult = 'UNKNOWN';
   }
   console.log(`\nCompliance score: ${complianceScore}/100`);
   console.log(`Compliance status: ${complianceStatus}`);
-  console.log(`Grok validation: ${validationResult}`);
+  console.log(`Sonnet validation: ${validationResult}`);
 
   // ── Save to formula_briefs ────────────────────────────────────────────────
   console.log(`\nSaving to Supabase...`);
   const complianceData = {
     opus_analysis: opusAnalysis,
-    grok_validation: grokValidation,
+    sonnet_validation: sonnetValidation,
     compliance_score: complianceScore,
     compliance_status: complianceStatus,
     validation_result: validationResult,
     nih_coverage: { fetched: nihHits, no_page: nihMiss, failed: nihFail, total: ingredientNames.length },
     ingredients_reviewed: ingredientNames,
     generated_at: new Date().toISOString(),
-    models_used: { primary: 'anthropic/claude-opus-4-6', validation: 'grok-4-1-fast-non-reasoning' },
+    models_used: { primary: 'anthropic/claude-opus-4-6', validation: 'anthropic/claude-sonnet-4-6' },
     data_sources: Object.fromEntries(
       Object.entries(nihData).filter(([,d]) => d.url).map(([name, d]) => [name, d.url])
     ),
@@ -590,7 +597,7 @@ async function run() {
     `# P12 FDA Compliance Review — ${KEYWORD}`,
     `Generated: ${new Date().toISOString()}`,
     `Compliance score: ${complianceScore}/100 | Status: ${complianceStatus}`,
-    `Grok validation: ${validationResult}`,
+    `Sonnet validation: ${validationResult}`,
     `NIH data sources: ${nihHits} fetched live`,
     ``,
     `## NIH DATA SOURCES USED`,
@@ -603,8 +610,8 @@ async function run() {
     ``,
     `---`,
     ``,
-    `## GROK — VALIDATION REPORT`,
-    grokValidation || 'Not available',
+    `## CLAUDE SONNET 4.6 — VALIDATION REPORT`,
+    sonnetValidation || 'Not available',
   ].join('\n');
 
   try {
@@ -629,7 +636,7 @@ async function run() {
   console.log(`P12 COMPLETE`);
   console.log(`Compliance score: ${complianceScore}/100`);
   console.log(`Status: ${complianceStatus}`);
-  console.log(`Grok validation: ${validationResult}`);
+  console.log(`Sonnet validation: ${validationResult}`);
   console.log(`NIH sources used: ${nihHits} live-fetched URLs`);
   if (hasCritical) console.log(`⚠ Critical issues found — review before launch`);
   console.log(`${'═'.repeat(62)}\n`);

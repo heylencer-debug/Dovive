@@ -6,7 +6,7 @@
  *
  * Anti-hallucination architecture:
  *   1. All competitor data from DB (P4 OCR — real scraped formulas, not AI memory)
- *   2. Grok drafts the benchmarking analysis grounded in provided data
+ *   2. Claude Sonnet 4.6 drafts the benchmarking analysis grounded in provided data
  *   3. Claude Opus 4.6 validates/critiques — finds unsupported claims, wrong doses
  *   4. Every comparison backed by actual OCR text from DB; unverifiable = flagged
  *   5. Structured output with mandatory evidence fields
@@ -38,29 +38,36 @@ const FORCE = process.argv.includes('--force');
 
 // ─── API Helpers ───────────────────────────────────────────────────────────────
 
-function getXaiKey()          { return process.env.XAI_API_KEY || null; }
 function getOpenRouterKey()   { return process.env.OPENROUTER_API_KEY || null; }
 
-async function callGrok(prompt, maxTokens = 12000) {
-  const key = getXaiKey();
-  if (!key) throw new Error('XAI_API_KEY not set');
+async function callClaudeSonnet(prompt, maxTokens = 12000) {
+  const key = getOpenRouterKey();
+  if (!key) throw new Error('OPENROUTER_API_KEY not set');
   const start = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 300000);
   try {
-    const res = await fetch('https://api.x.ai/v1/chat/completions', {
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST', signal: controller.signal,
-      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+      headers: {
+        'Authorization': `Bearer ${key}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://dovive.com',
+        'X-Title': 'DOVIVE Scout P11 Benchmarking',
+      },
       body: JSON.stringify({
-        model: 'grok-4-1-fast-non-reasoning',
+        model: 'anthropic/claude-sonnet-4-6',
         max_tokens: maxTokens,
         messages: [{ role: 'user', content: prompt }],
       }),
     });
-    const j = await res.json();
-    if (j.error) throw new Error(`Grok error: ${j.error.message}`);
+    const raw = await res.text();
+    let j;
+    try { j = JSON.parse(raw); } catch { throw new Error(`Bad JSON from OpenRouter: ${raw.slice(0, 200)}`); }
+    if (j.error) throw new Error(`Claude Sonnet error: ${j.error.message || JSON.stringify(j.error)}`);
+    if (j.usage) console.log(`  Tokens: ${j.usage.prompt_tokens}→${j.usage.completion_tokens}`);
     const output = j.choices?.[0]?.message?.content || null;
-    console.log(`  ✅ Grok done (${Math.round((Date.now()-start)/1000)}s, ${Math.round((output?.length||0)/1000)}k chars)`);
+    console.log(`  ✅ Claude Sonnet done (${Math.round((Date.now()-start)/1000)}s, ${Math.round((output?.length||0)/1000)}k chars)`);
     return output;
   } finally {
     clearTimeout(timeout);
@@ -101,9 +108,9 @@ async function callClaudeOpus(prompt, maxTokens = 12000) {
   }
 }
 
-// ─── Build Grok Draft Prompt ───────────────────────────────────────────────────
+// ─── Build Sonnet Draft Prompt ─────────────────────────────────────────────────
 
-function buildGrokDraftPrompt(adjustedFormula, competitors, keyword) {
+function buildSonnetDraftPrompt(adjustedFormula, competitors, keyword) {
   const compSection = competitors.map((c, i) => {
     const nutrients = c.all_nutrients
       ? (typeof c.all_nutrients === 'string' ? c.all_nutrients : JSON.stringify(c.all_nutrients, null, 2))
@@ -147,7 +154,7 @@ Produce this exact structure:
 
 # P11 COMPETITIVE FORMULA BENCHMARKING — ${keyword.toUpperCase()}
 *Data source: P4 OCR extraction + P10 adjusted formula*
-*Benchmarking model: Grok (draft) — to be validated by Claude Opus 4.6*
+*Benchmarking model: Claude Sonnet 4.6 (draft) — to be validated by Claude Opus 4.6*
 
 ## EXECUTIVE SUMMARY
 | Metric | Value |
@@ -245,7 +252,7 @@ ${grokDraft && grokDraft.length > 8000 ? '\n[Draft continues — key sections sh
 Produce a validation report in this exact format:
 
 # P11 VALIDATION REPORT — Claude Opus 4.6
-*Reviewing Grok benchmarking draft for ${keyword}*
+*Reviewing Claude Sonnet 4.6 benchmarking draft for ${keyword}*
 
 ## VALIDATION SUMMARY
 | | Count |
@@ -269,11 +276,11 @@ Produce a validation report in this exact format:
 [If none: "✅ All claims are supported by provided data."]
 
 ## CONFIRMED NEEDS_VERIFICATION ITEMS
-(Items Grok correctly flagged as unverifiable)
+(Items Claude Sonnet correctly flagged as unverifiable)
 [List each — confirm they are indeed unverifiable from provided data]
 
-## ADDITIONAL GAPS GROK MISSED
-(Competitor advantages or DOVIVE weaknesses that Grok didn't flag)
+## ADDITIONAL GAPS SONNET MISSED
+(Competitor advantages or DOVIVE weaknesses that Claude Sonnet didn't flag)
 [Be specific — cite ASIN and dose]
 
 ## VALIDATED ADVANTAGES
@@ -361,20 +368,20 @@ async function run() {
     return;
   }
 
-  // ── Call 1: Grok drafts the benchmarking ──────────────────────────────────
-  console.log(`\nCall 1: Grok drafting ingredient comparison (${withFormula.length} competitors with OCR data)...`);
-  const grokPrompt = buildGrokDraftPrompt(adjustedFormula, withFormula, KEYWORD);
-  console.log(`  Prompt: ${Math.round(grokPrompt.length / 1000)}k chars`);
-  const grokDraft = await callGrok(grokPrompt, 10000);
+  // ── Call 1: Claude Sonnet drafts the benchmarking ─────────────────────────
+  console.log(`\nCall 1: Claude Sonnet 4.6 drafting ingredient comparison (${withFormula.length} competitors with OCR data)...`);
+  const sonnetPrompt = buildSonnetDraftPrompt(adjustedFormula, withFormula, KEYWORD);
+  console.log(`  Prompt: ${Math.round(sonnetPrompt.length / 1000)}k chars`);
+  const sonnetDraft = await callClaudeSonnet(sonnetPrompt, 10000);
 
   // ── Call 2: Claude Opus validates ─────────────────────────────────────────
-  console.log(`\nCall 2: Claude Opus 4.6 validating Grok's analysis...`);
-  const opusPrompt = buildOpusValidationPrompt(adjustedFormula, withFormula, grokDraft, KEYWORD);
+  console.log(`\nCall 2: Claude Opus 4.6 validating Sonnet's analysis...`);
+  const opusPrompt = buildOpusValidationPrompt(adjustedFormula, withFormula, sonnetDraft, KEYWORD);
   console.log(`  Prompt: ${Math.round(opusPrompt.length / 1000)}k chars`);
   const opusValidation = await callClaudeOpus(opusPrompt, 8000);
 
   // ── Parse scores ──────────────────────────────────────────────────────────
-  const formulaScore = parseScore(grokDraft);
+  const formulaScore = parseScore(sonnetDraft);
   const validationPassMatch = opusValidation?.match(/Overall validation result.*?(PASS WITH CORRECTIONS|PASS|FAIL)/i);
   const validationResult = validationPassMatch?.[1]?.trim() || 'UNKNOWN';
   console.log(`\nFormula competitiveness score: ${formulaScore}/10`);
@@ -383,14 +390,14 @@ async function run() {
   // ── Save to formula_briefs ────────────────────────────────────────────────
   console.log(`\nSaving to Supabase...`);
   const benchmarkingData = {
-    grok_draft: grokDraft,
+    sonnet_draft: sonnetDraft,
     opus_validation: opusValidation,
     formula_score: formulaScore,
     validation_result: validationResult,
     competitors_with_formula: withFormula.length,
     competitors_without_formula: withoutFormula.length,
     generated_at: new Date().toISOString(),
-    models_used: { draft: 'grok-4-1-fast-non-reasoning', validation: 'anthropic/claude-opus-4-6' },
+    models_used: { draft: 'anthropic/claude-sonnet-4-6', validation: 'anthropic/claude-opus-4-6' },
   };
 
   const updatedIngredients = {
@@ -416,12 +423,12 @@ async function run() {
       `Generated: ${new Date().toISOString()}`,
       `Formula score: ${formulaScore}/10 | Validation: ${validationResult}`,
       `Competitors with formula data: ${withFormula.length} | Without: ${withoutFormula.length}`,
-      `Models: Grok 4.1 (draft) + Claude Opus 4.6 (validation)`,
+      `Models: Claude Sonnet 4.6 (draft) + Claude Opus 4.6 (validation)`,
       ``,
       `---`,
       ``,
-      `## GROK DRAFT`,
-      grokDraft || 'Not available',
+      `## CLAUDE SONNET 4.6 DRAFT`,
+      sonnetDraft || 'Not available',
       ``,
       `---`,
       ``,
