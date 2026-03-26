@@ -152,6 +152,43 @@ ${competitorSection}
 
 ---
 
+## HARD ENFORCEMENT RULES (apply when writing the FINAL FORMULA BRIEF — no exceptions)
+
+These override both Formula A and Formula B if either violates them. Do not just flag violations in the QA section — **correct them in the FINAL FORMULA BRIEF itself**.
+
+### 1. CLINICAL DOSE FLOORS & CEILINGS
+| Ingredient | Rule |
+|---|---|
+| Biotin | MAX 5,000 mcg. 10,000 mcg has no additional clinical benefit for healthy users — pure trend-chasing. If either AI proposed 10k, correct to 5,000 mcg in the final formula. |
+| Hyaluronic Acid | MIN 40 mg/serving. Below 40 mg has no evidence for skin hydration. If either AI proposed <40 mg, raise to 40 mg. |
+| Vitamin D3 | 1,000–2,000 IU typical. Flag and justify anything above 2,000 IU. |
+| Zinc | 8–15 mg elemental. Above 25 mg approaches UL — requires explicit justification. |
+| Any ingredient | If a dose is below the minimum clinically studied amount for its stated function, REMOVE it or raise it. Do not preserve underdosed label-dressing ingredients. |
+
+### 2. FORM HIERARCHY (always correct to the superior bioavailable form)
+| Ingredient | Required Form | Reject |
+|---|---|---|
+| Folate | L-5-MTHF (methylfolate / Quatrefolic®) | Folic acid — ~40% of people cannot convert it efficiently |
+| Vitamin A | Beta-carotene | Retinyl palmitate — preformed A has long-term toxicity risk |
+| Magnesium | Glycinate, bisglycinate, or malate | Oxide — poor absorption |
+| Zinc | Bisglycinate, picolinate, or gluconate | Sulfate or oxide |
+| B12 | Methylcobalamin | Cyanocobalamin |
+| Any mineral | Chelated (amino acid chelate) preferred | Inorganic salts |
+
+If either AI used an inferior form, the FINAL FORMULA BRIEF MUST use the superior form. Document the correction in CRITICAL ISSUES.
+
+### 3. LEAN FORMULA PRINCIPLE
+- Target: **8–10 active ingredients**. Maximum 12 only if every ingredient above 10 has a distinct, non-redundant clinical role with a meaningful dose.
+- Every ingredient must pass all three: (a) dose is at or above clinical minimum, (b) function is not duplicated by another ingredient already at an effective dose, (c) it is not included for label optics.
+- If either AI produced >12 actives, remove the weakest first: lowest dose relative to clinical floor, most redundant function.
+- A leaner formula at clinical doses is ALWAYS stronger than a kitchen-sink formula with diluted amounts.
+
+### 4. PAIN POINTS VIA EXCIPIENTS ONLY
+- Taste, texture, and stomach complaints must be solved via the excipient/manufacturing system — NOT by adding more actives.
+- Never add an active ingredient to solve a problem that is a formulation or manufacturing issue.
+
+---
+
 ## YOUR DELIVERABLE â€" produce this exact markdown structure:
 
 # P9 FORMULA QA REPORT â€" ${keyword.toUpperCase()}
