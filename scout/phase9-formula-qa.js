@@ -877,7 +877,7 @@ async function run() {
   // â"€â"€ Call Grok â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   console.log(`Calling Claude Sonnet 4.6 via OpenRouter (QA adjudicator)...`);
   const startTime = Date.now();
-  const qaReport = await callClaudeSonnetQA(prompt, 8000);
+  const qaReport = await callClaudeSonnetQA(prompt, 16000);
   const elapsed = Math.round((Date.now() - startTime) / 1000);
   console.log(`  âœ… Done (${elapsed}s, ${Math.round(qaReport.length / 1000)}k chars)\n`);
 
