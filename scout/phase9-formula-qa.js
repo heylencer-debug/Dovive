@@ -174,7 +174,14 @@ For each active ingredient, identify whether a superior bioavailable form exists
 - If either AI produced more than 12 actives, remove the weakest first: lowest dose relative to clinical floor, most redundant function
 - A lean formula at clinical doses always outperforms a kitchen-sink formula with diluted amounts
 
-### 4. PAIN POINTS VIA EXCIPIENTS ONLY
+### 4. CLINICAL CITATION CHECK
+For each active ingredient in the FINAL FORMULA BRIEF:
+- Verify a human clinical study exists at or near the proposed dose for the stated function
+- If either AI cited a study, check that the dose and population match the claim
+- If no human RCT exists at the proposed dose, flag it in WARNINGS and either justify with mechanistic evidence or reduce to the highest dose with human data
+- An ingredient with no human evidence at its proposed dose must not appear in the final formula without an explicit caveat
+
+### 5. PAIN POINTS VIA EXCIPIENTS ONLY
 - Taste, texture, and tolerability complaints must be solved via the excipient and manufacturing system — NOT by adding more actives
 - Never add an active ingredient to solve a problem that is a formulation or manufacturing issue
 

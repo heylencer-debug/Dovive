@@ -849,19 +849,19 @@ FORMULATION STRATEGY:
 4. STEP 4: SOLVE PAIN POINTS via the EXCIPIENT SYSTEM, not by adding more actives. Taste complaints → flavor/sweetener adjustment. Texture issues → gummy base/coating adjustment. Upset stomach → add with food guidance or switch mineral form.
 
 #### PRIMARY ACTIVE INGREDIENTS:
-| Ingredient | Amount per Serving | Form/Standardization | Function | vs #1 Rationale |
-|------------|-------------------|---------------------|----------|-----------------|
-[EVERY primary active with EXACT mg/mcg/IU - NO abbreviations]
+| Ingredient | Amount per Serving | Form/Standardization | Function | Clinical Evidence | vs #1 Rationale |
+|------------|-------------------|---------------------|----------|-------------------|-----------------|
+[EVERY primary active with EXACT mg/mcg/IU. For Clinical Evidence: cite the specific study (author/year, population size, dose used, outcome measured) that justifies this dose. If no human RCT exists at this dose, say so explicitly.]
 
 #### SECONDARY ACTIVE INGREDIENTS:
-| Ingredient | Amount per Serving | Form/Standardization | Function |
-|------------|-------------------|---------------------|----------|
-[ALL supporting ingredients with exact amounts]
+| Ingredient | Amount per Serving | Form/Standardization | Function | Clinical Evidence |
+|------------|-------------------|---------------------|----------|-------------------|
+[ALL supporting ingredients with exact amounts and study citation per ingredient]
 
 #### TERTIARY ACTIVES (Differentiation):
-| Ingredient | Amount per Serving | Form/Standardization | Function |
-|------------|-------------------|---------------------|----------|
-[Unique ingredients that differentiate from competition]
+| Ingredient | Amount per Serving | Form/Standardization | Function | Clinical Evidence |
+|------------|-------------------|---------------------|----------|-------------------|
+[Unique differentiating ingredients with study citation per ingredient]
 
 #### FUNCTIONAL EXCIPIENTS:
 | Ingredient | Amount per Serving | Function | Grade/Spec |
@@ -881,9 +881,15 @@ FORMULATION STRATEGY:
 
 Form Upgrades vs Competitors: [For each ingredient where we chose a superior form, state: which competitors use the inferior form, which form we chose, and the clinical/bioavailability reason]
 
-Dose Decisions: [For each active, state: competitor dose range, clinical minimum, our chosen dose, and whether we are at/above/below the clinical floor and why]
+Dose Decisions: [For each active, state: competitor dose range, clinical minimum from published research, our chosen dose, and whether we are at/above/below the clinical floor and why]
 
 Removed / Not Included: [List any ingredients common in competitors that we excluded, and why — underdosed, label dressing, redundant function, or exceeds clinical utility]
+
+### Clinical Citations:
+For every active ingredient in the formula, provide the supporting evidence:
+| Ingredient | Dose Used | Key Study | Population | Outcome | Verdict |
+|------------|-----------|-----------|------------|---------|---------|
+[One row per active. Verdict = SUPPORTED / UNDERPOWERED / NO HUMAN RCT — be honest if evidence is weak]
 
 Consumer Pain Point Solutions:
 | Complaint | Frequency | Our Solution |
