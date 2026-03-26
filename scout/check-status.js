@@ -1,88 +1,31 @@
-const https = require('https');
+require('dotenv').config({ path: '/tmp/Dovive/scout/.env' });
+const { createClient } = require('@supabase/supabase-js');
+const DASH = createClient(
+  'https://jwkitkfufigldpldqtbq.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3a2l0a2Z1ZmlnbGRwbGRxdGJxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTA0NTY0NSwiZXhwIjoyMDc2NjIxNjQ1fQ.FjLFaMPE4VO5vVwFEAAvLiub3Xc1hhjsv9fd2jWFIAc'
+);
 
-const SUPABASE_URL = 'https://fhfqjcvwcxizbioftvdw.supabase.co';
-const SUPABASE_KEY = 'sb_secret_Urw2XKj4d9QUsvcEnQrKBA_TzA_KEnH';
-
-function fetchJson(path) {
-  return new Promise((resolve, reject) => {
-    const url = new URL(path, SUPABASE_URL);
-    const options = {
-      hostname: url.hostname,
-      path: url.pathname + url.search,
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'Prefer': 'count=exact'
-      }
-    };
-    https.get(options, (res) => {
-      let data = '';
-      res.on('data', d => data += d);
-      res.on('end', () => {
-        try { resolve({ body: JSON.parse(data), headers: res.headers }); }
-        catch(e) { resolve({ body: data, headers: res.headers }); }
-      });
-    }).on('error', reject);
-  });
+async function check() {
+  const { data: fb } = await DASH.from('formula_briefs').select('ingredients,updated_at').eq('category_id','2a57f3af-7d9e-4ef0-998f-ce60b3532dc5').single();
+  const ing = (fb && fb.ingredients) || {};
+  const cb  = ing.competitive_benchmarking || {};
+  const fda = ing.fda_compliance || {};
+  const p9  = (ing.ai_generated_brief_grok || '').length > 100 || (ing.ai_generated_brief || '').length > 100;
+  const p10 = (ing.qa_report || '').length > 100;
+  const p11 = (cb.sonnet_draft || cb.grok_draft || '').length > 100;
+  const p12 = (fda.opus_analysis || '').length > 100;
+  const { count: total }   = await DASH.from('products').select('*',{count:'exact',head:true}).eq('category_id','2a57f3af-7d9e-4ef0-998f-ce60b3532dc5');
+  const { count: withOcr } = await DASH.from('products').select('*',{count:'exact',head:true}).eq('category_id','2a57f3af-7d9e-4ef0-998f-ce60b3532dc5').not('supplement_facts_raw','is',null);
+  console.log('══════════════════════════════════════');
+  console.log('  Biotin Gummies — Pipeline Status   ');
+  console.log('══════════════════════════════════════');
+  console.log('  OCR Coverage:  ' + withOcr + '/' + total + ' (' + Math.round(withOcr/total*100) + '%)');
+  console.log('  Last updated:  ' + (fb && fb.updated_at ? new Date(fb.updated_at).toLocaleTimeString() : 'unknown'));
+  console.log('');
+  console.log('  P9  Formula Brief:     ' + (p9  ? 'DONE' : 'pending...'));
+  console.log('  P10 Formula QA:        ' + (p10 ? 'DONE' : 'pending...'));
+  console.log('  P11 Comp Benchmark:    ' + (p11 ? 'DONE' + (cb.formula_score != null ? ' ('+cb.formula_score+'/10)':'') : 'pending...'));
+  console.log('  P12 FDA Compliance:    ' + (p12 ? 'DONE' + (fda.compliance_score != null ? ' ('+fda.compliance_score+'/100 · '+fda.compliance_status+')':'') : 'pending...'));
+  console.log('══════════════════════════════════════');
 }
-
-async function countByKeyword(table) {
-  // Get all rows with keyword field
-  const r = await fetchJson(`/rest/v1/${table}?select=keyword&limit=10000`);
-  const rows = r.body;
-  if (!Array.isArray(rows)) { console.error(`Error fetching ${table}:`, rows); return {}; }
-  const counts = {};
-  let nullCount = 0;
-  for (const row of rows) {
-    const k = row.keyword;
-    if (!k) { nullCount++; continue; }
-    counts[k] = (counts[k] || 0) + 1;
-  }
-  counts['(null/unknown)'] = nullCount;
-  counts['_total'] = rows.length;
-  return counts;
-}
-
-async function main() {
-  console.log('Fetching live Supabase counts...\n');
-  const [p1, p2, p3, p4] = await Promise.all([
-    countByKeyword('dovive_research'),
-    countByKeyword('dovive_keepa'),
-    countByKeyword('dovive_reviews'),
-    countByKeyword('dovive_ocr'),
-  ]);
-
-  console.log('=== P1 (dovive_research) ===');
-  console.log(JSON.stringify(p1, null, 2));
-  console.log('\n=== P2 (dovive_keepa) ===');
-  console.log(JSON.stringify(p2, null, 2));
-  console.log('\n=== P3 (dovive_reviews) ===');
-  console.log(JSON.stringify(p3, null, 2));
-  console.log('\n=== P4 (dovive_ocr) ===');
-  console.log(JSON.stringify(p4, null, 2));
-
-  // Build summary table
-  const allKeywords = new Set([
-    ...Object.keys(p1), ...Object.keys(p2), ...Object.keys(p3), ...Object.keys(p4)
-  ]);
-  allKeywords.delete('(null/unknown)');
-  allKeywords.delete('_total');
-
-  console.log('\n=== SUMMARY TABLE ===');
-  console.log('Keyword | P1 | P2 | P3 | P4 | Status');
-  console.log('--------|----|----|----|----|-------');
-  for (const kw of [...allKeywords].sort()) {
-    const p1c = p1[kw] || 0;
-    const p2c = p2[kw] || 0;
-    const p3c = p3[kw] || 0;
-    const p4c = p4[kw] || 0;
-    const status = p2c === 0 ? 'P2 MISSING' : p3c === 0 ? 'P3 MISSING' : p4c === 0 ? 'P4 MISSING' : 
-                   (p2c < p1c ? 'P2 PARTIAL' : p4c < p1c ? 'P4 PARTIAL' : 'OK');
-    console.log(`${kw} | ${p1c} | ${p2c} | ${p3c} | ${p4c} | ${status}`);
-  }
-
-  console.log('\nTotals: P1=' + p1['_total'] + ' P2=' + p2['_total'] + ' P3=' + p3['_total'] + ' P4=' + p4['_total']);
-  console.log('Null/unknown: P2=' + p2['(null/unknown)'] + ' P3=' + p3['(null/unknown)'] + ' P4=' + p4['(null/unknown)']);
-}
-
-main().catch(console.error);
+check().catch(console.error);

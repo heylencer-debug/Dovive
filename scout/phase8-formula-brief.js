@@ -675,13 +675,17 @@ ${p.other_ingredients || 'Not specified'}
 - P8: Packaging intelligence — color signals, whitespace gaps, differentiation opportunities
 
 
-# MISSION: DECONSTRUCT TOP COMPETITORS' FORMULAS → IDENTIFY MARKET DEMAND → BUILD A BETTER FORMULA
+# MISSION: CLINICALLY DIFFERENTIATE — BUILD A BETTER FORMULA, NOT A COPY
 
 Your job:
 1. Study the exact formulas of the top 20 competitors (OCR-extracted supplement facts below)
-2. Understand what the market wants (P6 market intelligence report below)
-3. Reconstruct what's working in top competitors' formulas
-4. Improve on it based on consumer pain points, market gaps, and emerging ingredient trends
+2. Identify what is clinically suboptimal in competitor formulas: underdosed ingredients, inferior forms, unnecessary filler ingredients
+3. Build a formula that wins on CLINICAL EFFICACY and INGREDIENT QUALITY — not by copying trends
+4. Apply the DIFFERENTIATION HIERARCHY (in order of priority):
+   a. **Superior bioavailable forms**: Use the most bioavailable form of each ingredient (e.g., L-5-MTHF methylated folate instead of folic acid, chelated minerals instead of oxides, beta-carotene instead of retinyl palmitate). ~40% of people carry MTHFR variants — methylated forms are a credible differentiator.
+   b. **Clinically effective doses**: Meet or exceed the minimum clinically studied dose for each active. Do NOT inflate doses beyond clinical utility for marketing optics (e.g., 5,000 mcg biotin is clinically sufficient — 10,000 mcg is trend-chasing with no added benefit).
+   c. **Lean formula principle**: Fewer well-dosed actives beats a kitchen-sink formula. Every ingredient must earn its place. An 8–10 ingredient formula at clinical doses is stronger than a 14-ingredient formula with diluted amounts.
+   d. **Consumer pain point solutions**: Solve taste, texture, or side effect complaints using the excipient system, not by adding more actives.
 5. Output a complete, production-ready CMO formula specification
 
 ---
@@ -826,13 +830,28 @@ Brief overview: Product name, dosage form, target market, key differentiators vs
 ### Master Formula (Per Serving)
 
 FORMULATION STRATEGY:
-1. STEP 1: ANALYZE NEW WINNERS FIRST: Look immediately at the "NEW WINNERS" section above. Use the DETAILED SUPPLEMENT FACTS and PROPRIETARY BLENDS data.
-   * Check Form Factor: Are the New Winners using a different delivery form (e.g., Liquid, Powder, Stick Pack) than the #1 Leader? If YES, COPY THE NEW WINNERS' FORM.
-   * Check Primary Actives & Dosages: Look at the specific milligrams (mg) in the New Winners' "all_nutrients" section. Use these specific dosages.
-2. STEP 2: DEFINE THE BASE:
-   * Scenario A (New Winner Pattern Found): Base the Master Formula primarily on the "New Winner" specifications.
-   * Scenario B (No Distinct Pattern or No New Winners): If the New Winners are just clones of the Leader (or list is empty), then (and only then) use the #1 Market Leader as the base.
-3. STEP 3: SOLVE PAIN POINTS: Finally, modify the base to address the specific consumer complaints listed in the "Consumer Pain Points" section (e.g., fix taste, texture, or side effects).
+1. STEP 1: AUDIT COMPETITOR FORMS — for each active ingredient across all top-20 competitors, record: (a) which form they use, (b) what dose they use. Identify the most common form AND the most bioavailable form. If they differ, default to the most bioavailable form for DOVIVE.
+   * FORM HIERARCHY (always prefer the higher-ranked form):
+     - Folate: L-5-MTHF (methylfolate) > folic acid
+     - Vitamin A: beta-carotene > retinyl palmitate (lower toxicity risk)
+     - Magnesium: glycinate/bisglycinate/malate > citrate > oxide
+     - Zinc: bisglycinate/picolinate/gluconate > sulfate > oxide
+     - Iron: bisglycinate/ferrochel > fumarate > sulfate
+     - B12: methylcobalamin > cyanocobalamin
+     - Any mineral: chelated (amino acid chelate) > inorganic salt
+   * If a New Winner is gaining ground specifically because of a form upgrade (e.g., switching to methylated folate), note it and adopt it.
+2. STEP 2: SET CLINICAL DOSE FLOORS — for each active, identify the minimum clinically effective dose from published research. NEVER go below this floor. If competitors are underdosing, match or exceed the clinical minimum. Do NOT exceed clinical ceiling without a clear reason.
+   * Biotin: 2,500–5,000 mcg is clinically sufficient for hair/nail support. 10,000 mcg is above clinical need — only include if competitors universally use it AND there is no serving-size cost.
+   * Hyaluronic Acid (if included): ≥ 40 mg/day is the minimum studied for skin hydration.
+   * Vitamin D3: 1,000–2,000 IU is typical; 5,000 IU requires justification.
+   * Zinc: 8–15 mg elemental zinc is sufficient; above 40 mg approaches UL.
+   * If a competitor uses a dose that exceeds clinical need just to claim a higher number on the label, DO NOT match that inflation.
+3. STEP 3: APPLY LEAN FORMULA PRINCIPLE — review the full ingredient list. Remove any ingredient that:
+   * Appears at a dose too low to have clinical effect (e.g., 1 mg of an ingredient studied at 100 mg)
+   * Duplicates the function of another ingredient already at an effective dose
+   * Is included only for label aesthetics ("label dressing")
+   Target: 8–12 active ingredients, each at a meaningful dose, over 14+ ingredients at diluted amounts.
+4. STEP 4: SOLVE PAIN POINTS via the EXCIPIENT SYSTEM, not by adding more actives. Taste complaints → flavor/sweetener adjustment. Texture issues → gummy base/coating adjustment. Upset stomach → add with food guidance or switch mineral form.
 
 #### PRIMARY ACTIVE INGREDIENTS:
 | Ingredient | Amount per Serving | Form/Standardization | Function | vs #1 Rationale |
@@ -865,14 +884,16 @@ FORMULATION STRATEGY:
 
 ### Ingredient Selection Rationale:
 
-Matched from #1: [List with reasoning]
+Form Upgrades vs Competitors: [For each ingredient where we chose a superior form, state: which competitors use the inferior form, which form we chose, and the clinical/bioavailability reason]
 
-Improvements based on New Winners: [List upgrades with scientific justification and reference the specific New Winner brand]
+Dose Decisions: [For each active, state: competitor dose range, clinical minimum, our chosen dose, and whether we are at/above/below the clinical floor and why]
+
+Removed / Not Included: [List any ingredients common in competitors that we excluded, and why — underdosed, label dressing, redundant function, or exceeds clinical utility]
 
 Consumer Pain Point Solutions:
 | Complaint | Frequency | Our Solution |
 |-----------|-----------|--------------|
-[Address each major complaint]
+[Address each major complaint via excipient/form/dose — not by adding more actives]
 
 Synergistic Combinations: [Key ingredient pairs that enhance efficacy]
 
