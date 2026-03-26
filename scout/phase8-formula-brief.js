@@ -840,12 +840,7 @@ FORMULATION STRATEGY:
      - B12: methylcobalamin > cyanocobalamin
      - Any mineral: chelated (amino acid chelate) > inorganic salt
    * If a New Winner is gaining ground specifically because of a form upgrade (e.g., switching to methylated folate), note it and adopt it.
-2. STEP 2: SET CLINICAL DOSE FLOORS — for each active, identify the minimum clinically effective dose from published research. NEVER go below this floor. If competitors are underdosing, match or exceed the clinical minimum. Do NOT exceed clinical ceiling without a clear reason.
-   * Biotin: 2,500–5,000 mcg is clinically sufficient for hair/nail support. 10,000 mcg is above clinical need — only include if competitors universally use it AND there is no serving-size cost.
-   * Hyaluronic Acid (if included): ≥ 40 mg/day is the minimum studied for skin hydration.
-   * Vitamin D3: 1,000–2,000 IU is typical; 5,000 IU requires justification.
-   * Zinc: 8–15 mg elemental zinc is sufficient; above 40 mg approaches UL.
-   * If a competitor uses a dose that exceeds clinical need just to claim a higher number on the label, DO NOT match that inflation.
+2. STEP 2: SET CLINICAL DOSE FLOORS — for each active in THIS formula, identify the minimum clinically effective dose from published human research for its stated function. NEVER go below this floor. If competitors are underdosing, match or exceed the clinical minimum. Do NOT exceed the clinical ceiling without a clear reason — if a competitor uses a dose that exceeds clinical need just to claim a higher number on the label, DO NOT match that inflation.
 3. STEP 3: APPLY LEAN FORMULA PRINCIPLE — review the full ingredient list. Remove any ingredient that:
    * Appears at a dose too low to have clinical effect (e.g., 1 mg of an ingredient studied at 100 mg)
    * Duplicates the function of another ingredient already at an effective dose
