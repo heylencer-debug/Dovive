@@ -130,19 +130,17 @@ This is a CRITICAL QA gate. P8 AI may have over-engineered the formula. Be the e
 ## DUAL AI FORMULA PROPOSALS (both to be reviewed and adjudicated)
 
 ### FORMULA A - Grok 4.2 Deep Reasoning (grok-4.20-beta-0309-reasoning)
-${(grokBrief || "Not available").substring(0, 4000)}
-${(grokBrief || "").length > 4000 ? "\n[Grok brief continues - key sections shown above]\n" : ""}
+${grokBrief || "Not available"}
 
 ### FORMULA B - Claude Sonnet 4.6 (anthropic/claude-sonnet-4-6)
 
-${claudeBrief ? claudeBrief.substring(0, 4000) : "Claude Opus brief not available (single-model run)"}
-${claudeBrief && claudeBrief.length > 4000 ? "\n[Claude brief continues - key sections shown above]\n" : ""}
+${claudeBrief || "Claude Sonnet brief not available (single-model run)"}
 
 ---
 
 ## P6 MARKET INTELLIGENCE (category context)
 
-${(marketIntel || 'Not available').substring(0, 3000)}
+${marketIntel || 'Not available'}
 
 ---
 
@@ -523,9 +521,9 @@ Rating: ${c.rating_value} (${c.rating_count} reviews)
 
   // Use full adjusted formula - this is the ANCHOR all analysis must align to
   const adjFormulaSummary = adjustedFormula || 'Not yet generated';
-  const grokSummary = (grokBrief || '').slice(0, 2000);
-  const claudeSummary = (claudeBrief || '').slice(0, 2000);
-  const miSummary = (marketIntel || '').slice(0, 1500);
+  const grokSummary = grokBrief || '';
+  const claudeSummary = claudeBrief || '';
+  const miSummary = marketIntel || '';
 
   return `You are a supplement product analyst and flavor scientist. Generate THREE sections for DOVIVE's ${keyword} product.
 
