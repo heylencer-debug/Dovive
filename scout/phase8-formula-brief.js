@@ -847,6 +847,14 @@ FORMULATION STRATEGY:
    * Is included only for label aesthetics ("label dressing")
    Target: 8–12 active ingredients, each at a meaningful dose, over 14+ ingredients at diluted amounts.
 4. STEP 4: SOLVE PAIN POINTS via the EXCIPIENT SYSTEM, not by adding more actives. Taste complaints → flavor/sweetener adjustment. Texture issues → gummy base/coating adjustment. Upset stomach → add with food guidance or switch mineral form.
+5. STEP 5: MANUFACTURABILITY VALIDATION — before finalizing, run every active through these checks for the chosen dosage form:
+   * **Active load limit**: For gummies, total actives per gummy must stay within 250–350 mg. Divide total actives by servings per serving size. If over limit, reduce serving size count or remove lowest-priority actives.
+   * **Heat-sensitive ingredients**: Flag any ingredient that degrades above 60°C (common in gummy molding). Examples: probiotics, certain enzymes, omega-3s, some methylated vitamins. Recommend encapsulated or cold-process form if needed.
+   * **pH-sensitive ingredients**: Flag ingredients that degrade in acidic gummy matrix (pH 3–4). Examples: iron (oxidation), calcium (precipitation), zinc at high doses. Note required buffering or encapsulation.
+   * **Taste/bitterness threshold**: Flag any ingredient with a known bitter or metallic taste at the proposed dose (e.g., zinc, magnesium, certain herbals). Require masking strategy in excipient system.
+   * **Hygroscopicity**: Flag highly hygroscopic actives that will cause gummy stickiness or clumping (e.g., magnesium chloride, some amino acids). Recommend anhydrous or encapsulated forms.
+   * **Incompatibilities**: Flag known ingredient-ingredient interactions (e.g., calcium blocks iron absorption — separate if both present; fat-soluble vitamins require lipid carrier in gummies).
+   If the dosage form is NOT a gummy, apply the equivalent constraints for that form (capsule fill weight limits, tablet compression issues, powder flowability, etc.).
 
 #### PRIMARY ACTIVE INGREDIENTS:
 | Ingredient | Amount per Serving | Form/Standardization | Function | Clinical Evidence | vs #1 Rationale |
@@ -897,6 +905,16 @@ Consumer Pain Point Solutions:
 [Address each major complaint via excipient/form/dose — not by adding more actives]
 
 Synergistic Combinations: [Key ingredient pairs that enhance efficacy]
+
+### Manufacturability Checklist:
+| Check | Status | Notes |
+|-------|--------|-------|
+| Active load per unit (mg) | PASS / FAIL | [Total actives ÷ units per serving = X mg/unit vs. limit] |
+| Heat-sensitive ingredients | PASS / FLAG | [List any flagged + mitigation] |
+| pH-sensitive ingredients | PASS / FLAG | [List any flagged + mitigation] |
+| Taste/bitterness conflicts | PASS / FLAG | [List any flagged + masking strategy] |
+| Hygroscopic ingredients | PASS / FLAG | [List any flagged + form recommendation] |
+| Ingredient incompatibilities | PASS / FLAG | [List any absorption conflicts + resolution] |
 
 ---
 

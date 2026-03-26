@@ -174,7 +174,16 @@ For each active ingredient, identify whether a superior bioavailable form exists
 - If either AI produced more than 12 actives, remove the weakest first: lowest dose relative to clinical floor, most redundant function
 - A lean formula at clinical doses always outperforms a kitchen-sink formula with diluted amounts
 
-### 4. CLINICAL CITATION CHECK
+### 4. MANUFACTURABILITY GATE
+Before accepting the final formula, validate it against the dosage form constraints:
+- **Active load**: Calculate total actives per unit (e.g., per gummy). If it exceeds the dosage form's physical limit (250–350 mg per gummy), the formula MUST be trimmed — remove or reduce lowest-priority actives until it fits. State the total active load in CRITICAL ISSUES if it fails.
+- **Heat-sensitive ingredients**: Flag any active that degrades during manufacturing of the chosen form. Require encapsulated or heat-stable form in the final spec.
+- **pH interactions**: Flag actives that are unstable in the product matrix pH. Require buffering, encapsulation, or form change.
+- **Taste conflicts**: Flag any active with a known bitter/metallic taste at the proposed dose without a masking solution in the excipient system.
+- **Ingredient incompatibilities**: Flag known absorption antagonists present together (e.g., calcium + iron, zinc + copper at high doses) and either separate into different SKUs or note the conflict.
+If the formula fails any of these checks, correct it in the FINAL FORMULA BRIEF — do not just flag it.
+
+### 5. CLINICAL CITATION CHECK
 For each active ingredient in the FINAL FORMULA BRIEF:
 - Verify a human clinical study exists at or near the proposed dose for the stated function
 - If either AI cited a study, check that the dose and population match the claim
